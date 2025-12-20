@@ -1,0 +1,233 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import { AccountType } from "../types";
+import { getAccountBalances } from "../actions";
+
+interface AccountBalance {
+  accountId: number;
+  accountName: string;
+  groupId: number;
+  groupName: string;
+  groupType: AccountType;
+  balance: number;
+}
+
+function formatSwedishAmount(amount: number): string {
+  return amount.toLocaleString("sv-SE", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function getTypeColor(type: AccountType): string {
+  switch (type) {
+    case "Intäkt":
+      return "text-green-600 dark:text-green-400";
+    case "Utgift":
+      return "text-red-600 dark:text-red-400";
+    case "Tillgång":
+      return "text-blue-600 dark:text-blue-400";
+    case "Skuld":
+      return "text-orange-600 dark:text-orange-400";
+  }
+}
+
+export default function BalansPage() {
+  const now = new Date();
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth() + 1);
+  const [balances, setBalances] = useState<AccountBalance[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadBalances();
+  }, [year, month]);
+
+  async function loadBalances() {
+    setLoading(true);
+    const data = await getAccountBalances(year, month);
+    setBalances(data);
+    setLoading(false);
+  }
+
+  // Group balances by type -> group -> accounts
+  const grouped = balances.reduce((acc, balance) => {
+    if (!acc[balance.groupType]) {
+      acc[balance.groupType] = {};
+    }
+    if (!acc[balance.groupType][balance.groupName]) {
+      acc[balance.groupType][balance.groupName] = [];
+    }
+    acc[balance.groupType][balance.groupName].push(balance);
+    return acc;
+  }, {} as Record<AccountType, Record<string, AccountBalance[]>>);
+
+  // Calculate totals
+  const typeTotals: Record<AccountType, number> = {
+    Intäkt: 0,
+    Utgift: 0,
+    Tillgång: 0,
+    Skuld: 0,
+  };
+
+  balances.forEach((balance) => {
+    typeTotals[balance.groupType] += balance.balance;
+  });
+
+  const groupTotals: Record<string, number> = {};
+  balances.forEach((balance) => {
+    const key = `${balance.groupType}-${balance.groupName}`;
+    if (!groupTotals[key]) {
+      groupTotals[key] = 0;
+    }
+    groupTotals[key] += balance.balance;
+  });
+
+  // Generate month/year options
+  const months = [
+    { value: 1, label: "Januari" },
+    { value: 2, label: "Februari" },
+    { value: 3, label: "Mars" },
+    { value: 4, label: "April" },
+    { value: 5, label: "Maj" },
+    { value: 6, label: "Juni" },
+    { value: 7, label: "Juli" },
+    { value: 8, label: "Augusti" },
+    { value: 9, label: "September" },
+    { value: 10, label: "Oktober" },
+    { value: 11, label: "November" },
+    { value: 12, label: "December" },
+  ];
+
+  const currentYear = new Date().getFullYear();
+  const years = Array.from({ length: 5 }, (_, i) => currentYear - 2 + i);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-zinc-50 dark:bg-zinc-900 flex items-center justify-center">
+        <p className="text-zinc-600 dark:text-zinc-400">Laddar...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-900">
+      <main className="mx-auto max-w-6xl px-4 py-8">
+        <div className="mb-4 flex items-center gap-2">
+          <Link
+            href="/"
+            className="text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
+          >
+            ← Tillbaka till transaktioner
+          </Link>
+        </div>
+
+        <div className="mb-8 flex items-center justify-between">
+          <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">
+            Balans
+          </h1>
+          <div className="flex gap-3">
+            <select
+              value={month}
+              onChange={(e) => setMonth(parseInt(e.target.value))}
+              className="rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+            >
+              {months.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+            <select
+              value={year}
+              onChange={(e) => setYear(parseInt(e.target.value))}
+              className="rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+            >
+              {years.map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {balances.length === 0 ? (
+          <div className="rounded-lg bg-white shadow dark:bg-zinc-800 p-8 text-center">
+            <p className="text-zinc-600 dark:text-zinc-400">
+              Inga konton ännu. Gå till{" "}
+              <Link href="/konton" className="text-zinc-900 dark:text-zinc-50 underline">
+                Konton
+              </Link>{" "}
+              för att lägga till konton.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {(Object.keys(grouped) as AccountType[]).map((type) => {
+              const typeGroups = grouped[type];
+              const typeTotal = typeTotals[type];
+
+              return (
+                <div key={type} className="rounded-lg bg-white shadow dark:bg-zinc-800 overflow-hidden">
+                  {/* Type Header */}
+                  <div className="bg-zinc-100 dark:bg-zinc-700 px-6 py-4 border-b border-zinc-200 dark:border-zinc-600">
+                    <div className="flex items-center justify-between">
+                      <h2 className={`text-xl font-bold ${getTypeColor(type)}`}>
+                        {type}
+                      </h2>
+                      <span className={`text-xl font-bold tabular-nums ${getTypeColor(type)}`}>
+                        {formatSwedishAmount(typeTotal)} kr
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Groups */}
+                  <div className="divide-y divide-zinc-200 dark:divide-zinc-700">
+                    {Object.keys(typeGroups).map((groupName) => {
+                      const accounts = typeGroups[groupName];
+                      const groupTotal = groupTotals[`${type}-${groupName}`];
+
+                      return (
+                        <div key={groupName} className="px-6 py-4">
+                          {/* Group Header */}
+                          <div className="flex items-center justify-between mb-3">
+                            <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+                              {groupName}
+                            </h3>
+                            <span className="text-lg font-semibold tabular-nums text-zinc-700 dark:text-zinc-300">
+                              {formatSwedishAmount(groupTotal)} kr
+                            </span>
+                          </div>
+
+                          {/* Accounts */}
+                          <div className="space-y-2 ml-4">
+                            {accounts.map((account) => (
+                              <div
+                                key={account.accountId}
+                                className="flex items-center justify-between py-2"
+                              >
+                                <span className="text-sm text-zinc-600 dark:text-zinc-400">
+                                  {account.accountName}
+                                </span>
+                                <span className="text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
+                                  {formatSwedishAmount(account.balance)} kr
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}

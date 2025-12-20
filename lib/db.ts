@@ -8,14 +8,36 @@ export function getDatabase(): Database.Database {
     const dbPath = path.join(process.cwd(), "transactions.db");
     db = new Database(dbPath);
 
+    // Create groups table if it doesn't exist
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS groups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        namn TEXT NOT NULL UNIQUE,
+        typ TEXT NOT NULL CHECK(typ IN ('Intäkt', 'Utgift', 'Tillgång', 'Skuld')),
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     // Create accounts table if it doesn't exist
     db.exec(`
       CREATE TABLE IF NOT EXISTS accounts (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         namn TEXT NOT NULL,
-        grupp TEXT NOT NULL,
-        typ TEXT NOT NULL CHECK(typ IN ('Intäkt', 'Utgift')),
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        group_id INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (group_id) REFERENCES groups(id)
+      )
+    `);
+
+    // Create imports table (CSV import metadata)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS imports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        filename TEXT NOT NULL,
+        imported_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        total_events INTEGER NOT NULL,
+        date_range_start TEXT NOT NULL,
+        date_range_end TEXT NOT NULL
       )
     `);
 
@@ -28,8 +50,10 @@ export function getDatabase(): Database.Database {
         amount REAL NOT NULL,
         is_posted INTEGER DEFAULT 0,
         transaction_id INTEGER,
+        import_id INTEGER,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (transaction_id) REFERENCES transactions(id)
+        FOREIGN KEY (transaction_id) REFERENCES transactions(id),
+        FOREIGN KEY (import_id) REFERENCES imports(id) ON DELETE CASCADE
       )
     `);
 
@@ -59,31 +83,6 @@ export function getDatabase(): Database.Database {
       )
     `);
 
-    // Migration: Rename old transactions table if it exists
-    try {
-      const tables = db
-        .prepare("SELECT name FROM sqlite_master WHERE type='table'")
-        .all() as Array<{ name: string }>;
-
-      // Check if we have the old structure (no bank_events table)
-      const hasOldStructure =
-        tables.some((t) => t.name === "transactions") &&
-        !tables.some((t) => t.name === "bank_events");
-
-      if (hasOldStructure) {
-        // Rename old transactions to bank_events
-        db.exec(`
-          ALTER TABLE transactions RENAME TO bank_events_old;
-
-          INSERT INTO bank_events (id, date, description, amount, is_posted)
-          SELECT id, date, description, amount, 0 FROM bank_events_old;
-
-          DROP TABLE bank_events_old;
-        `);
-      }
-    } catch (error) {
-      // Migration not needed or already done
-    }
   }
 
   return db;

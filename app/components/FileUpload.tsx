@@ -3,7 +3,7 @@
 import { ChangeEvent } from "react";
 
 interface FileUploadProps {
-  onFileLoad: (content: string) => void;
+  onFileLoad: (content: string, filename: string) => void;
 }
 
 export default function FileUpload({ onFileLoad }: FileUploadProps) {
@@ -18,7 +18,7 @@ export default function FileUpload({ onFileLoad }: FileUploadProps) {
 
     reader.onload = (e) => {
       const content = e.target?.result as string;
-      onFileLoad(content);
+      onFileLoad(content, file.name);
     };
 
     reader.readAsText(file, "UTF-8");
