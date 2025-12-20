@@ -19,31 +19,70 @@ export function getDatabase(): Database.Database {
       )
     `);
 
-    // Create transactions table if it doesn't exist
+    // Create bank_events table (CSV imports)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS bank_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        description TEXT NOT NULL,
+        amount REAL NOT NULL,
+        is_posted INTEGER DEFAULT 0,
+        transaction_id INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (transaction_id) REFERENCES transactions(id)
+      )
+    `);
+
+    // Create transactions table (accounting entries)
     db.exec(`
       CREATE TABLE IF NOT EXISTS transactions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         date TEXT NOT NULL,
         description TEXT NOT NULL,
-        amount REAL NOT NULL,
-        account_id INTEGER,
+        bank_event_id INTEGER,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (bank_event_id) REFERENCES bank_events(id)
+      )
+    `);
+
+    // Create posts table (individual entries in a transaction)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS posts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        transaction_id INTEGER NOT NULL,
+        account_id INTEGER NOT NULL,
+        amount REAL NOT NULL,
+        description TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE CASCADE,
         FOREIGN KEY (account_id) REFERENCES accounts(id)
       )
     `);
 
-    // Migration: Add account_id column if it doesn't exist
+    // Migration: Rename old transactions table if it exists
     try {
-      const tableInfo = db.pragma("table_info(transactions)");
-      const hasAccountId = tableInfo.some(
-        (col: any) => col.name === "account_id"
-      );
+      const tables = db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+        .all() as Array<{ name: string }>;
 
-      if (!hasAccountId) {
-        db.exec(`ALTER TABLE transactions ADD COLUMN account_id INTEGER`);
+      // Check if we have the old structure (no bank_events table)
+      const hasOldStructure =
+        tables.some((t) => t.name === "transactions") &&
+        !tables.some((t) => t.name === "bank_events");
+
+      if (hasOldStructure) {
+        // Rename old transactions to bank_events
+        db.exec(`
+          ALTER TABLE transactions RENAME TO bank_events_old;
+
+          INSERT INTO bank_events (id, date, description, amount, is_posted)
+          SELECT id, date, description, amount, 0 FROM bank_events_old;
+
+          DROP TABLE bank_events_old;
+        `);
       }
     } catch (error) {
-      // Table doesn't exist yet, will be created above
+      // Migration not needed or already done
     }
   }
 

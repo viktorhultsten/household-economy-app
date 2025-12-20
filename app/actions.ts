@@ -1,30 +1,21 @@
 "use server";
 
 import { getDatabase } from "@/lib/db";
-import { Transaction, Account } from "./types";
+import { BankEvent, Transaction, Post, Account } from "./types";
 
-export async function getTransactions(): Promise<Transaction[]> {
+// Bank Events (CSV imports)
+export async function getBankEvents(): Promise<BankEvent[]> {
   const db = getDatabase();
 
   const rows = db
-    .prepare(`
-      SELECT
-        t.id, t.date, t.description, t.amount, t.account_id,
-        a.id as account_id_full, a.namn, a.grupp, a.typ
-      FROM transactions t
-      LEFT JOIN accounts a ON t.account_id = a.id
-      ORDER BY t.date DESC
-    `)
+    .prepare("SELECT * FROM bank_events ORDER BY date DESC")
     .all() as Array<{
     id: number;
     date: string;
     description: string;
     amount: number;
-    account_id: number | null;
-    account_id_full: number | null;
-    namn: string | null;
-    grupp: string | null;
-    typ: string | null;
+    is_posted: number;
+    transaction_id: number | null;
   }>;
 
   return rows.map((row) => ({
@@ -32,62 +23,154 @@ export async function getTransactions(): Promise<Transaction[]> {
     date: new Date(row.date),
     description: row.description,
     amount: row.amount,
-    accountId: row.account_id ?? undefined,
-    account: row.account_id_full
-      ? {
-          id: row.account_id_full,
-          namn: row.namn!,
-          grupp: row.grupp!,
-          typ: row.typ! as "Intäkt" | "Utgift",
-        }
-      : undefined,
+    isPosted: row.is_posted === 1,
+    transactionId: row.transaction_id ?? undefined,
   }));
 }
 
-export async function saveTransactions(
-  transactions: Omit<Transaction, "id">[]
+export async function saveBankEvents(
+  events: Omit<BankEvent, "id" | "isPosted" | "transactionId">[]
 ): Promise<void> {
   const db = getDatabase();
 
-  // Clear existing transactions
-  db.prepare("DELETE FROM transactions").run();
+  // Clear existing bank events
+  db.prepare("DELETE FROM bank_events").run();
 
-  // Insert new transactions
+  // Insert new bank events
   const insert = db.prepare(
-    "INSERT INTO transactions (date, description, amount, account_id) VALUES (?, ?, ?, ?)"
+    "INSERT INTO bank_events (date, description, amount) VALUES (?, ?, ?)"
   );
 
-  const insertMany = db.transaction((txns) => {
-    for (const txn of txns) {
-      insert.run(
-        txn.date.toISOString(),
-        txn.description,
-        txn.amount,
-        txn.accountId ?? null
+  const insertMany = db.transaction((evts) => {
+    for (const evt of evts) {
+      insert.run(evt.date.toISOString(), evt.description, evt.amount);
+    }
+  });
+
+  insertMany(events);
+}
+
+export async function deleteBankEvent(id: number): Promise<void> {
+  const db = getDatabase();
+  db.prepare("DELETE FROM bank_events WHERE id = ?").run(id);
+}
+
+// Transactions (accounting entries)
+export async function getTransactions(): Promise<Transaction[]> {
+  const db = getDatabase();
+
+  const transactions = db
+    .prepare("SELECT * FROM transactions ORDER BY date DESC")
+    .all() as Array<{
+    id: number;
+    date: string;
+    description: string;
+    bank_event_id: number | null;
+  }>;
+
+  const result: Transaction[] = [];
+
+  for (const txn of transactions) {
+    const posts = db
+      .prepare(
+        `
+      SELECT
+        p.id, p.transaction_id, p.account_id, p.amount, p.description,
+        a.namn, a.grupp, a.typ
+      FROM posts p
+      JOIN accounts a ON p.account_id = a.id
+      WHERE p.transaction_id = ?
+    `
+      )
+      .all(txn.id) as Array<{
+      id: number;
+      transaction_id: number;
+      account_id: number;
+      amount: number;
+      description: string | null;
+      namn: string;
+      grupp: string;
+      typ: string;
+    }>;
+
+    result.push({
+      id: txn.id,
+      date: new Date(txn.date),
+      description: txn.description,
+      bankEventId: txn.bank_event_id ?? undefined,
+      posts: posts.map((p) => ({
+        id: p.id,
+        transactionId: p.transaction_id,
+        accountId: p.account_id,
+        amount: p.amount,
+        description: p.description ?? undefined,
+        account: {
+          id: p.account_id,
+          namn: p.namn,
+          grupp: p.grupp,
+          typ: p.typ as "Intäkt" | "Utgift",
+        },
+      })),
+    });
+  }
+
+  return result;
+}
+
+export async function createTransaction(
+  transaction: Omit<Transaction, "id">
+): Promise<number> {
+  const db = getDatabase();
+
+  const result = db
+    .prepare(
+      "INSERT INTO transactions (date, description, bank_event_id) VALUES (?, ?, ?)"
+    )
+    .run(
+      transaction.date.toISOString(),
+      transaction.description,
+      transaction.bankEventId ?? null
+    );
+
+  const transactionId = result.lastInsertRowid as number;
+
+  // Insert posts
+  const insertPost = db.prepare(
+    "INSERT INTO posts (transaction_id, account_id, amount, description) VALUES (?, ?, ?, ?)"
+  );
+
+  const insertPosts = db.transaction((posts: Omit<Post, "id">[]) => {
+    for (const post of posts) {
+      insertPost.run(
+        transactionId,
+        post.accountId,
+        post.amount,
+        post.description ?? null
       );
     }
   });
 
-  insertMany(transactions);
-}
+  insertPosts(transaction.posts);
 
-export async function addTransaction(
-  transaction: Omit<Transaction, "id">
-): Promise<void> {
-  const db = getDatabase();
+  // If linked to bank event, mark it as posted
+  if (transaction.bankEventId) {
+    db.prepare(
+      "UPDATE bank_events SET is_posted = 1, transaction_id = ? WHERE id = ?"
+    ).run(transactionId, transaction.bankEventId);
+  }
 
-  db.prepare(
-    "INSERT INTO transactions (date, description, amount, account_id) VALUES (?, ?, ?, ?)"
-  ).run(
-    transaction.date.toISOString(),
-    transaction.description,
-    transaction.amount,
-    transaction.accountId ?? null
-  );
+  return transactionId;
 }
 
 export async function deleteTransaction(id: number): Promise<void> {
   const db = getDatabase();
+
+  // Unmark any linked bank event
+  db.prepare(
+    "UPDATE bank_events SET is_posted = 0, transaction_id = NULL WHERE transaction_id = ?"
+  ).run(id);
+
+  // Delete transaction (posts will cascade)
   db.prepare("DELETE FROM transactions WHERE id = ?").run(id);
 }
 

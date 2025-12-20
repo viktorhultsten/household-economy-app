@@ -7,11 +7,31 @@ export interface Account {
   typ: AccountType;
 }
 
-export interface Transaction {
+// Bank events from CSV import - raw bank movements
+export interface BankEvent {
   id: number;
   date: Date;
   description: string;
   amount: number;
-  accountId?: number;
+  isPosted: boolean;
+  transactionId?: number;
+}
+
+// Accounting transaction with balanced posts
+export interface Transaction {
+  id: number;
+  date: Date;
+  description: string;
+  bankEventId?: number;
+  posts: Post[];
+}
+
+// Individual post/entry in a transaction
+export interface Post {
+  id: number;
+  transactionId: number;
+  accountId: number;
   account?: Account;
+  amount: number;
+  description?: string;
 }

@@ -1,14 +1,17 @@
-import { Transaction } from "../types";
+import { BankEvent } from "../types";
 
-export function parseSwedishCSV(csvContent: string): Transaction[] {
+export function parseSwedishCSV(
+  csvContent: string
+): Omit<BankEvent, "id" | "isPosted" | "transactionId">[] {
   const lines = csvContent.trim().split("\n");
 
   // Skip header row
   const dataLines = lines.slice(1);
 
-  const transactions: Transaction[] = [];
+  const bankEvents: Omit<BankEvent, "id" | "isPosted" | "transactionId">[] =
+    [];
 
-  dataLines.forEach((line, index) => {
+  dataLines.forEach((line) => {
     // Split by semicolon
     const columns = line.split(";");
 
@@ -34,13 +37,12 @@ export function parseSwedishCSV(csvContent: string): Transaction[] {
       return; // Skip invalid rows
     }
 
-    transactions.push({
-      id: index + 1,
+    bankEvents.push({
       date,
       description: description.trim(),
       amount,
     });
   });
 
-  return transactions;
+  return bankEvents;
 }
