@@ -6,9 +6,20 @@ import { Import, BankEvent } from "../types";
 import { getImports, getImportWithEvents, deleteImport, saveBankEvents } from "../actions";
 import FileUpload from "../components/FileUpload";
 import { parseSwedishCSV } from "../utils/csvParser";
+import ConfirmModal from "../components/ConfirmModal";
 
 function formatSwedishDate(date: Date): string {
   return date.toLocaleDateString("sv-SE");
+}
+
+function formatSwedishDateTime(date: Date): string {
+  return date.toLocaleString("sv-SE", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function formatSwedishAmount(amount: number): string {
@@ -24,6 +35,12 @@ export default function ImporterPage() {
   const [expandedImportId, setExpandedImportId] = useState<number | null>(null);
   const [expandedEvents, setExpandedEvents] = useState<BankEvent[]>([]);
   const [loadingEvents, setLoadingEvents] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    id: number;
+    filename: string;
+    importedAt: Date;
+    totalEvents: number;
+  } | null>(null);
 
   useEffect(() => {
     loadImports();
@@ -67,19 +84,16 @@ export default function ImporterPage() {
     setLoadingEvents(false);
   }
 
-  async function handleDelete(id: number, filename: string) {
-    if (
-      confirm(
-        `Är du säker på att du vill ta bort importen "${filename}"? Alla bankhändelser från denna import kommer också tas bort.`
-      )
-    ) {
-      await deleteImport(id);
-      await loadImports();
-      if (expandedImportId === id) {
-        setExpandedImportId(null);
-        setExpandedEvents([]);
-      }
+  async function handleDeleteConfirm() {
+    if (!deleteConfirm) return;
+
+    await deleteImport(deleteConfirm.id);
+    await loadImports();
+    if (expandedImportId === deleteConfirm.id) {
+      setExpandedImportId(null);
+      setExpandedEvents([]);
     }
+    setDeleteConfirm(null);
   }
 
   if (loading) {
@@ -139,8 +153,11 @@ export default function ImporterPage() {
                       </div>
                       <div className="flex gap-6 text-sm text-zinc-600 dark:text-zinc-400">
                         <div>
+                          <span className="font-medium">Import-ID:</span> #{imp.id}
+                        </div>
+                        <div>
                           <span className="font-medium">Importerad:</span>{" "}
-                          {formatSwedishDate(imp.importedAt)}
+                          {formatSwedishDateTime(imp.importedAt)}
                         </div>
                         <div>
                           <span className="font-medium">Antal händelser:</span>{" "}
@@ -156,7 +173,12 @@ export default function ImporterPage() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleDelete(imp.id, imp.filename);
+                        setDeleteConfirm({
+                          id: imp.id,
+                          filename: imp.filename,
+                          importedAt: imp.importedAt,
+                          totalEvents: imp.totalEvents,
+                        });
                       }}
                       className="ml-4 px-3 py-2 text-sm font-medium text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
                     >
@@ -241,6 +263,18 @@ export default function ImporterPage() {
           </div>
         )}
       </main>
+
+      {deleteConfirm && (
+        <ConfirmModal
+          title="Ta bort import"
+          message={`Är du säker på att du vill ta bort importen "${deleteConfirm.filename}" (Import-ID: #${deleteConfirm.id}, importerad: ${formatSwedishDateTime(deleteConfirm.importedAt)}, ${deleteConfirm.totalEvents} händelser)? Alla bankhändelser från denna import kommer också tas bort.`}
+          confirmText="Ta bort"
+          cancelText="Avbryt"
+          variant="danger"
+          onConfirm={handleDeleteConfirm}
+          onCancel={() => setDeleteConfirm(null)}
+        />
+      )}
     </div>
   );
 }

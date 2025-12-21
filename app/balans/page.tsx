@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { AccountType } from "../types";
-import { getAccountBalances } from "../actions";
+import { AccountType, Transaction } from "../types";
+import { getAccountBalances, getAccountTransactionsForPeriod, getTransaction } from "../actions";
+import TransactionEditModal from "../components/TransactionEditModal";
 
 interface AccountBalance {
   accountId: number;
@@ -14,11 +15,24 @@ interface AccountBalance {
   balance: number;
 }
 
+interface AccountTransaction {
+  transactionId: number;
+  date: Date;
+  description: string;
+  postDebet: number;
+  postKredit: number;
+  postDescription: string | null;
+}
+
 function formatSwedishAmount(amount: number): string {
   return amount.toLocaleString("sv-SE", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+}
+
+function formatSwedishDate(date: Date): string {
+  return date.toLocaleDateString("sv-SE");
 }
 
 function getTypeColor(type: AccountType): string {
@@ -40,6 +54,10 @@ export default function BalansPage() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [balances, setBalances] = useState<AccountBalance[]>([]);
   const [loading, setLoading] = useState(true);
+  const [expandedAccountId, setExpandedAccountId] = useState<number | null>(null);
+  const [transactions, setTransactions] = useState<AccountTransaction[]>([]);
+  const [loadingTransactions, setLoadingTransactions] = useState(false);
+  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
 
   useEffect(() => {
     loadBalances();
@@ -50,6 +68,37 @@ export default function BalansPage() {
     const data = await getAccountBalances(year, month);
     setBalances(data);
     setLoading(false);
+  }
+
+  async function handleAccountClick(accountId: number) {
+    if (expandedAccountId === accountId) {
+      setExpandedAccountId(null);
+      setTransactions([]);
+      return;
+    }
+
+    setExpandedAccountId(accountId);
+    setLoadingTransactions(true);
+    const data = await getAccountTransactionsForPeriod(accountId, year, month);
+    setTransactions(data);
+    setLoadingTransactions(false);
+  }
+
+  async function handleTransactionClick(transactionId: number) {
+    const txn = await getTransaction(transactionId);
+    if (txn) {
+      setSelectedTransaction(txn);
+    }
+  }
+
+  async function handleEditSuccess() {
+    setSelectedTransaction(null);
+    await loadBalances();
+    // Reload transactions if an account is expanded
+    if (expandedAccountId !== null) {
+      const data = await getAccountTransactionsForPeriod(expandedAccountId, year, month);
+      setTransactions(data);
+    }
   }
 
   // Group balances by type -> group -> accounts
@@ -205,16 +254,72 @@ export default function BalansPage() {
                           {/* Accounts */}
                           <div className="space-y-2 ml-4">
                             {accounts.map((account) => (
-                              <div
-                                key={account.accountId}
-                                className="flex items-center justify-between py-2"
-                              >
-                                <span className="text-sm text-zinc-600 dark:text-zinc-400">
-                                  {account.accountName}
-                                </span>
-                                <span className="text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
-                                  {formatSwedishAmount(account.balance)} kr
-                                </span>
+                              <div key={account.accountId}>
+                                <button
+                                  onClick={() => handleAccountClick(account.accountId)}
+                                  className="w-full flex items-center justify-between py-2 hover:bg-zinc-50 dark:hover:bg-zinc-700/50 rounded px-2 -mx-2 transition-colors"
+                                >
+                                  <span className="text-sm text-zinc-600 dark:text-zinc-400">
+                                    {account.accountName}
+                                    {expandedAccountId === account.accountId && " ▼"}
+                                  </span>
+                                  <span className="text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
+                                    {formatSwedishAmount(account.balance)} kr
+                                  </span>
+                                </button>
+
+                                {/* Transaction details */}
+                                {expandedAccountId === account.accountId && (
+                                  <div className="mt-2 ml-4 border-l-2 border-zinc-200 dark:border-zinc-700 pl-4">
+                                    {loadingTransactions ? (
+                                      <p className="text-xs text-zinc-500 dark:text-zinc-400 py-2">
+                                        Laddar transaktioner...
+                                      </p>
+                                    ) : transactions.length === 0 ? (
+                                      <p className="text-xs text-zinc-500 dark:text-zinc-400 py-2">
+                                        Inga transaktioner denna månad
+                                      </p>
+                                    ) : (
+                                      <div className="space-y-2 py-2">
+                                        {transactions.map((txn) => (
+                                          <button
+                                            key={txn.transactionId}
+                                            onClick={() => handleTransactionClick(txn.transactionId)}
+                                            className="w-full text-left text-xs border-b border-zinc-100 dark:border-zinc-800 pb-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded px-2 -mx-2 transition-colors"
+                                          >
+                                            <div className="flex items-start justify-between gap-2">
+                                              <div className="flex-1">
+                                                <div className="text-zinc-900 dark:text-zinc-50 font-medium">
+                                                  {txn.description}
+                                                </div>
+                                                {txn.postDescription && (
+                                                  <div className="text-zinc-500 dark:text-zinc-400 italic mt-0.5">
+                                                    {txn.postDescription}
+                                                  </div>
+                                                )}
+                                                <div className="text-zinc-400 dark:text-zinc-500 mt-0.5">
+                                                  {formatSwedishDate(txn.date)}
+                                                </div>
+                                              </div>
+                                              <div className="font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
+                                                {txn.postDebet > 0 && (
+                                                  <span className="text-blue-600 dark:text-blue-400">
+                                                    D: {formatSwedishAmount(txn.postDebet)} kr
+                                                  </span>
+                                                )}
+                                                {txn.postKredit > 0 && (
+                                                  <span className="text-amber-600 dark:text-amber-400">
+                                                    K: {formatSwedishAmount(txn.postKredit)} kr
+                                                  </span>
+                                                )}
+                                              </div>
+                                            </div>
+                                          </button>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             ))}
                           </div>
@@ -228,6 +333,14 @@ export default function BalansPage() {
           </div>
         )}
       </main>
+
+      {selectedTransaction && (
+        <TransactionEditModal
+          transaction={selectedTransaction}
+          onClose={() => setSelectedTransaction(null)}
+          onSuccess={handleEditSuccess}
+        />
+      )}
     </div>
   );
 }

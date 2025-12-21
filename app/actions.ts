@@ -1,7 +1,7 @@
 "use server";
 
 import { getDatabase } from "@/lib/db";
-import { BankEvent, Transaction, Post, Account, Group, Import } from "./types";
+import { BankEvent, Transaction, Post, Account, Group, Import, AccountType, PeriodLock } from "./types";
 
 // Imports (CSV import metadata)
 export async function getImports(): Promise<Import[]> {
@@ -82,7 +82,43 @@ export async function getImportWithEvents(importId: number): Promise<{
 
 export async function deleteImport(id: number): Promise<void> {
   const db = getDatabase();
-  // Cascade will delete associated bank_events
+
+  // First, get all bank_events from this import with their dates
+  const bankEvents = db
+    .prepare("SELECT id, date FROM bank_events WHERE import_id = ?")
+    .all(id) as Array<{ id: number; date: string }>;
+
+  // Check if any bank events are in locked periods
+  for (const event of bankEvents) {
+    const eventDate = new Date(event.date);
+    const isLocked = await isPeriodLocked(eventDate);
+    if (isLocked) {
+      const year = eventDate.getFullYear();
+      const month = eventDate.getMonth() + 1;
+      throw new Error(
+        `Kan inte ta bort import. Perioden ${year}-${String(month).padStart(
+          2,
+          "0"
+        )} är låst och innehåller händelser från denna import.`
+      );
+    }
+  }
+
+  // For each bank_event, delete any associated transaction
+  for (const event of bankEvents) {
+    const txn = db
+      .prepare("SELECT id FROM transactions WHERE bank_event_id = ?")
+      .get(event.id) as { id: number } | undefined;
+
+    if (txn) {
+      // Delete posts first (cascade should handle this, but being explicit)
+      db.prepare("DELETE FROM posts WHERE transaction_id = ?").run(txn.id);
+      // Delete transaction
+      db.prepare("DELETE FROM transactions WHERE id = ?").run(txn.id);
+    }
+  }
+
+  // Now delete the import (which will cascade delete bank_events)
   db.prepare("DELETE FROM imports WHERE id = ?").run(id);
 }
 
@@ -179,7 +215,7 @@ export async function getTransactions(): Promise<Transaction[]> {
       .prepare(
         `
       SELECT
-        p.id, p.transaction_id, p.account_id, p.amount, p.description,
+        p.id, p.transaction_id, p.account_id, p.debet, p.kredit, p.description,
         a.namn, a.group_id, g.namn as group_namn, g.typ as group_typ
       FROM posts p
       JOIN accounts a ON p.account_id = a.id
@@ -191,7 +227,8 @@ export async function getTransactions(): Promise<Transaction[]> {
       id: number;
       transaction_id: number;
       account_id: number;
-      amount: number;
+      debet: number;
+      kredit: number;
       description: string | null;
       namn: string;
       group_id: number;
@@ -208,7 +245,8 @@ export async function getTransactions(): Promise<Transaction[]> {
         id: p.id,
         transactionId: p.transaction_id,
         accountId: p.account_id,
-        amount: p.amount,
+        debet: p.debet,
+        kredit: p.kredit,
         description: p.description ?? undefined,
         account: {
           id: p.account_id,
@@ -230,6 +268,9 @@ export async function getTransactions(): Promise<Transaction[]> {
 export async function createTransaction(
   transaction: Omit<Transaction, "id">
 ): Promise<number> {
+  // Check if period is locked
+  await checkPeriodLock(transaction.date);
+
   const db = getDatabase();
 
   const result = db
@@ -246,7 +287,7 @@ export async function createTransaction(
 
   // Insert posts
   const insertPost = db.prepare(
-    "INSERT INTO posts (transaction_id, account_id, amount, description) VALUES (?, ?, ?, ?)"
+    "INSERT INTO posts (transaction_id, account_id, debet, kredit, description) VALUES (?, ?, ?, ?, ?)"
   );
 
   const insertPosts = db.transaction((posts: Omit<Post, "id">[]) => {
@@ -254,7 +295,8 @@ export async function createTransaction(
       insertPost.run(
         transactionId,
         post.accountId,
-        post.amount,
+        post.debet,
+        post.kredit,
         post.description ?? null
       );
     }
@@ -274,6 +316,18 @@ export async function createTransaction(
 
 export async function deleteTransaction(id: number): Promise<void> {
   const db = getDatabase();
+
+  // Get transaction date to check lock
+  const txn = db
+    .prepare("SELECT date FROM transactions WHERE id = ?")
+    .get(id) as { date: string } | undefined;
+
+  if (!txn) {
+    throw new Error("Transaktion hittades inte");
+  }
+
+  // Check if period is locked
+  await checkPeriodLock(new Date(txn.date));
 
   // Unmark any linked bank event
   db.prepare(
@@ -414,7 +468,8 @@ export async function getAccountBalances(
         g.id as group_id,
         g.namn as group_name,
         g.typ as group_type,
-        COALESCE(SUM(p.amount), 0) as balance
+        COALESCE(SUM(p.debet), 0) as total_debet,
+        COALESCE(SUM(p.kredit), 0) as total_kredit
       FROM accounts a
       JOIN groups g ON a.group_id = g.id
       LEFT JOIN posts p ON p.account_id = a.id
@@ -430,15 +485,361 @@ export async function getAccountBalances(
     group_id: number;
     group_name: string;
     group_type: string;
-    balance: number;
+    total_debet: number;
+    total_kredit: number;
+  }>;
+
+  return rows.map((row) => {
+    // Calculate balance based on account type's natural balance
+    // Tillgång (Assets) and Utgift (Expenses): Debit balance (debet - kredit)
+    // Skuld (Liabilities) and Intäkt (Revenue): Credit balance (kredit - debet)
+    let balance: number;
+    const accountType = row.group_type as AccountType;
+
+    if (accountType === "Tillgång" || accountType === "Utgift") {
+      // Debit balance accounts
+      balance = row.total_debet - row.total_kredit;
+    } else {
+      // Credit balance accounts (Skuld, Intäkt)
+      balance = row.total_kredit - row.total_debet;
+    }
+
+    return {
+      accountId: row.account_id,
+      accountName: row.account_name,
+      groupId: row.group_id,
+      groupName: row.group_name,
+      groupType: accountType,
+      balance: balance,
+    };
+  });
+}
+
+// Get transactions for a specific account in a specific period
+export async function getAccountTransactionsForPeriod(
+  accountId: number,
+  year: number,
+  month: number
+): Promise<{
+  transactionId: number;
+  date: Date;
+  description: string;
+  postDebet: number;
+  postKredit: number;
+  postDescription: string | null;
+}[]> {
+  const db = getDatabase();
+
+  const startDate = new Date(year, month - 1, 1);
+  const endDate = new Date(year, month, 0, 23, 59, 59);
+
+  const rows = db
+    .prepare(
+      `
+      SELECT
+        t.id as transaction_id,
+        t.date,
+        t.description,
+        p.debet as post_debet,
+        p.kredit as post_kredit,
+        p.description as post_description
+      FROM transactions t
+      JOIN posts p ON p.transaction_id = t.id
+      WHERE p.account_id = ?
+        AND t.date >= ?
+        AND t.date <= ?
+      ORDER BY t.date DESC, t.id DESC
+    `
+    )
+    .all(accountId, startDate.toISOString(), endDate.toISOString()) as Array<{
+    transaction_id: number;
+    date: string;
+    description: string;
+    post_debet: number;
+    post_kredit: number;
+    post_description: string | null;
   }>;
 
   return rows.map((row) => ({
-    accountId: row.account_id,
-    accountName: row.account_name,
-    groupId: row.group_id,
-    groupName: row.group_name,
-    groupType: row.group_type as AccountType,
-    balance: row.balance,
+    transactionId: row.transaction_id,
+    date: new Date(row.date),
+    description: row.description,
+    postDebet: row.post_debet,
+    postKredit: row.post_kredit,
+    postDescription: row.post_description,
   }));
+}
+
+// Get all transactions with full details
+export async function getAllTransactions(): Promise<Transaction[]> {
+  const db = getDatabase();
+
+  const transactionRows = db
+    .prepare("SELECT * FROM transactions ORDER BY date DESC, id DESC")
+    .all() as Array<{
+    id: number;
+    date: string;
+    description: string;
+    bank_event_id: number | null;
+    created_at: string;
+  }>;
+
+  const transactions: Transaction[] = [];
+
+  for (const txnRow of transactionRows) {
+    const postRows = db
+      .prepare(
+        `
+        SELECT p.*, a.namn as account_name, g.id as group_id, g.namn as group_name, g.typ as group_type
+        FROM posts p
+        JOIN accounts a ON a.id = p.account_id
+        JOIN groups g ON g.id = a.group_id
+        WHERE p.transaction_id = ?
+        ORDER BY p.id
+      `
+      )
+      .all(txnRow.id) as Array<{
+      id: number;
+      transaction_id: number;
+      account_id: number;
+      debet: number;
+      kredit: number;
+      description: string | null;
+      account_name: string;
+      group_id: number;
+      group_name: string;
+      group_type: string;
+    }>;
+
+    const posts: Post[] = postRows.map((postRow) => ({
+      id: postRow.id,
+      transactionId: postRow.transaction_id,
+      accountId: postRow.account_id,
+      debet: postRow.debet,
+      kredit: postRow.kredit,
+      description: postRow.description ?? undefined,
+      account: {
+        id: postRow.account_id,
+        namn: postRow.account_name,
+        groupId: postRow.group_id,
+        group: {
+          id: postRow.group_id,
+          namn: postRow.group_name,
+          typ: postRow.group_type as AccountType,
+        },
+      },
+    }));
+
+    transactions.push({
+      id: txnRow.id,
+      date: new Date(txnRow.date),
+      description: txnRow.description,
+      bankEventId: txnRow.bank_event_id ?? undefined,
+      posts,
+    });
+  }
+
+  return transactions;
+}
+
+// Get a single transaction with full details
+export async function getTransaction(id: number): Promise<Transaction | null> {
+  const db = getDatabase();
+
+  const txnRow = db
+    .prepare("SELECT * FROM transactions WHERE id = ?")
+    .get(id) as {
+    id: number;
+    date: string;
+    description: string;
+    bank_event_id: number | null;
+    created_at: string;
+  } | undefined;
+
+  if (!txnRow) return null;
+
+  const postRows = db
+    .prepare(
+      `
+      SELECT p.*, a.namn as account_name, g.id as group_id, g.namn as group_name, g.typ as group_type
+      FROM posts p
+      JOIN accounts a ON a.id = p.account_id
+      JOIN groups g ON g.id = a.group_id
+      WHERE p.transaction_id = ?
+      ORDER BY p.id
+    `
+    )
+    .all(txnRow.id) as Array<{
+    id: number;
+    transaction_id: number;
+    account_id: number;
+    debet: number;
+    kredit: number;
+    description: string | null;
+    account_name: string;
+    group_id: number;
+    group_name: string;
+    group_type: string;
+  }>;
+
+  const posts: Post[] = postRows.map((postRow) => ({
+    id: postRow.id,
+    transactionId: postRow.transaction_id,
+    accountId: postRow.account_id,
+    debet: postRow.debet,
+    kredit: postRow.kredit,
+    description: postRow.description ?? undefined,
+    account: {
+      id: postRow.account_id,
+      namn: postRow.account_name,
+      groupId: postRow.group_id,
+      group: {
+        id: postRow.group_id,
+        namn: postRow.group_name,
+        typ: postRow.group_type as AccountType,
+      },
+    },
+  }));
+
+  return {
+    id: txnRow.id,
+    date: new Date(txnRow.date),
+    description: txnRow.description,
+    bankEventId: txnRow.bank_event_id ?? undefined,
+    posts,
+  };
+}
+
+// Update a transaction
+export async function updateTransaction(
+  id: number,
+  data: {
+    date: Date;
+    description: string;
+    posts: Array<{
+      id?: number;
+      accountId: number;
+      debet: number;
+      kredit: number;
+      description?: string;
+    }>;
+  }
+): Promise<void> {
+  const db = getDatabase();
+
+  // Get current transaction date to check if original period is locked
+  const currentTxn = db
+    .prepare("SELECT date FROM transactions WHERE id = ?")
+    .get(id) as { date: string } | undefined;
+
+  if (!currentTxn) {
+    throw new Error("Transaktion hittades inte");
+  }
+
+  // Check if original period is locked
+  await checkPeriodLock(new Date(currentTxn.date));
+
+  // Check if new period is locked (if date is changing)
+  if (data.date.toISOString() !== currentTxn.date) {
+    await checkPeriodLock(data.date);
+  }
+
+  // Validate that debits and credits balance
+  const totalDebet = data.posts.reduce((acc, post) => acc + post.debet, 0);
+  const totalKredit = data.posts.reduce((acc, post) => acc + post.kredit, 0);
+  if (Math.abs(totalDebet - totalKredit) > 0.001) {
+    throw new Error("Debet och kredit måste vara lika");
+  }
+
+  // Update transaction
+  db.prepare("UPDATE transactions SET date = ?, description = ? WHERE id = ?").run(
+    data.date.toISOString(),
+    data.description,
+    id
+  );
+
+  // Delete existing posts
+  db.prepare("DELETE FROM posts WHERE transaction_id = ?").run(id);
+
+  // Insert new posts
+  const insertPost = db.prepare(
+    "INSERT INTO posts (transaction_id, account_id, debet, kredit, description) VALUES (?, ?, ?, ?, ?)"
+  );
+
+  const insertPosts = db.transaction((posts: typeof data.posts) => {
+    for (const post of posts) {
+      insertPost.run(id, post.accountId, post.debet, post.kredit, post.description ?? null);
+    }
+  });
+
+  insertPosts(data.posts);
+}
+
+// Period Locks
+export async function getPeriodLocks(): Promise<PeriodLock[]> {
+  const db = getDatabase();
+  const rows = db
+    .prepare("SELECT * FROM period_locks ORDER BY year DESC, month DESC")
+    .all() as Array<{
+    id: number;
+    year: number;
+    month: number;
+    locked_at: string;
+    locked_by: string | null;
+  }>;
+
+  return rows.map((row) => ({
+    id: row.id,
+    year: row.year,
+    month: row.month,
+    lockedAt: new Date(row.locked_at),
+    lockedBy: row.locked_by ?? undefined,
+  }));
+}
+
+export async function isPeriodLocked(date: Date): Promise<boolean> {
+  const db = getDatabase();
+  const year = date.getFullYear();
+  const month = date.getMonth() + 1;
+
+  const lock = db
+    .prepare("SELECT id FROM period_locks WHERE year = ? AND month = ?")
+    .get(year, month);
+
+  return lock !== undefined;
+}
+
+export async function lockPeriod(year: number, month: number, lockedBy?: string): Promise<void> {
+  const db = getDatabase();
+
+  // Check if already locked
+  const existing = db
+    .prepare("SELECT id FROM period_locks WHERE year = ? AND month = ?")
+    .get(year, month);
+
+  if (existing) {
+    throw new Error(`Perioden ${year}-${String(month).padStart(2, "0")} är redan låst`);
+  }
+
+  db.prepare(
+    "INSERT INTO period_locks (year, month, locked_by) VALUES (?, ?, ?)"
+  ).run(year, month, lockedBy ?? null);
+}
+
+export async function unlockPeriod(year: number, month: number): Promise<void> {
+  const db = getDatabase();
+
+  db.prepare("DELETE FROM period_locks WHERE year = ? AND month = ?").run(year, month);
+}
+
+// Helper function to check if a transaction date is in a locked period
+async function checkPeriodLock(date: Date): Promise<void> {
+  const isLocked = await isPeriodLocked(date);
+  if (isLocked) {
+    const year = date.getFullYear();
+    const month = date.getMonth() + 1;
+    throw new Error(
+      `Kan inte ändra transaktion. Perioden ${year}-${String(month).padStart(2, "0")} är låst.`
+    );
+  }
 }

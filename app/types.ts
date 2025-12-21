@@ -49,6 +49,16 @@ export interface Post {
   transactionId: number;
   accountId: number;
   account?: Account;
-  amount: number;
+  debet: number;
+  kredit: number;
   description?: string;
+}
+
+// Period lock for accounting periods
+export interface PeriodLock {
+  id: number;
+  year: number;
+  month: number;
+  lockedAt: Date;
+  lockedBy?: string;
 }

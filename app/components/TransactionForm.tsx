@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Account, BankEvent, Post } from "../types";
-import { getAccounts, createTransaction } from "../actions";
+import { getAccounts, createTransaction, isPeriodLocked } from "../actions";
 
 interface TransactionFormProps {
   bankEvent?: BankEvent;
@@ -23,15 +23,20 @@ export default function TransactionForm({
   const [posts, setPosts] = useState<Omit<Post, "id" | "transactionId">[]>([
     {
       accountId: 0,
-      amount: bankEvent?.amount || 0,
+      debet: bankEvent && bankEvent.amount > 0 ? bankEvent.amount : 0,
+      kredit: bankEvent && bankEvent.amount < 0 ? -bankEvent.amount : 0,
       description: "",
     },
     {
       accountId: 0,
-      amount: bankEvent ? -bankEvent.amount : 0,
+      debet: bankEvent && bankEvent.amount < 0 ? -bankEvent.amount : 0,
+      kredit: bankEvent && bankEvent.amount > 0 ? bankEvent.amount : 0,
       description: "",
     },
   ]);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [periodLockWarning, setPeriodLockWarning] = useState("");
 
   useEffect(() => {
     async function loadAccounts() {
@@ -41,8 +46,26 @@ export default function TransactionForm({
     loadAccounts();
   }, []);
 
-  const totalAmount = posts.reduce((sum, post) => sum + post.amount, 0);
-  const isBalanced = Math.abs(totalAmount) < 0.01; // Allow small floating point errors
+  useEffect(() => {
+    async function checkPeriodLock() {
+      const isLocked = await isPeriodLocked(date);
+      if (isLocked) {
+        const year = date.getFullYear();
+        const month = date.getMonth() + 1;
+        setPeriodLockWarning(
+          `Perioden ${year}-${String(month).padStart(2, "0")} är låst. Du kan inte spara transaktioner i denna period.`
+        );
+      } else {
+        setPeriodLockWarning("");
+      }
+    }
+    checkPeriodLock();
+  }, [date]);
+
+  const totalDebet = posts.reduce((sum, post) => sum + post.debet, 0);
+  const totalKredit = posts.reduce((sum, post) => sum + post.kredit, 0);
+  const difference = totalDebet - totalKredit;
+  const isBalanced = Math.abs(difference) < 0.01; // Allow small floating point errors
 
   const updatePost = (
     index: number,
@@ -59,7 +82,8 @@ export default function TransactionForm({
       ...posts,
       {
         accountId: 0,
-        amount: 0,
+        debet: 0,
+        kredit: 0,
         description: "",
       },
     ]);
@@ -73,29 +97,37 @@ export default function TransactionForm({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError("");
 
     if (!isBalanced) {
-      alert("Posterna måste summera till noll!");
+      setError("Posterna måste summera till noll!");
       return;
     }
 
     if (posts.some((p) => p.accountId === 0)) {
-      alert("Alla poster måste ha ett konto!");
+      setError("Alla poster måste ha ett konto!");
       return;
     }
 
-    await createTransaction({
-      date,
-      description,
-      bankEventId: bankEvent?.id,
-      posts: posts.map((p) => ({
-        ...p,
-        transactionId: 0, // Will be set by server
-      })),
-    });
+    setLoading(true);
 
-    onSuccess();
-    onClose();
+    try {
+      await createTransaction({
+        date,
+        description,
+        bankEventId: bankEvent?.id,
+        posts: posts.map((p) => ({
+          ...p,
+          transactionId: 0, // Will be set by server
+        })),
+      });
+
+      onSuccess();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Ett fel uppstod");
+      setLoading(false);
+    }
   };
 
   return (
@@ -126,6 +158,18 @@ export default function TransactionForm({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
+          {error && (
+            <div className="mb-4 rounded-md bg-red-50 dark:bg-red-900/20 p-4 text-sm text-red-800 dark:text-red-200">
+              {error}
+            </div>
+          )}
+
+          {periodLockWarning && (
+            <div className="mb-4 rounded-md bg-amber-50 dark:bg-amber-900/20 p-4 text-sm text-amber-800 dark:text-amber-200">
+              ⚠️ {periodLockWarning}
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
@@ -196,16 +240,32 @@ export default function TransactionForm({
 
                   <div className="w-32">
                     <label className="block text-xs text-zinc-600 dark:text-zinc-400 mb-1">
-                      Belopp
+                      Debet
                     </label>
                     <input
                       type="number"
                       step="0.01"
-                      value={post.amount}
+                      min="0"
+                      value={post.debet || ""}
                       onChange={(e) =>
-                        updatePost(index, "amount", parseFloat(e.target.value))
+                        updatePost(index, "debet", e.target.value === "" ? 0 : parseFloat(e.target.value))
                       }
-                      required
+                      className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+                    />
+                  </div>
+
+                  <div className="w-32">
+                    <label className="block text-xs text-zinc-600 dark:text-zinc-400 mb-1">
+                      Kredit
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={post.kredit || ""}
+                      onChange={(e) =>
+                        updatePost(index, "kredit", e.target.value === "" ? 0 : parseFloat(e.target.value))
+                      }
                       className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
                     />
                   </div>
@@ -238,7 +298,20 @@ export default function TransactionForm({
             </div>
 
             <div className="mt-3 flex items-center justify-between text-sm">
-              <span className="text-zinc-600 dark:text-zinc-400">Summa:</span>
+              <div className="flex gap-4">
+                <span className="text-zinc-600 dark:text-zinc-400">
+                  Debet: {totalDebet.toLocaleString("sv-SE", {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
+                </span>
+                <span className="text-zinc-600 dark:text-zinc-400">
+                  Kredit: {totalKredit.toLocaleString("sv-SE", {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
+                </span>
+              </div>
               <span
                 className={`font-medium tabular-nums ${
                   isBalanced
@@ -246,11 +319,12 @@ export default function TransactionForm({
                     : "text-red-600 dark:text-red-400"
                 }`}
               >
-                {totalAmount.toLocaleString("sv-SE", {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}{" "}
-                {isBalanced ? "✓" : "✗"}
+                {isBalanced
+                  ? "Balanserad ✓"
+                  : `Skillnad: ${difference.toLocaleString("sv-SE", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })} kr`}
               </span>
             </div>
           </div>
@@ -260,15 +334,16 @@ export default function TransactionForm({
               type="button"
               onClick={onClose}
               className="px-4 py-2 text-sm font-medium text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-50"
+              disabled={loading}
             >
               Avbryt
             </button>
             <button
               type="submit"
-              disabled={!isBalanced}
+              disabled={!isBalanced || loading || !!periodLockWarning}
               className="px-4 py-2 text-sm font-semibold rounded-md bg-zinc-900 text-zinc-50 hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
             >
-              Spara transaktion
+              {loading ? "Sparar..." : "Spara transaktion"}
             </button>
           </div>
         </form>

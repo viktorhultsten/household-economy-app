@@ -75,11 +75,25 @@ export function getDatabase(): Database.Database {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         transaction_id INTEGER NOT NULL,
         account_id INTEGER NOT NULL,
-        amount REAL NOT NULL,
+        debet REAL NOT NULL DEFAULT 0,
+        kredit REAL NOT NULL DEFAULT 0,
         description TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE CASCADE,
-        FOREIGN KEY (account_id) REFERENCES accounts(id)
+        FOREIGN KEY (account_id) REFERENCES accounts(id),
+        CHECK ((debet > 0 AND kredit = 0) OR (kredit > 0 AND debet = 0) OR (debet = 0 AND kredit = 0))
+      )
+    `);
+
+    // Create period_locks table
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS period_locks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        year INTEGER NOT NULL,
+        month INTEGER NOT NULL,
+        locked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        locked_by TEXT,
+        UNIQUE(year, month)
       )
     `);
 
