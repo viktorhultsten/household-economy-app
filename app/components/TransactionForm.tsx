@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Account, BankEvent, Post } from "../types";
-import { getAccounts, createTransaction, isPeriodLocked } from "../actions";
+import { Account, BankEvent, Post, BookingTemplate } from "../types";
+import { getAccounts, createTransaction, isPeriodLocked, getBookingTemplates, createBookingTemplate } from "../actions";
 
 interface TransactionFormProps {
   bankEvent?: BankEvent;
@@ -16,6 +16,7 @@ export default function TransactionForm({
   onSuccess,
 }: TransactionFormProps) {
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [templates, setTemplates] = useState<BookingTemplate[]>([]);
   const [date, setDate] = useState(
     bankEvent?.date || new Date()
   );
@@ -37,13 +38,19 @@ export default function TransactionForm({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [periodLockWarning, setPeriodLockWarning] = useState("");
+  const [showSaveTemplate, setShowSaveTemplate] = useState(false);
+  const [templateName, setTemplateName] = useState("");
 
   useEffect(() => {
-    async function loadAccounts() {
-      const data = await getAccounts();
-      setAccounts(data);
+    async function loadData() {
+      const [accountsData, templatesData] = await Promise.all([
+        getAccounts(),
+        getBookingTemplates(),
+      ]);
+      setAccounts(accountsData);
+      setTemplates(templatesData);
     }
-    loadAccounts();
+    loadData();
   }, []);
 
   useEffect(() => {
@@ -73,8 +80,92 @@ export default function TransactionForm({
     value: number | string
   ) => {
     const newPosts = [...posts];
-    newPosts[index] = { ...newPosts[index], [field]: value };
+    const currentPost = newPosts[index];
+
+    // Validation: When updating debit or credit, clear the other field if both would have values
+    if (field === "debet" && typeof value === "number") {
+      if (value > 0 && currentPost.kredit > 0) {
+        newPosts[index] = { ...currentPost, debet: value, kredit: 0 };
+      } else {
+        newPosts[index] = { ...currentPost, debet: value };
+      }
+    } else if (field === "kredit" && typeof value === "number") {
+      if (value > 0 && currentPost.debet > 0) {
+        newPosts[index] = { ...currentPost, kredit: value, debet: 0 };
+      } else {
+        newPosts[index] = { ...currentPost, kredit: value };
+      }
+    } else {
+      newPosts[index] = { ...currentPost, [field]: value };
+    }
+
     setPosts(newPosts);
+  };
+
+  const loadTemplate = (templateId: number) => {
+    const template = templates.find((t) => t.id === templateId);
+    if (!template) return;
+
+    // Template loads account structure using isDebet flag to determine which side
+    // If there's a bank event, we can pre-fill the amounts based on the template structure
+    const newPosts = template.rows.map((row) => {
+      // Use isDebet flag from template to set up the correct side
+      if (bankEvent) {
+        // For bank events, put the amount on the correct side based on template
+        const amount = Math.abs(bankEvent.amount);
+        return {
+          accountId: row.accountId,
+          debet: row.isDebet ? amount : 0,
+          kredit: !row.isDebet ? amount : 0,
+          description: row.description || "",
+          transactionId: 0,
+        };
+      } else {
+        // For manual transactions, just set up the structure with 0s
+        // User will fill in amounts, but at least accounts are set
+        return {
+          accountId: row.accountId,
+          debet: 0,
+          kredit: 0,
+          description: row.description || "",
+          transactionId: 0,
+        };
+      }
+    });
+
+    setPosts(newPosts);
+  };
+
+  const saveAsTemplate = async () => {
+    if (!templateName.trim()) {
+      setError("Mallnamn måste anges");
+      return;
+    }
+
+    if (posts.some((p) => p.accountId === 0)) {
+      setError("Alla poster måste ha ett konto innan mall kan sparas");
+      return;
+    }
+
+    try {
+      const templateRows = posts.map((post) => ({
+        accountId: post.accountId,
+        isDebet: post.debet > 0,
+        description: post.description,
+      }));
+
+      await createBookingTemplate(templateName, templateRows);
+
+      // Reload templates
+      const templatesData = await getBookingTemplates();
+      setTemplates(templatesData);
+
+      setShowSaveTemplate(false);
+      setTemplateName("");
+      setError("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Kunde inte spara mall");
+    }
   };
 
   const addPost = () => {
@@ -167,6 +258,25 @@ export default function TransactionForm({
           {periodLockWarning && (
             <div className="mb-4 rounded-md bg-amber-50 dark:bg-amber-900/20 p-4 text-sm text-amber-800 dark:text-amber-200">
               ⚠️ {periodLockWarning}
+            </div>
+          )}
+
+          {templates.length > 0 && (
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
+                Använd bokföringsmall
+              </label>
+              <select
+                onChange={(e) => loadTemplate(parseInt(e.target.value))}
+                className="w-full rounded-md border border-zinc-300 px-3 py-2 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+              >
+                <option value="">Välj mall...</option>
+                {templates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.namn}
+                  </option>
+                ))}
+              </select>
             </div>
           )}
 
@@ -329,22 +439,66 @@ export default function TransactionForm({
             </div>
           </div>
 
-          <div className="flex gap-3 justify-end pt-4 border-t border-zinc-200 dark:border-zinc-700">
+          {showSaveTemplate && (
+            <div className="mb-4 p-4 border border-zinc-200 dark:border-zinc-700 rounded-md bg-zinc-50 dark:bg-zinc-900">
+              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
+                Mallnamn
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={templateName}
+                  onChange={(e) => setTemplateName(e.target.value)}
+                  placeholder="T.ex. Hyra, Lön, etc."
+                  className="flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+                />
+                <button
+                  type="button"
+                  onClick={saveAsTemplate}
+                  className="px-4 py-2 text-sm font-semibold rounded-md bg-zinc-900 text-zinc-50 hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                >
+                  Spara mall
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSaveTemplate(false);
+                    setTemplateName("");
+                  }}
+                  className="px-4 py-2 text-sm font-medium text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-50"
+                >
+                  Avbryt
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-3 justify-between pt-4 border-t border-zinc-200 dark:border-zinc-700">
             <button
               type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-50"
+              onClick={() => setShowSaveTemplate(!showSaveTemplate)}
+              className="px-4 py-2 text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
               disabled={loading}
             >
-              Avbryt
+              {showSaveTemplate ? "Dölj" : "Spara som mall"}
             </button>
-            <button
-              type="submit"
-              disabled={!isBalanced || loading || !!periodLockWarning}
-              className="px-4 py-2 text-sm font-semibold rounded-md bg-zinc-900 text-zinc-50 hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
-            >
-              {loading ? "Sparar..." : "Spara transaktion"}
-            </button>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 text-sm font-medium text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-50"
+                disabled={loading}
+              >
+                Avbryt
+              </button>
+              <button
+                type="submit"
+                disabled={!isBalanced || loading || !!periodLockWarning}
+                className="px-4 py-2 text-sm font-semibold rounded-md bg-zinc-900 text-zinc-50 hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              >
+                {loading ? "Sparar..." : "Spara transaktion"}
+              </button>
+            </div>
           </div>
         </form>
       </div>

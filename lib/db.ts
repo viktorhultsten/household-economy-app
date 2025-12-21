@@ -1,103 +1,99 @@
-import Database from "better-sqlite3";
+import { Pool, PoolClient, QueryResult } from "pg";
+import fs from "fs";
 import path from "path";
 
-let db: Database.Database | null = null;
+let pool: Pool | null = null;
+let schemaInitialized = false;
+let schemaInitializing: Promise<void> | null = null;
 
-export function getDatabase(): Database.Database {
-  if (!db) {
-    const dbPath = path.join(process.cwd(), "transactions.db");
-    db = new Database(dbPath);
-
-    // Create groups table if it doesn't exist
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS groups (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        namn TEXT NOT NULL UNIQUE,
-        typ TEXT NOT NULL CHECK(typ IN ('Intäkt', 'Utgift', 'Tillgång', 'Skuld')),
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    // Create accounts table if it doesn't exist
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS accounts (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        namn TEXT NOT NULL,
-        group_id INTEGER NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (group_id) REFERENCES groups(id)
-      )
-    `);
-
-    // Create imports table (CSV import metadata)
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS imports (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        filename TEXT NOT NULL,
-        imported_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        total_events INTEGER NOT NULL,
-        date_range_start TEXT NOT NULL,
-        date_range_end TEXT NOT NULL
-      )
-    `);
-
-    // Create bank_events table (CSV imports)
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS bank_events (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        date TEXT NOT NULL,
-        description TEXT NOT NULL,
-        amount REAL NOT NULL,
-        is_posted INTEGER DEFAULT 0,
-        transaction_id INTEGER,
-        import_id INTEGER,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (transaction_id) REFERENCES transactions(id),
-        FOREIGN KEY (import_id) REFERENCES imports(id) ON DELETE CASCADE
-      )
-    `);
-
-    // Create transactions table (accounting entries)
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS transactions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        date TEXT NOT NULL,
-        description TEXT NOT NULL,
-        bank_event_id INTEGER,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (bank_event_id) REFERENCES bank_events(id)
-      )
-    `);
-
-    // Create posts table (individual entries in a transaction)
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS posts (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        transaction_id INTEGER NOT NULL,
-        account_id INTEGER NOT NULL,
-        debet REAL NOT NULL DEFAULT 0,
-        kredit REAL NOT NULL DEFAULT 0,
-        description TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE CASCADE,
-        FOREIGN KEY (account_id) REFERENCES accounts(id),
-        CHECK ((debet > 0 AND kredit = 0) OR (kredit > 0 AND debet = 0) OR (debet = 0 AND kredit = 0))
-      )
-    `);
-
-    // Create period_locks table
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS period_locks (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        year INTEGER NOT NULL,
-        month INTEGER NOT NULL,
-        locked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        locked_by TEXT,
-        UNIQUE(year, month)
-      )
-    `);
-
+export function getDatabase(): Pool {
+  if (!pool) {
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.NODE_ENV === "production"
+        ? { rejectUnauthorized: false }
+        : undefined,
+    });
   }
 
-  return db;
+  return pool;
+}
+
+async function initializeSchema() {
+  if (schemaInitialized) {
+    return;
+  }
+
+  if (schemaInitializing) {
+    await schemaInitializing;
+    return;
+  }
+
+  schemaInitializing = (async () => {
+    const pool = getDatabase();
+    const client = await pool.connect();
+    try {
+      const schemaPath = path.join(process.cwd(), "lib", "schema.sql");
+      const schema = fs.readFileSync(schemaPath, "utf-8");
+      await client.query(schema);
+      schemaInitialized = true;
+      console.log("Database schema initialized successfully");
+    } catch (error) {
+      console.error("Error initializing database schema:", error);
+      throw error;
+    } finally {
+      client.release();
+    }
+  })();
+
+  await schemaInitializing;
+}
+
+// Helper function to execute a query
+export async function query<T = any>(
+  text: string,
+  params?: any[]
+): Promise<QueryResult<T>> {
+  await initializeSchema();
+  const db = getDatabase();
+  return db.query<T>(text, params);
+}
+
+// Helper function to get a single row
+export async function queryOne<T = any>(
+  text: string,
+  params?: any[]
+): Promise<T | null> {
+  const result = await query<T>(text, params);
+  return result.rows[0] || null;
+}
+
+// Helper function to get all rows
+export async function queryAll<T = any>(
+  text: string,
+  params?: any[]
+): Promise<T[]> {
+  const result = await query<T>(text, params);
+  return result.rows;
+}
+
+// Transaction helper
+export async function transaction<T>(
+  callback: (client: PoolClient) => Promise<T>
+): Promise<T> {
+  await initializeSchema();
+  const db = getDatabase();
+  const client = await db.connect();
+
+  try {
+    await client.query("BEGIN");
+    const result = await callback(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
