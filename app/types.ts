@@ -81,3 +81,22 @@ export interface TemplateRow {
   description?: string;
   rowOrder: number;
 }
+
+// Recurring item - track expected recurring transactions
+export interface RecurringItem {
+  id: number;
+  namn: string;
+  expectedPerMonth: number;
+  activeMonths: number[]; // Array of month numbers 1-12
+  createdAt: Date;
+}
+
+// Recurring item status for a specific period
+export interface RecurringItemStatus {
+  recurringItem: RecurringItem;
+  currentPeriodCount: number;
+  currentPeriodAmount: number;
+  previousPeriodCount: number;
+  previousPeriodAmount: number;
+  isComplete: boolean;
+}

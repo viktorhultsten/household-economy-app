@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Account, BankEvent, Post, BookingTemplate } from "../types";
-import { getAccounts, createTransaction, isPeriodLocked, getBookingTemplates, createBookingTemplate } from "../actions";
+import { Account, BankEvent, Post, BookingTemplate, RecurringItemStatus } from "../types";
+import { getAccounts, createTransaction, isPeriodLocked, getBookingTemplates, createBookingTemplate, getRecurringItemsStatus, linkTransactionToRecurringItem } from "../actions";
 
 interface TransactionFormProps {
   bankEvent?: BankEvent;
@@ -17,6 +17,8 @@ export default function TransactionForm({
 }: TransactionFormProps) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [templates, setTemplates] = useState<BookingTemplate[]>([]);
+  const [recurringItems, setRecurringItems] = useState<RecurringItemStatus[]>([]);
+  const [selectedRecurringItemId, setSelectedRecurringItemId] = useState<number | null>(null);
   const [date, setDate] = useState(
     bankEvent?.date || new Date()
   );
@@ -43,15 +45,19 @@ export default function TransactionForm({
 
   useEffect(() => {
     async function loadData() {
-      const [accountsData, templatesData] = await Promise.all([
+      const year = date.getFullYear();
+      const month = date.getMonth() + 1;
+      const [accountsData, templatesData, recurringItemsData] = await Promise.all([
         getAccounts(),
         getBookingTemplates(),
+        getRecurringItemsStatus(year, month),
       ]);
       setAccounts(accountsData);
       setTemplates(templatesData);
+      setRecurringItems(recurringItemsData);
     }
     loadData();
-  }, []);
+  }, [date]);
 
   useEffect(() => {
     async function checkPeriodLock() {
@@ -203,7 +209,7 @@ export default function TransactionForm({
     setLoading(true);
 
     try {
-      await createTransaction({
+      const transactionId = await createTransaction({
         date,
         description,
         bankEventId: bankEvent?.id,
@@ -212,6 +218,11 @@ export default function TransactionForm({
           transactionId: 0, // Will be set by server
         })),
       });
+
+      // Link to recurring item if selected
+      if (selectedRecurringItemId) {
+        await linkTransactionToRecurringItem(transactionId, selectedRecurringItemId);
+      }
 
       onSuccess();
       onClose();
@@ -223,8 +234,10 @@ export default function TransactionForm({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white dark:bg-zinc-800 rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="sticky top-0 bg-white dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 px-6 py-4">
+      <div className="bg-white dark:bg-zinc-800 rounded-lg shadow-xl max-w-7xl w-full max-h-[90vh] flex overflow-hidden">
+        {/* Main Form */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="sticky top-0 bg-white dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 px-6 py-4 shrink-0">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">
               {bankEvent ? "Bokför transaktion" : "Ny transaktion"}
@@ -248,7 +261,7 @@ export default function TransactionForm({
           )}
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
+        <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto flex-1">
           {error && (
             <div className="mb-4 rounded-md bg-red-50 dark:bg-red-900/20 p-4 text-sm text-red-800 dark:text-red-200">
               {error}
@@ -501,6 +514,67 @@ export default function TransactionForm({
             </div>
           </div>
         </form>
+        </div>
+
+        {/* Recurring Items Sidebar */}
+        {recurringItems.length > 0 && (
+          <div className="w-80 border-l border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 overflow-y-auto p-4">
+            <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 mb-4">
+              Återkommande
+            </h3>
+            <div className="space-y-2">
+              {recurringItems.map((item) => (
+                <button
+                  key={item.recurringItem.id}
+                  type="button"
+                  onClick={() => setSelectedRecurringItemId(
+                    selectedRecurringItemId === item.recurringItem.id
+                      ? null
+                      : item.recurringItem.id
+                  )}
+                  className={`w-full text-left p-3 rounded-md border transition-colors ${
+                    selectedRecurringItemId === item.recurringItem.id
+                      ? "border-zinc-900 dark:border-zinc-50 bg-zinc-100 dark:bg-zinc-800"
+                      : "border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  <div className="flex items-start justify-between mb-2">
+                    <span className="font-medium text-sm text-zinc-900 dark:text-zinc-50">
+                      {item.recurringItem.namn}
+                    </span>
+                    <span className={`text-xs px-2 py-1 rounded ${
+                      item.isComplete
+                        ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300"
+                        : "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
+                    }`}>
+                      {item.currentPeriodCount}/{item.recurringItem.expectedPerMonth}
+                    </span>
+                  </div>
+                  <div className="text-xs text-zinc-600 dark:text-zinc-400 space-y-1">
+                    <div className="flex justify-between">
+                      <span>Denna månad:</span>
+                      <span className="font-medium tabular-nums">
+                        {item.currentPeriodAmount.toLocaleString("sv-SE", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })} kr
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Förra månaden:</span>
+                      <span className="font-medium tabular-nums">
+                        {item.previousPeriodAmount.toLocaleString("sv-SE", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })} kr
+                      </span>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

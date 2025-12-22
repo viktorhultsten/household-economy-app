@@ -106,3 +106,23 @@ CREATE TABLE IF NOT EXISTS template_rows (
   FOREIGN KEY (template_id) REFERENCES booking_templates(id) ON DELETE CASCADE,
   FOREIGN KEY (account_id) REFERENCES accounts(id)
 );
+
+-- Recurring items table (track expected recurring transactions)
+CREATE TABLE IF NOT EXISTS recurring_items (
+  id SERIAL PRIMARY KEY,
+  namn TEXT NOT NULL UNIQUE,
+  expected_per_month INTEGER NOT NULL DEFAULT 1,
+  active_months INTEGER[] NOT NULL DEFAULT ARRAY[1,2,3,4,5,6,7,8,9,10,11,12],
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Link transactions to recurring items
+CREATE TABLE IF NOT EXISTS transaction_recurring_items (
+  id SERIAL PRIMARY KEY,
+  transaction_id INTEGER NOT NULL,
+  recurring_item_id INTEGER NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE CASCADE,
+  FOREIGN KEY (recurring_item_id) REFERENCES recurring_items(id) ON DELETE CASCADE,
+  UNIQUE(transaction_id, recurring_item_id)
+);

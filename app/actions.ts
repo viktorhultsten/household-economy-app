@@ -1,7 +1,7 @@
 "use server";
 
 import { queryAll, queryOne, query, transaction as dbTransaction } from "@/lib/db";
-import { BankEvent, Transaction, Post, Account, Group, Import, AccountType, PeriodLock, BookingTemplate, TemplateRow } from "./types";
+import { BankEvent, Transaction, Post, Account, Group, Import, AccountType, PeriodLock, BookingTemplate, TemplateRow, RecurringItem, RecurringItemStatus } from "./types";
 
 // Imports (CSV import metadata)
 export async function getImports(): Promise<Import[]> {
@@ -943,4 +943,147 @@ export async function updateBookingTemplate(
       );
     }
   });
+}
+
+// Recurring Items
+export async function getRecurringItems(): Promise<RecurringItem[]> {
+  const rows = await queryAll<{
+    id: number;
+    namn: string;
+    expected_per_month: number;
+    active_months: number[];
+    created_at: string;
+  }>("SELECT * FROM recurring_items ORDER BY namn");
+
+  return rows.map((row) => ({
+    id: row.id,
+    namn: row.namn,
+    expectedPerMonth: row.expected_per_month,
+    activeMonths: row.active_months,
+    createdAt: new Date(row.created_at),
+  }));
+}
+
+export async function createRecurringItem(
+  namn: string,
+  expectedPerMonth: number,
+  activeMonths: number[]
+): Promise<number> {
+  const result = await query<{ id: number }>(
+    "INSERT INTO recurring_items (namn, expected_per_month, active_months) VALUES ($1, $2, $3) RETURNING id",
+    [namn, expectedPerMonth, activeMonths]
+  );
+  return result.rows[0].id;
+}
+
+export async function updateRecurringItem(
+  id: number,
+  namn: string,
+  expectedPerMonth: number,
+  activeMonths: number[]
+): Promise<void> {
+  await query(
+    "UPDATE recurring_items SET namn = $1, expected_per_month = $2, active_months = $3 WHERE id = $4",
+    [namn, expectedPerMonth, activeMonths, id]
+  );
+}
+
+export async function deleteRecurringItem(id: number): Promise<void> {
+  await query("DELETE FROM recurring_items WHERE id = $1", [id]);
+}
+
+export async function getRecurringItemsStatus(
+  year: number,
+  month: number
+): Promise<RecurringItemStatus[]> {
+  const items = await getRecurringItems();
+
+  // Filter items that are active in the current month
+  const activeItems = items.filter((item) => item.activeMonths.includes(month));
+
+  // Calculate start and end dates for current and previous period
+  const currentStart = new Date(year, month - 1, 1);
+  const currentEnd = new Date(year, month, 0, 23, 59, 59);
+  const previousStart = new Date(year, month - 2, 1);
+  const previousEnd = new Date(year, month - 1, 0, 23, 59, 59);
+
+  const statuses: RecurringItemStatus[] = [];
+
+  for (const item of activeItems) {
+    // Get current period transactions
+    const currentTransactions = await queryAll<{
+      transaction_id: number;
+      total_amount: number;
+    }>(
+      `SELECT
+        tri.transaction_id,
+        COALESCE(SUM(ABS(p.debet - p.kredit)), 0) as total_amount
+      FROM transaction_recurring_items tri
+      JOIN transactions t ON t.id = tri.transaction_id
+      LEFT JOIN posts p ON p.transaction_id = t.id
+      WHERE tri.recurring_item_id = $1
+        AND t.date >= $2 AND t.date <= $3
+      GROUP BY tri.transaction_id`,
+      [item.id, currentStart.toISOString(), currentEnd.toISOString()]
+    );
+
+    // Get previous period transactions
+    const previousTransactions = await queryAll<{
+      transaction_id: number;
+      total_amount: number;
+    }>(
+      `SELECT
+        tri.transaction_id,
+        COALESCE(SUM(ABS(p.debet - p.kredit)), 0) as total_amount
+      FROM transaction_recurring_items tri
+      JOIN transactions t ON t.id = tri.transaction_id
+      LEFT JOIN posts p ON p.transaction_id = t.id
+      WHERE tri.recurring_item_id = $1
+        AND t.date >= $2 AND t.date <= $3
+      GROUP BY tri.transaction_id`,
+      [item.id, previousStart.toISOString(), previousEnd.toISOString()]
+    );
+
+    const currentPeriodCount = currentTransactions.length;
+    const currentPeriodAmount = currentTransactions.reduce(
+      (sum, t) => sum + t.total_amount,
+      0
+    );
+    const previousPeriodCount = previousTransactions.length;
+    const previousPeriodAmount = previousTransactions.reduce(
+      (sum, t) => sum + t.total_amount,
+      0
+    );
+
+    statuses.push({
+      recurringItem: item,
+      currentPeriodCount,
+      currentPeriodAmount,
+      previousPeriodCount,
+      previousPeriodAmount,
+      isComplete: currentPeriodCount >= item.expectedPerMonth,
+    });
+  }
+
+  return statuses;
+}
+
+export async function linkTransactionToRecurringItem(
+  transactionId: number,
+  recurringItemId: number
+): Promise<void> {
+  await query(
+    "INSERT INTO transaction_recurring_items (transaction_id, recurring_item_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+    [transactionId, recurringItemId]
+  );
+}
+
+export async function unlinkTransactionFromRecurringItem(
+  transactionId: number,
+  recurringItemId: number
+): Promise<void> {
+  await query(
+    "DELETE FROM transaction_recurring_items WHERE transaction_id = $1 AND recurring_item_id = $2",
+    [transactionId, recurringItemId]
+  );
 }

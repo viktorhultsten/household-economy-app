@@ -11,6 +11,7 @@ export default function Navigation() {
     { href: "/transaktioner", label: "Transaktioner" },
     { href: "/balans", label: "Balans" },
     { href: "/mallar", label: "Mallar" },
+    { href: "/upprepningar", label: "Återkommande" },
     { href: "/importer", label: "Importer" },
     { href: "/konton", label: "Konton" },
     { href: "/perioder", label: "Perioder" },
