@@ -207,7 +207,7 @@ export default function BalansPage() {
           <div className="rounded-lg bg-white shadow dark:bg-zinc-800 p-8 text-center">
             <p className="text-zinc-600 dark:text-zinc-400">
               Inga konton ännu. Gå till{" "}
-              <Link href="/konton" className="text-zinc-900 dark:text-zinc-50 underline">
+              <Link href="/accounts" className="text-zinc-900 dark:text-zinc-50 underline">
                 Konton
               </Link>{" "}
               för att lägga till konton.

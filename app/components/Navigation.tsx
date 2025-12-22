@@ -8,13 +8,13 @@ export default function Navigation() {
 
   const navItems = [
     { href: "/", label: "Bankhändelser" },
-    { href: "/transaktioner", label: "Transaktioner" },
-    { href: "/balans", label: "Balans" },
-    { href: "/mallar", label: "Mallar" },
-    { href: "/upprepningar", label: "Återkommande" },
-    { href: "/importer", label: "Importer" },
-    { href: "/konton", label: "Konton" },
-    { href: "/perioder", label: "Perioder" },
+    { href: "/transactions", label: "Transaktioner" },
+    { href: "/balance", label: "Balans" },
+    { href: "/templates", label: "Mallar" },
+    { href: "/recurring", label: "Återkommande" },
+    { href: "/imports", label: "Importer" },
+    { href: "/accounts", label: "Konton" },
+    { href: "/periods", label: "Perioder" },
   ];
 
   return (

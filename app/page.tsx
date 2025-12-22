@@ -69,7 +69,7 @@ export default function Home() {
           <div className="rounded-lg bg-white shadow dark:bg-zinc-800 p-8 text-center">
             <p className="text-zinc-600 dark:text-zinc-400">
               Inga bankhändelser ännu. Gå till{" "}
-              <Link href="/importer" className="text-zinc-900 dark:text-zinc-50 underline">
+              <Link href="/imports" className="text-zinc-900 dark:text-zinc-50 underline">
                 Importer
               </Link>{" "}
               för att ladda upp en CSV-fil.
