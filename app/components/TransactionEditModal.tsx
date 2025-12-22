@@ -42,6 +42,17 @@ export default function TransactionEditModal({
     initializeForm();
   }, [transaction]);
 
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [onClose]);
+
   async function loadAccounts() {
     const data = await getAccounts();
     setAccounts(data);

@@ -6,12 +6,15 @@ import { Account, Group, AccountType } from "../types";
 import {
   getAccounts,
   addAccount,
+  updateAccount,
   deleteAccount,
   getGroups,
   addGroup,
   updateGroup,
   deleteGroup,
 } from "../actions";
+import AlertModal from "../components/AlertModal";
+import ConfirmModal from "../components/ConfirmModal";
 
 export default function KontonPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -34,10 +37,33 @@ export default function KontonPage() {
     namn: "",
     typ: "Utgift" as AccountType,
   });
+  const [alertMessage, setAlertMessage] = useState("");
+  const [confirmAction, setConfirmAction] = useState<{
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
+  const [editingAccount, setEditingAccount] = useState<Account | null>(null);
+  const [editAccountName, setEditAccountName] = useState("");
+  const [editAccountGroupId, setEditAccountGroupId] = useState(0);
 
   useEffect(() => {
     loadData();
   }, []);
+
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && showGroupsModal) {
+        setShowGroupsModal(false);
+        setEditingGroup(null);
+        setCreatingGroup(false);
+        setNewGroupInModal({ namn: "", typ: "Utgift" });
+      }
+    };
+
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [showGroupsModal]);
 
   async function loadData() {
     const [accountsData, groupsData] = await Promise.all([
@@ -61,7 +87,7 @@ export default function KontonPage() {
     }
 
     if (groupId === 0) {
-      alert("Välj en grupp eller skapa en ny!");
+      setAlertMessage("Välj en grupp eller skapa en ny!");
       return;
     }
 
@@ -74,10 +100,15 @@ export default function KontonPage() {
   }
 
   async function handleDelete(id: number) {
-    if (confirm("Är du säker på att du vill ta bort detta konto?")) {
-      await deleteAccount(id);
-      await loadData();
-    }
+    setConfirmAction({
+      title: "Ta bort konto",
+      message: "Är du säker på att du vill ta bort detta konto?",
+      onConfirm: async () => {
+        await deleteAccount(id);
+        await loadData();
+        setConfirmAction(null);
+      },
+    });
   }
 
   async function handleUpdateGroup(group: Group) {
@@ -87,20 +118,56 @@ export default function KontonPage() {
   }
 
   async function handleDeleteGroup(id: number) {
-    if (confirm("Är du säker på att du vill ta bort denna grupp? Alla konton i gruppen kommer också tas bort.")) {
-      await deleteGroup(id);
-      await loadData();
-    }
+    setConfirmAction({
+      title: "Ta bort grupp",
+      message: "Är du säker på att du vill ta bort denna grupp? Alla konton i gruppen kommer också tas bort.",
+      onConfirm: async () => {
+        await deleteGroup(id);
+        await loadData();
+        setConfirmAction(null);
+      },
+    });
   }
 
   async function handleCreateGroup() {
     if (!newGroupInModal.namn) {
-      alert("Gruppnamn måste anges!");
+      setAlertMessage("Gruppnamn måste anges!");
       return;
     }
     await addGroup(newGroupInModal);
     setNewGroupInModal({ namn: "", typ: "Utgift" });
     setCreatingGroup(false);
+    await loadData();
+  }
+
+  function startEditAccount(account: Account) {
+    setEditingAccount(account);
+    setEditAccountName(account.namn);
+    setEditAccountGroupId(account.groupId);
+  }
+
+  async function handleUpdateAccount() {
+    if (!editingAccount) return;
+
+    if (!editAccountName.trim()) {
+      setAlertMessage("Kontonamn måste anges!");
+      return;
+    }
+
+    if (editAccountGroupId === 0) {
+      setAlertMessage("Välj en grupp!");
+      return;
+    }
+
+    await updateAccount({
+      id: editingAccount.id,
+      namn: editAccountName,
+      groupId: editAccountGroupId,
+    });
+
+    setEditingAccount(null);
+    setEditAccountName("");
+    setEditAccountGroupId(0);
     await loadData();
   }
 
@@ -285,32 +352,86 @@ export default function KontonPage() {
                       key={account.id}
                       className="flex items-center justify-between px-6 py-4 hover:bg-zinc-50 dark:hover:bg-zinc-700/50"
                     >
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
-                          {account.namn}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <span
-                          className={`text-sm font-medium ${
-                            account.group?.typ === "Intäkt"
-                              ? "text-green-600 dark:text-green-400"
-                              : account.group?.typ === "Utgift"
-                              ? "text-red-600 dark:text-red-400"
-                              : account.group?.typ === "Tillgång"
-                              ? "text-blue-600 dark:text-blue-400"
-                              : "text-orange-600 dark:text-orange-400"
-                          }`}
-                        >
-                          {account.group?.typ}
-                        </span>
-                        <button
-                          onClick={() => handleDelete(account.id)}
-                          className="text-sm text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
-                        >
-                          Ta bort
-                        </button>
-                      </div>
+                      {editingAccount?.id === account.id ? (
+                        <>
+                          <div className="flex-1 flex gap-3 items-center">
+                            <input
+                              type="text"
+                              value={editAccountName}
+                              onChange={(e) => setEditAccountName(e.target.value)}
+                              className="flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+                              placeholder="Kontonamn"
+                            />
+                            <select
+                              value={editAccountGroupId}
+                              onChange={(e) => setEditAccountGroupId(parseInt(e.target.value))}
+                              className="w-48 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+                            >
+                              <option value={0}>Välj grupp...</option>
+                              {groups.map((group) => (
+                                <option key={group.id} value={group.id}>
+                                  {group.namn} ({group.typ})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="flex items-center gap-2 ml-4">
+                            <button
+                              onClick={handleUpdateAccount}
+                              className="text-sm text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-300"
+                            >
+                              Spara
+                            </button>
+                            <span className="text-zinc-300 dark:text-zinc-600">|</span>
+                            <button
+                              onClick={() => {
+                                setEditingAccount(null);
+                                setEditAccountName("");
+                                setEditAccountGroupId(0);
+                              }}
+                              className="text-sm text-zinc-600 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-300"
+                            >
+                              Avbryt
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="flex-1">
+                            <p className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
+                              {account.namn}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-4">
+                            <span
+                              className={`text-sm font-medium ${
+                                account.group?.typ === "Intäkt"
+                                  ? "text-green-600 dark:text-green-400"
+                                  : account.group?.typ === "Utgift"
+                                  ? "text-red-600 dark:text-red-400"
+                                  : account.group?.typ === "Tillgång"
+                                  ? "text-blue-600 dark:text-blue-400"
+                                  : "text-orange-600 dark:text-orange-400"
+                              }`}
+                            >
+                              {account.group?.typ}
+                            </span>
+                            <button
+                              onClick={() => startEditAccount(account)}
+                              className="text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
+                            >
+                              Redigera
+                            </button>
+                            <span className="text-zinc-300 dark:text-zinc-600">|</span>
+                            <button
+                              onClick={() => handleDelete(account.id)}
+                              className="text-sm text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
+                            >
+                              Ta bort
+                            </button>
+                          </div>
+                        </>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -506,6 +627,24 @@ export default function KontonPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {alertMessage && (
+        <AlertModal
+          message={alertMessage}
+          onClose={() => setAlertMessage("")}
+          variant="error"
+        />
+      )}
+
+      {confirmAction && (
+        <ConfirmModal
+          title={confirmAction.title}
+          message={confirmAction.message}
+          onConfirm={confirmAction.onConfirm}
+          onCancel={() => setConfirmAction(null)}
+          variant="danger"
+        />
       )}
     </div>
   );

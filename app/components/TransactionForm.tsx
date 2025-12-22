@@ -75,6 +75,17 @@ export default function TransactionForm({
     checkPeriodLock();
   }, [date]);
 
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [onClose]);
+
   const totalDebet = posts.reduce((sum, post) => sum + post.debet, 0);
   const totalKredit = posts.reduce((sum, post) => sum + post.kredit, 0);
   const difference = totalDebet - totalKredit;
@@ -250,13 +261,20 @@ export default function TransactionForm({
             </button>
           </div>
           {bankEvent && (
-            <div className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-              Bankhändelse: {bankEvent.description} (
-              {bankEvent.amount.toLocaleString("sv-SE", {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
-              )
+            <div className="mt-2 p-3 bg-zinc-50 dark:bg-zinc-900 rounded-md border border-zinc-200 dark:border-zinc-700">
+              <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1">
+                Original bankhändelse:
+              </div>
+              <div className="text-sm text-zinc-900 dark:text-zinc-50 font-medium">
+                {bankEvent.description}
+              </div>
+              <div className="text-sm text-zinc-600 dark:text-zinc-400 mt-1">
+                {bankEvent.amount.toLocaleString("sv-SE", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}{" "}
+                kr
+              </div>
             </div>
           )}
         </div>
@@ -308,13 +326,19 @@ export default function TransactionForm({
             </div>
             <div>
               <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
-                Beskrivning
+                Transaktionsbeskrivning
+                {bankEvent && (
+                  <span className="ml-1 text-xs font-normal text-zinc-500 dark:text-zinc-400">
+                    (Redigera vid behov)
+                  </span>
+                )}
               </label>
               <input
                 type="text"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 required
+                placeholder={bankEvent ? "Redigera beskrivning..." : "Beskrivning..."}
                 className="w-full rounded-md border border-zinc-300 px-3 py-2 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
               />
             </div>
@@ -517,11 +541,22 @@ export default function TransactionForm({
         </div>
 
         {/* Recurring Items Sidebar */}
-        {recurringItems.length > 0 && (
-          <div className="w-80 border-l border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 overflow-y-auto p-4">
-            <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 mb-4">
-              Återkommande
-            </h3>
+        <div className="w-80 border-l border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 overflow-y-auto p-4">
+          <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 mb-4">
+            Återkommande
+          </h3>
+          {recurringItems.length === 0 ? (
+            <p className="text-sm text-zinc-600 dark:text-zinc-400 text-center py-4">
+              Inga återkommande transaktioner för denna månad.{" "}
+              <span className="block mt-2 text-xs">
+                Skapa återkommande poster på{" "}
+                <a href="/recurring" className="underline hover:text-zinc-900 dark:hover:text-zinc-50">
+                  Återkommande
+                </a>{" "}
+                sidan.
+              </span>
+            </p>
+          ) : (
             <div className="space-y-2">
               {recurringItems.map((item) => (
                 <button
@@ -573,8 +608,8 @@ export default function TransactionForm({
                 </button>
               ))}
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

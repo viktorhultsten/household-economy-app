@@ -567,11 +567,38 @@ export async function getAllTransactions(): Promise<Transaction[]> {
       },
     }));
 
+    // Fetch bank event if this transaction has one
+    let bankEvent: BankEvent | undefined = undefined;
+    if (txnRow.bank_event_id) {
+      const bankEventRow = await queryOne<{
+        id: number;
+        date: string;
+        description: string;
+        amount: number;
+        is_posted: number;
+        transaction_id: number | null;
+        import_id: number | null;
+      }>("SELECT * FROM bank_events WHERE id = $1", [txnRow.bank_event_id]);
+
+      if (bankEventRow) {
+        bankEvent = {
+          id: bankEventRow.id,
+          date: new Date(bankEventRow.date),
+          description: bankEventRow.description,
+          amount: bankEventRow.amount,
+          isPosted: bankEventRow.is_posted === 1,
+          transactionId: bankEventRow.transaction_id ?? undefined,
+          importId: bankEventRow.import_id ?? undefined,
+        };
+      }
+    }
+
     transactions.push({
       id: txnRow.id,
       date: new Date(txnRow.date),
       description: txnRow.description,
       bankEventId: txnRow.bank_event_id ?? undefined,
+      bankEvent,
       posts,
     });
   }

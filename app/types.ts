@@ -40,6 +40,7 @@ export interface Transaction {
   date: Date;
   description: string;
   bankEventId?: number;
+  bankEvent?: BankEvent; // Include full bank event for displaying original description
   posts: Post[];
 }
 

@@ -81,6 +81,7 @@ export default function TransaktionerPage() {
       if (searchQuery) {
         const query = searchQuery.toLowerCase();
         const matchesDescription = txn.description.toLowerCase().includes(query);
+        const matchesBankEvent = txn.bankEvent?.description.toLowerCase().includes(query) ?? false;
         const matchesAccount = txn.posts.some(
           (post) =>
             post.account?.namn.toLowerCase().includes(query) ||
@@ -89,7 +90,7 @@ export default function TransaktionerPage() {
         const matchesPostDescription = txn.posts.some(
           (post) => post.description?.toLowerCase().includes(query)
         );
-        if (!matchesDescription && !matchesAccount && !matchesPostDescription) {
+        if (!matchesDescription && !matchesBankEvent && !matchesAccount && !matchesPostDescription) {
           return false;
         }
       }
@@ -299,6 +300,11 @@ export default function TransaktionerPage() {
                       {formatSwedishDate(transaction.date)}
                     </td>
                     <td className="px-6 py-4">
+                      {transaction.bankEvent && (
+                        <div className="text-xs text-zinc-500 dark:text-zinc-400 mb-1">
+                          Bankhändelse: {transaction.bankEvent.description}
+                        </div>
+                      )}
                       <div className="text-sm text-zinc-900 dark:text-zinc-50">
                         {transaction.description}
                       </div>

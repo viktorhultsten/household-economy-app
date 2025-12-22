@@ -10,6 +10,8 @@ import {
   deleteBookingTemplate,
   getAccounts,
 } from "../actions";
+import AlertModal from "../components/AlertModal";
+import ConfirmModal from "../components/ConfirmModal";
 
 interface TemplateRowInput {
   accountId: number;
@@ -30,6 +32,12 @@ export default function MallarPage() {
   const [formRows, setFormRows] = useState<TemplateRowInput[]>([
     { accountId: 0, isDebet: true, description: "" },
   ]);
+  const [alertMessage, setAlertMessage] = useState("");
+  const [confirmAction, setConfirmAction] = useState<{
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
 
   useEffect(() => {
     loadData();
@@ -73,13 +81,13 @@ export default function MallarPage() {
     e.preventDefault();
 
     if (!formName.trim()) {
-      alert("Mallnamn måste anges");
+      setAlertMessage("Mallnamn måste anges");
       return;
     }
 
     const validRows = formRows.filter((row) => row.accountId > 0);
     if (validRows.length === 0) {
-      alert("Minst en rad med konto måste anges");
+      setAlertMessage("Minst en rad med konto måste anges");
       return;
     }
 
@@ -92,25 +100,25 @@ export default function MallarPage() {
       await loadData();
       resetForm();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Ett fel uppstod");
+      setAlertMessage(err instanceof Error ? err.message : "Ett fel uppstod");
     }
   }
 
   async function handleDelete(id: number) {
-    if (
-      !confirm(
-        "Är du säker på att du vill ta bort denna mall? Denna åtgärd kan inte ångras."
-      )
-    ) {
-      return;
-    }
-
-    try {
-      await deleteBookingTemplate(id);
-      await loadData();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Kunde inte ta bort mallen");
-    }
+    setConfirmAction({
+      title: "Ta bort mall",
+      message: "Är du säker på att du vill ta bort denna mall? Denna åtgärd kan inte ångras.",
+      onConfirm: async () => {
+        try {
+          await deleteBookingTemplate(id);
+          await loadData();
+          setConfirmAction(null);
+        } catch (err) {
+          setAlertMessage(err instanceof Error ? err.message : "Kunde inte ta bort mallen");
+          setConfirmAction(null);
+        }
+      },
+    });
   }
 
   function startEdit(template: BookingTemplate) {
@@ -374,6 +382,24 @@ export default function MallarPage() {
           </div>
         )}
       </main>
+
+      {alertMessage && (
+        <AlertModal
+          message={alertMessage}
+          onClose={() => setAlertMessage("")}
+          variant="error"
+        />
+      )}
+
+      {confirmAction && (
+        <ConfirmModal
+          title={confirmAction.title}
+          message={confirmAction.message}
+          onConfirm={confirmAction.onConfirm}
+          onCancel={() => setConfirmAction(null)}
+          variant="danger"
+        />
+      )}
     </div>
   );
 }

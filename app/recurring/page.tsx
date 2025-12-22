@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { RecurringItem } from "../types";
 import { getRecurringItems, createRecurringItem, updateRecurringItem, deleteRecurringItem } from "../actions";
+import ConfirmModal from "../components/ConfirmModal";
 
 const MONTHS = [
   { value: 1, label: "Jan" },
@@ -31,6 +32,11 @@ export default function UpprepningarPage() {
   const [editMonths, setEditMonths] = useState<number[]>([1,2,3,4,5,6,7,8,9,10,11,12]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [error, setError] = useState("");
+  const [confirmAction, setConfirmAction] = useState<{
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
 
   useEffect(() => {
     loadItems();
@@ -99,16 +105,20 @@ export default function UpprepningarPage() {
   }
 
   async function handleDelete(id: number) {
-    if (!confirm("Är du säker på att du vill ta bort denna upprepande post?")) {
-      return;
-    }
-
-    try {
-      await deleteRecurringItem(id);
-      await loadItems();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Kunde inte ta bort post");
-    }
+    setConfirmAction({
+      title: "Ta bort återkommande post",
+      message: "Är du säker på att du vill ta bort denna återkommande post?",
+      onConfirm: async () => {
+        try {
+          await deleteRecurringItem(id);
+          await loadItems();
+          setConfirmAction(null);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Kunde inte ta bort post");
+          setConfirmAction(null);
+        }
+      },
+    });
   }
 
   function startEdit(item: RecurringItem) {
@@ -188,8 +198,16 @@ export default function UpprepningarPage() {
                 <input
                   type="number"
                   min="1"
-                  value={newItemExpected}
-                  onChange={(e) => setNewItemExpected(parseInt(e.target.value))}
+                  value={newItemExpected || ""}
+                  onChange={(e) => {
+                    const val = e.target.value === "" ? "" : parseInt(e.target.value);
+                    setNewItemExpected(val as number);
+                  }}
+                  onBlur={(e) => {
+                    if (e.target.value === "" || parseInt(e.target.value) < 1) {
+                      setNewItemExpected(1);
+                    }
+                  }}
                   className="w-full rounded-md border border-zinc-300 px-3 py-2 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
                 />
               </div>
@@ -279,8 +297,16 @@ export default function UpprepningarPage() {
                           <input
                             type="number"
                             min="1"
-                            value={editExpected}
-                            onChange={(e) => setEditExpected(parseInt(e.target.value))}
+                            value={editExpected || ""}
+                            onChange={(e) => {
+                              const val = e.target.value === "" ? "" : parseInt(e.target.value);
+                              setEditExpected(val as number);
+                            }}
+                            onBlur={(e) => {
+                              if (e.target.value === "" || parseInt(e.target.value) < 1) {
+                                setEditExpected(1);
+                              }
+                            }}
                             className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50 text-center"
                           />
                         </td>
@@ -366,6 +392,16 @@ export default function UpprepningarPage() {
           </div>
         )}
       </main>
+
+      {confirmAction && (
+        <ConfirmModal
+          title={confirmAction.title}
+          message={confirmAction.message}
+          onConfirm={confirmAction.onConfirm}
+          onCancel={() => setConfirmAction(null)}
+          variant="danger"
+        />
+      )}
     </div>
   );
 }
