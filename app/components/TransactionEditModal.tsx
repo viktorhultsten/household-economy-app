@@ -1,20 +1,21 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Transaction, Account } from "../types";
-import { getAccounts, updateTransaction } from "../actions";
+import { Transaction, Account, Post, BookingTemplate, RecurringItemStatus } from "../types";
+import {
+  getAccounts,
+  updateTransaction,
+  isPeriodLocked,
+  getBookingTemplates,
+  createBookingTemplate,
+  getRecurringItemsStatus,
+  linkTransactionToRecurringItem,
+} from "../actions";
 
 interface TransactionEditModalProps {
   transaction: Transaction;
   onClose: () => void;
   onSuccess: () => void;
-}
-
-function formatSwedishAmount(amount: number): string {
-  return amount.toLocaleString("sv-SE", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
 }
 
 export default function TransactionEditModal({
@@ -23,24 +24,57 @@ export default function TransactionEditModal({
   onSuccess,
 }: TransactionEditModalProps) {
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [date, setDate] = useState("");
-  const [description, setDescription] = useState("");
-  const [posts, setPosts] = useState<
-    Array<{
-      id?: number;
-      accountId: number;
-      debet: number;
-      kredit: number;
-      description: string;
-    }>
-  >([]);
+  const [templates, setTemplates] = useState<BookingTemplate[]>([]);
+  const [recurringItems, setRecurringItems] = useState<RecurringItemStatus[]>([]);
+  const [selectedRecurringItemId, setSelectedRecurringItemId] = useState<number | null>(null);
+  const bankEvent = transaction.bankEvent;
+  const [date, setDate] = useState(transaction.date);
+  const [description, setDescription] = useState(transaction.description);
+  const [posts, setPosts] = useState<Omit<Post, "id" | "transactionId">[]>(
+    transaction.posts.map((post) => ({
+      accountId: post.accountId,
+      debet: post.debet,
+      kredit: post.kredit,
+      description: post.description || "",
+    }))
+  );
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [periodLockWarning, setPeriodLockWarning] = useState("");
+  const [showSaveTemplate, setShowSaveTemplate] = useState(false);
+  const [templateName, setTemplateName] = useState("");
 
   useEffect(() => {
-    loadAccounts();
-    initializeForm();
-  }, [transaction]);
+    async function loadData() {
+      const year = date.getFullYear();
+      const month = date.getMonth() + 1;
+      const [accountsData, templatesData, recurringItemsData] = await Promise.all([
+        getAccounts(),
+        getBookingTemplates(),
+        getRecurringItemsStatus(year, month),
+      ]);
+      setAccounts(accountsData);
+      setTemplates(templatesData);
+      setRecurringItems(recurringItemsData);
+    }
+    loadData();
+  }, [date]);
+
+  useEffect(() => {
+    async function checkPeriodLock() {
+      const isLocked = await isPeriodLocked(date);
+      if (isLocked) {
+        const year = date.getFullYear();
+        const month = date.getMonth() + 1;
+        setPeriodLockWarning(
+          `Perioden ${year}-${String(month).padStart(2, "0")} är låst. Du kan inte spara transaktioner i denna period.`
+        );
+      } else {
+        setPeriodLockWarning("");
+      }
+    }
+    checkPeriodLock();
+  }, [date]);
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -53,68 +87,120 @@ export default function TransactionEditModal({
     return () => document.removeEventListener("keydown", handleEscape);
   }, [onClose]);
 
-  async function loadAccounts() {
-    const data = await getAccounts();
-    setAccounts(data);
-  }
+  const totalDebet = posts.reduce((sum, post) => sum + post.debet, 0);
+  const totalKredit = posts.reduce((sum, post) => sum + post.kredit, 0);
+  const difference = totalDebet - totalKredit;
+  const isBalanced = Math.abs(difference) < 0.01;
 
-  function initializeForm() {
-    // Format date as YYYY-MM-DD for input
-    const dateStr = transaction.date.toISOString().split("T")[0];
-    setDate(dateStr);
-    setDescription(transaction.description);
-    setPosts(
-      transaction.posts.map((post) => ({
-        id: post.id,
-        accountId: post.accountId,
-        debet: post.debet,
-        kredit: post.kredit,
-        description: post.description || "",
-      }))
-    );
-  }
-
-  function calculateBalance(): { totalDebet: number; totalKredit: number; difference: number } {
-    const totalDebet = posts.reduce((sum, post) => sum + post.debet, 0);
-    const totalKredit = posts.reduce((sum, post) => sum + post.kredit, 0);
-    return {
-      totalDebet,
-      totalKredit,
-      difference: totalDebet - totalKredit,
-    };
-  }
-
-  function addPost() {
-    setPosts([...posts, { accountId: 0, debet: 0, kredit: 0, description: "" }]);
-  }
-
-  function removePost(index: number) {
-    setPosts(posts.filter((_, i) => i !== index));
-  }
-
-  function updatePost(
+  const updatePost = (
     index: number,
-    field: "accountId" | "debet" | "kredit" | "description",
+    field: keyof Omit<Post, "id" | "transactionId">,
     value: number | string
-  ) {
-    const updated = [...posts];
-    if (field === "accountId") {
-      updated[index].accountId = value as number;
-    } else if (field === "debet") {
-      updated[index].debet = value as number;
-    } else if (field === "kredit") {
-      updated[index].kredit = value as number;
+  ) => {
+    const newPosts = [...posts];
+    const currentPost = newPosts[index];
+
+    if (field === "debet" && typeof value === "number") {
+      if (value > 0 && currentPost.kredit > 0) {
+        newPosts[index] = { ...currentPost, debet: value, kredit: 0 };
+      } else {
+        newPosts[index] = { ...currentPost, debet: value };
+      }
+    } else if (field === "kredit" && typeof value === "number") {
+      if (value > 0 && currentPost.debet > 0) {
+        newPosts[index] = { ...currentPost, kredit: value, debet: 0 };
+      } else {
+        newPosts[index] = { ...currentPost, kredit: value };
+      }
     } else {
-      updated[index].description = value as string;
+      newPosts[index] = { ...currentPost, [field]: value };
     }
-    setPosts(updated);
+
+    setPosts(newPosts);
+  };
+
+  const loadTemplate = (templateId: number) => {
+    const template = templates.find((t) => t.id === templateId);
+    if (!template) return;
+
+    const newPosts = template.rows.map((row) => {
+      if (bankEvent) {
+        const amount = Math.abs(bankEvent.amount);
+        return {
+          accountId: row.accountId,
+          debet: row.isDebet ? amount : 0,
+          kredit: !row.isDebet ? amount : 0,
+          description: row.description || "",
+        };
+      } else {
+        return {
+          accountId: row.accountId,
+          debet: 0,
+          kredit: 0,
+          description: row.description || "",
+        };
+      }
+    });
+
+    setPosts(newPosts);
+  };
+
+  const addPost = () => {
+    setPosts([
+      ...posts,
+      {
+        accountId: 0,
+        debet: 0,
+        kredit: 0,
+        description: "",
+      },
+    ]);
+  };
+
+  const removePost = (index: number) => {
+    if (posts.length > 2) {
+      setPosts(posts.filter((_, i) => i !== index));
+    }
+  };
+
+  async function saveAsTemplate() {
+    if (!templateName.trim()) {
+      setError("Mallnamn krävs");
+      return;
+    }
+
+    if (!isBalanced) {
+      setError("Mallen måste vara balanserad");
+      return;
+    }
+
+    if (posts.some((p) => p.accountId === 0)) {
+      setError("Alla posteringar måste ha ett konto");
+      return;
+    }
+
+    try {
+      const templateRows = posts.map((post, index) => ({
+        accountId: post.accountId,
+        isDebet: post.debet > 0,
+        description: post.description || "",
+        rowOrder: index,
+      }));
+
+      await createBookingTemplate(templateName, templateRows);
+      setShowSaveTemplate(false);
+      setTemplateName("");
+      const templatesData = await getBookingTemplates();
+      setTemplates(templatesData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Kunde inte spara mall");
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
 
-    // Validation
     if (!date || !description) {
       setError("Datum och beskrivning krävs");
       return;
@@ -130,9 +216,18 @@ export default function TransactionEditModal({
       return;
     }
 
-    const { difference } = calculateBalance();
-    if (Math.abs(difference) > 0.001) {
-      setError(`Posteringarna balanserar inte (skillnad: ${formatSwedishAmount(difference)} kr)`);
+    if (!isBalanced) {
+      setError(
+        `Posteringarna balanserar inte (skillnad: ${difference.toLocaleString(
+          "sv-SE",
+          { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+        )} kr)`
+      );
+      return;
+    }
+
+    if (periodLockWarning) {
+      setError(periodLockWarning);
       return;
     }
 
@@ -140,10 +235,15 @@ export default function TransactionEditModal({
 
     try {
       await updateTransaction(transaction.id, {
-        date: new Date(date),
+        date,
         description,
         posts,
       });
+
+      if (selectedRecurringItemId) {
+        await linkTransactionToRecurringItem(transaction.id, selectedRecurringItemId);
+      }
+
       onSuccess();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ett fel uppstod");
@@ -151,62 +251,118 @@ export default function TransactionEditModal({
     }
   }
 
-  const { totalDebet, totalKredit, difference } = calculateBalance();
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="rounded-lg bg-white dark:bg-zinc-800 shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="sticky top-0 bg-white dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 px-6 py-4">
-          <h2 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">
-            Redigera transaktion
-          </h2>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white dark:bg-zinc-800 rounded-lg shadow-xl max-w-7xl w-full max-h-[90vh] flex overflow-hidden">
+        {/* Main Form */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="sticky top-0 bg-white dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 px-6 py-4 shrink-0">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">
+              Redigera transaktion
+            </h2>
+            <button
+              onClick={onClose}
+              className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+            >
+              ✕
+            </button>
+          </div>
+          {bankEvent && (
+            <div className="mt-2 p-3 bg-zinc-50 dark:bg-zinc-900 rounded-md border border-zinc-200 dark:border-zinc-700">
+              <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1">
+                Original bankhändelse:
+              </div>
+              <div className="text-sm text-zinc-900 dark:text-zinc-50 font-medium">
+                {bankEvent.description}
+              </div>
+              <div className="text-sm text-zinc-600 dark:text-zinc-400 mt-1">
+                {bankEvent.amount.toLocaleString("sv-SE", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}{" "}
+                kr
+              </div>
+            </div>
+          )}
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6">
+        <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto flex-1">
           {error && (
             <div className="mb-4 rounded-md bg-red-50 dark:bg-red-900/20 p-4 text-sm text-red-800 dark:text-red-200">
               {error}
             </div>
           )}
 
-          <div className="mb-6 grid grid-cols-2 gap-4">
-            <div>
+          {periodLockWarning && (
+            <div className="mb-4 rounded-md bg-amber-50 dark:bg-amber-900/20 p-4 text-sm text-amber-800 dark:text-amber-200">
+              ⚠️ {periodLockWarning}
+            </div>
+          )}
+
+          {templates.length > 0 && (
+            <div className="mb-4">
               <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
+                Använd bokföringsmall
+              </label>
+              <select
+                onChange={(e) => loadTemplate(parseInt(e.target.value))}
+                className="w-full rounded-md border border-zinc-300 px-3 py-2 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+              >
+                <option value="">Välj mall...</option>
+                {templates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.namn}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
                 Datum
               </label>
               <input
                 type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+                value={date.toISOString().split("T")[0]}
+                onChange={(e) => setDate(new Date(e.target.value))}
                 required
+                className="w-full rounded-md border border-zinc-300 px-3 py-2 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
-                Beskrivning
+              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                Transaktionsbeskrivning
+                {bankEvent && (
+                  <span className="ml-1 text-xs font-normal text-zinc-500 dark:text-zinc-400">
+                    (Redigera vid behov)
+                  </span>
+                )}
               </label>
               <input
                 type="text"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
                 required
+                placeholder={bankEvent ? "Redigera beskrivning..." : "Beskrivning..."}
+                className="w-full rounded-md border border-zinc-300 px-3 py-2 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
               />
             </div>
           </div>
 
-          <div className="mb-4">
+          <div>
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
-                Posteringar
-              </h3>
+              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                Poster
+              </label>
               <button
                 type="button"
                 onClick={addPost}
-                className="rounded-md bg-zinc-900 px-3 py-1 text-sm font-semibold text-zinc-50 hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                className="text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
               >
-                + Lägg till postering
+                + Lägg till post
               </button>
             </div>
 
@@ -214,10 +370,10 @@ export default function TransactionEditModal({
               {posts.map((post, index) => (
                 <div
                   key={index}
-                  className="grid grid-cols-12 gap-3 items-start p-4 rounded-lg bg-zinc-50 dark:bg-zinc-900"
+                  className="flex gap-3 items-start border border-zinc-200 dark:border-zinc-700 rounded-md p-3"
                 >
-                  <div className="col-span-4">
-                    <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                  <div className="flex-1">
+                    <label className="block text-xs text-zinc-600 dark:text-zinc-400 mb-1">
                       Konto
                     </label>
                     <select
@@ -225,8 +381,8 @@ export default function TransactionEditModal({
                       onChange={(e) =>
                         updatePost(index, "accountId", parseInt(e.target.value))
                       }
-                      className="w-full rounded-md border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
                       required
+                      className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
                     >
                       <option value={0}>Välj konto...</option>
                       {accounts.map((account) => (
@@ -237,116 +393,231 @@ export default function TransactionEditModal({
                     </select>
                   </div>
 
-                  <div className="col-span-2">
-                    <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
-                      Debet (kr)
+                  <div className="w-32">
+                    <label className="block text-xs text-zinc-600 dark:text-zinc-400 mb-1">
+                      Debet
                     </label>
                     <input
                       type="number"
                       step="0.01"
                       min="0"
-                      value={post.debet}
+                      value={post.debet || ""}
                       onChange={(e) =>
-                        updatePost(index, "debet", parseFloat(e.target.value) || 0)
+                        updatePost(index, "debet", e.target.value === "" ? 0 : parseFloat(e.target.value))
                       }
-                      className="w-full rounded-md border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+                      className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
                     />
                   </div>
 
-                  <div className="col-span-2">
-                    <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
-                      Kredit (kr)
+                  <div className="w-32">
+                    <label className="block text-xs text-zinc-600 dark:text-zinc-400 mb-1">
+                      Kredit
                     </label>
                     <input
                       type="number"
                       step="0.01"
                       min="0"
-                      value={post.kredit}
+                      value={post.kredit || ""}
                       onChange={(e) =>
-                        updatePost(index, "kredit", parseFloat(e.target.value) || 0)
+                        updatePost(index, "kredit", e.target.value === "" ? 0 : parseFloat(e.target.value))
                       }
-                      className="w-full rounded-md border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+                      className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
                     />
                   </div>
 
-                  <div className="col-span-3">
-                    <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                  <div className="flex-1">
+                    <label className="block text-xs text-zinc-600 dark:text-zinc-400 mb-1">
                       Beskrivning (valfri)
                     </label>
                     <input
                       type="text"
                       value={post.description}
-                      onChange={(e) => updatePost(index, "description", e.target.value)}
-                      className="w-full rounded-md border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+                      onChange={(e) =>
+                        updatePost(index, "description", e.target.value)
+                      }
+                      className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
                     />
                   </div>
 
-                  <div className="col-span-1 flex items-end">
+                  {posts.length > 2 && (
                     <button
                       type="button"
                       onClick={() => removePost(index)}
-                      className="w-full rounded-md bg-red-600 px-2 py-1.5 text-sm font-semibold text-white hover:bg-red-700 dark:bg-red-700 dark:hover:bg-red-600"
-                      disabled={posts.length <= 2}
+                      className="mt-6 text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
                     >
-                      ×
+                      ✕
                     </button>
-                  </div>
+                  )}
                 </div>
               ))}
             </div>
 
-            <div className="mt-4 rounded-lg bg-zinc-100 dark:bg-zinc-900 px-4 py-3">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                  Total Debet:
+            <div className="mt-3 flex items-center justify-between text-sm">
+              <div className="flex gap-4">
+                <span className="text-zinc-600 dark:text-zinc-400">
+                  Debet: {totalDebet.toLocaleString("sv-SE", {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
                 </span>
-                <span className="text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
-                  {formatSwedishAmount(totalDebet)} kr
-                </span>
-              </div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                  Total Kredit:
-                </span>
-                <span className="text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
-                  {formatSwedishAmount(totalKredit)} kr
+                <span className="text-zinc-600 dark:text-zinc-400">
+                  Kredit: {totalKredit.toLocaleString("sv-SE", {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
                 </span>
               </div>
-              <div className="flex items-center justify-between pt-2 border-t border-zinc-300 dark:border-zinc-700">
-                <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                  Balans:
-                </span>
-                <span
-                  className={`text-lg font-bold tabular-nums ${
-                    Math.abs(difference) < 0.001
-                      ? "text-green-600 dark:text-green-400"
-                      : "text-red-600 dark:text-red-400"
-                  }`}
-                >
-                  {Math.abs(difference) < 0.001 ? "Balanserad ✓" : `Skillnad: ${formatSwedishAmount(difference)} kr`}
-                </span>
-              </div>
+              <span
+                className={`font-medium tabular-nums ${
+                  isBalanced
+                    ? "text-green-600 dark:text-green-400"
+                    : "text-red-600 dark:text-red-400"
+                }`}
+              >
+                {isBalanced
+                  ? "Balanserad ✓"
+                  : `Skillnad: ${difference.toLocaleString("sv-SE", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })} kr`}
+              </span>
             </div>
           </div>
 
-          <div className="flex items-center justify-end gap-3 pt-4 border-t border-zinc-200 dark:border-zinc-700">
+          {showSaveTemplate && (
+            <div className="mb-4 p-4 border border-zinc-200 dark:border-zinc-700 rounded-md bg-zinc-50 dark:bg-zinc-900">
+              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
+                Mallnamn
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={templateName}
+                  onChange={(e) => setTemplateName(e.target.value)}
+                  placeholder="T.ex. Hyra, Lön, etc."
+                  className="flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+                />
+                <button
+                  type="button"
+                  onClick={saveAsTemplate}
+                  className="px-4 py-2 text-sm font-semibold rounded-md bg-zinc-900 text-zinc-50 hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                >
+                  Spara mall
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSaveTemplate(false);
+                    setTemplateName("");
+                  }}
+                  className="px-4 py-2 text-sm font-medium text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-50"
+                >
+                  Avbryt
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-3 justify-between pt-4 border-t border-zinc-200 dark:border-zinc-700">
             <button
               type="button"
-              onClick={onClose}
-              className="rounded-md px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-100 dark:text-zinc-50 dark:hover:bg-zinc-700"
+              onClick={() => setShowSaveTemplate(!showSaveTemplate)}
+              className="px-4 py-2 text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
               disabled={loading}
             >
-              Avbryt
+              {showSaveTemplate ? "Dölj" : "Spara som mall"}
             </button>
-            <button
-              type="submit"
-              className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-zinc-50 hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200 disabled:opacity-50"
-              disabled={loading || Math.abs(difference) > 0.001}
-            >
-              {loading ? "Sparar..." : "Spara ändringar"}
-            </button>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 text-sm font-medium text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-50"
+                disabled={loading}
+              >
+                Avbryt
+              </button>
+              <button
+                type="submit"
+                disabled={!isBalanced || loading || !!periodLockWarning}
+                className="px-4 py-2 text-sm font-semibold rounded-md bg-zinc-900 text-zinc-50 hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              >
+                {loading ? "Sparar..." : "Spara transaktion"}
+              </button>
+            </div>
           </div>
         </form>
+        </div>
+
+        {/* Recurring Items Sidebar */}
+        <div className="w-80 border-l border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 overflow-y-auto p-4">
+          <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 mb-4">
+            Återkommande
+          </h3>
+          {recurringItems.length === 0 ? (
+            <p className="text-sm text-zinc-600 dark:text-zinc-400 text-center py-4">
+              Inga återkommande transaktioner för denna månad.{" "}
+              <span className="block mt-2 text-xs">
+                Skapa återkommande poster på{" "}
+                <a href="/recurring" className="underline hover:text-zinc-900 dark:hover:text-zinc-50">
+                  Återkommande
+                </a>{" "}
+                sidan.
+              </span>
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {recurringItems.map((item) => (
+                <button
+                  key={item.recurringItem.id}
+                  type="button"
+                  onClick={() => setSelectedRecurringItemId(
+                    selectedRecurringItemId === item.recurringItem.id
+                      ? null
+                      : item.recurringItem.id
+                  )}
+                  className={`w-full text-left p-3 rounded-md border transition-colors ${
+                    selectedRecurringItemId === item.recurringItem.id
+                      ? "border-zinc-900 dark:border-zinc-50 bg-zinc-100 dark:bg-zinc-800"
+                      : "border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  <div className="flex items-start justify-between mb-2">
+                    <span className="font-medium text-sm text-zinc-900 dark:text-zinc-50">
+                      {item.recurringItem.namn}
+                    </span>
+                    <span className={`text-xs px-2 py-1 rounded ${
+                      item.isComplete
+                        ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300"
+                        : "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
+                    }`}>
+                      {item.currentPeriodCount}/{item.recurringItem.expectedPerMonth}
+                    </span>
+                  </div>
+                  <div className="text-xs text-zinc-600 dark:text-zinc-400 space-y-1">
+                    <div className="flex justify-between">
+                      <span>Denna månad:</span>
+                      <span className="font-medium tabular-nums">
+                        {item.currentPeriodAmount.toLocaleString("sv-SE", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })} kr
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Förra månaden:</span>
+                      <span className="font-medium tabular-nums">
+                        {item.previousPeriodAmount.toLocaleString("sv-SE", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })} kr
+                      </span>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

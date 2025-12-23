@@ -1044,7 +1044,7 @@ export async function getRecurringItemsStatus(
     }>(
       `SELECT
         tri.transaction_id,
-        COALESCE(SUM(ABS(p.debet - p.kredit)), 0) as total_amount
+        COALESCE(SUM(p.debet), 0) as total_amount
       FROM transaction_recurring_items tri
       JOIN transactions t ON t.id = tri.transaction_id
       LEFT JOIN posts p ON p.transaction_id = t.id
@@ -1061,7 +1061,7 @@ export async function getRecurringItemsStatus(
     }>(
       `SELECT
         tri.transaction_id,
-        COALESCE(SUM(ABS(p.debet - p.kredit)), 0) as total_amount
+        COALESCE(SUM(p.debet), 0) as total_amount
       FROM transaction_recurring_items tri
       JOIN transactions t ON t.id = tri.transaction_id
       LEFT JOIN posts p ON p.transaction_id = t.id
