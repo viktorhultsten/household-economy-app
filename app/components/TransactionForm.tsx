@@ -129,11 +129,15 @@ export default function TransactionForm({
       // Use isDebet flag from template to set up the correct side
       if (bankEvent) {
         // For bank events, put the amount on the correct side based on template
+        // If amount is negative, reverse the debit/credit assignment
         const amount = Math.abs(bankEvent.amount);
+        const isNegative = bankEvent.amount < 0;
+        const shouldDebit = isNegative ? !row.isDebet : row.isDebet;
+
         return {
           accountId: row.accountId,
-          debet: row.isDebet ? amount : 0,
-          kredit: !row.isDebet ? amount : 0,
+          debet: shouldDebit ? amount : 0,
+          kredit: !shouldDebit ? amount : 0,
           description: row.description || "",
           transactionId: 0,
         };

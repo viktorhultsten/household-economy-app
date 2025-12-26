@@ -301,8 +301,15 @@ export default function TransaktionerPage() {
                     </td>
                     <td className="px-6 py-4">
                       {transaction.bankEvent && (
-                        <div className="text-xs text-zinc-500 dark:text-zinc-400 mb-1">
-                          Bankhändelse: {transaction.bankEvent.description}
+                        <div className="text-xs text-zinc-500 dark:text-zinc-400 mb-1 flex items-center gap-2">
+                          <span>Bankhändelse: {transaction.bankEvent.description}</span>
+                          <span className={`font-medium tabular-nums ${
+                            transaction.bankEvent.amount >= 0
+                              ? 'text-green-600 dark:text-green-400'
+                              : 'text-red-600 dark:text-red-400'
+                          }`}>
+                            {formatSwedishAmount(transaction.bankEvent.amount)} kr
+                          </span>
                         </div>
                       )}
                       <div className="text-sm text-zinc-900 dark:text-zinc-50">
