@@ -405,21 +405,26 @@ export default function UpprepningarPage() {
                               const itemMonthData = monthlyOverviews.get(item.id);
                               const count = itemMonthData?.get(monthNum) || 0;
                               const expected = item.expectedPerMonth;
-                              const isMet = count >= expected;
 
                               return (
                                 <span
                                   key={monthNum}
-                                  className={`px-2 py-1 text-xs rounded font-medium ${
-                                    isMet
-                                      ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                                      : count > 0
-                                      ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                                      : 'bg-zinc-100 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300'
-                                  }`}
+                                  className="px-2 py-1 text-xs rounded bg-zinc-100 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300 flex items-center gap-1"
                                   title={`${month?.label}: ${count}/${expected} transaktioner`}
                                 >
-                                  {month?.label} {count > 0 && `(${count})`}
+                                  <span>{month?.label}</span>
+                                  <span className="flex items-center gap-0.5">
+                                    {[...Array(expected)].map((_, i) => (
+                                      <span
+                                        key={i}
+                                        className={`inline-block w-1.5 h-1.5 rounded-full ${
+                                          i < count
+                                            ? 'bg-green-600 dark:bg-green-400'
+                                            : 'bg-zinc-300 dark:bg-zinc-600'
+                                        }`}
+                                      />
+                                    ))}
+                                  </span>
                                 </span>
                               );
                             })}
