@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { RecurringItem } from "../types";
-import { getRecurringItems, createRecurringItem, updateRecurringItem, deleteRecurringItem } from "../actions";
+import { getRecurringItems, createRecurringItem, updateRecurringItem, deleteRecurringItem, getRecurringItemMonthlyOverview } from "../actions";
 import ConfirmModal from "../components/ConfirmModal";
 
 const MONTHS = [
@@ -37,16 +37,39 @@ export default function UpprepningarPage() {
     message: string;
     onConfirm: () => void;
   } | null>(null);
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [monthlyOverviews, setMonthlyOverviews] = useState<Map<number, Map<number, number>>>(new Map());
 
   useEffect(() => {
     loadItems();
   }, []);
+
+  useEffect(() => {
+    if (items.length > 0) {
+      loadMonthlyOverviews();
+    }
+  }, [items, selectedYear]);
 
   async function loadItems() {
     setLoading(true);
     const data = await getRecurringItems();
     setItems(data);
     setLoading(false);
+  }
+
+  async function loadMonthlyOverviews() {
+    const overviews = new Map<number, Map<number, number>>();
+
+    for (const item of items) {
+      const monthlyData = await getRecurringItemMonthlyOverview(item.id, selectedYear);
+      const monthMap = new Map<number, number>();
+      monthlyData.forEach(({ month, count }) => {
+        monthMap.set(month, count);
+      });
+      overviews.set(item.id, monthMap);
+    }
+
+    setMonthlyOverviews(overviews);
   }
 
   async function handleAdd() {
@@ -154,17 +177,38 @@ export default function UpprepningarPage() {
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-900">
-      <main className="mx-auto max-w-4xl px-4 py-8">
+      <main className="mx-auto max-w-7xl px-4 py-8">
         <div className="mb-8 flex items-center justify-between">
           <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">
             Återkommande
           </h1>
-          <button
-            onClick={() => setShowAddForm(true)}
-            className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-zinc-50 hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
-          >
-            Lägg till
-          </button>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-zinc-600 dark:text-zinc-400">
+                År:
+              </label>
+              <select
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                className="rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+              >
+                {[...Array(5)].map((_, i) => {
+                  const year = new Date().getFullYear() - 2 + i;
+                  return (
+                    <option key={year} value={year}>
+                      {year}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+            <button
+              onClick={() => setShowAddForm(true)}
+              className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-zinc-50 hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+            >
+              Lägg till
+            </button>
+          </div>
         </div>
 
         {error && (
@@ -273,7 +317,7 @@ export default function UpprepningarPage() {
                     Förväntat per månad
                   </th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                    Aktiva månader
+                    Aktiva månader ({selectedYear})
                   </th>
                   <th className="px-6 py-3 text-right text-sm font-semibold text-zinc-900 dark:text-zinc-50">
                     Åtgärder
@@ -358,12 +402,24 @@ export default function UpprepningarPage() {
                           <div className="flex flex-wrap gap-1">
                             {item.activeMonths.sort((a, b) => a - b).map((monthNum) => {
                               const month = MONTHS.find((m) => m.value === monthNum);
+                              const itemMonthData = monthlyOverviews.get(item.id);
+                              const count = itemMonthData?.get(monthNum) || 0;
+                              const expected = item.expectedPerMonth;
+                              const isMet = count >= expected;
+
                               return (
                                 <span
                                   key={monthNum}
-                                  className="px-2 py-1 text-xs rounded bg-zinc-100 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300"
+                                  className={`px-2 py-1 text-xs rounded font-medium ${
+                                    isMet
+                                      ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                                      : count > 0
+                                      ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                                      : 'bg-zinc-100 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300'
+                                  }`}
+                                  title={`${month?.label}: ${count}/${expected} transaktioner`}
                                 >
-                                  {month?.label}
+                                  {month?.label} {count > 0 && `(${count})`}
                                 </span>
                               );
                             })}

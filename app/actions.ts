@@ -1114,3 +1114,26 @@ export async function unlinkTransactionFromRecurringItem(
     [transactionId, recurringItemId]
   );
 }
+
+// Get transaction count by month for each recurring item
+export async function getRecurringItemMonthlyOverview(
+  recurringItemId: number,
+  year: number
+): Promise<{ month: number; count: number }[]> {
+  const rows = await queryAll<{ month: number; count: number }>(
+    `
+    SELECT
+      EXTRACT(MONTH FROM t.date::timestamp)::INTEGER as month,
+      COUNT(DISTINCT t.id)::INTEGER as count
+    FROM transactions t
+    JOIN transaction_recurring_items tri ON tri.transaction_id = t.id
+    WHERE tri.recurring_item_id = $1
+      AND EXTRACT(YEAR FROM t.date::timestamp) = $2
+    GROUP BY EXTRACT(MONTH FROM t.date::timestamp)
+    ORDER BY month
+    `,
+    [recurringItemId, year]
+  );
+
+  return rows;
+}

@@ -129,15 +129,14 @@ export default function TransactionForm({
       // Use isDebet flag from template to set up the correct side
       if (bankEvent) {
         // For bank events, put the amount on the correct side based on template
-        // If amount is negative, reverse the debit/credit assignment
+        // Template structure stays the same regardless of positive/negative amount
+        // The sign of the amount determines which "type" of transaction it is
         const amount = Math.abs(bankEvent.amount);
-        const isNegative = bankEvent.amount < 0;
-        const shouldDebit = isNegative ? !row.isDebet : row.isDebet;
 
         return {
           accountId: row.accountId,
-          debet: shouldDebit ? amount : 0,
-          kredit: !shouldDebit ? amount : 0,
+          debet: row.isDebet ? amount : 0,
+          kredit: !row.isDebet ? amount : 0,
           description: row.description || "",
           transactionId: 0,
         };
@@ -230,6 +229,7 @@ export default function TransactionForm({
         bankEventId: bankEvent?.id,
         posts: posts.map((p) => ({
           ...p,
+          id: 0, // Will be set by server
           transactionId: 0, // Will be set by server
         })),
       });
@@ -394,13 +394,13 @@ export default function TransactionForm({
                       Debet
                     </label>
                     <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={post.debet || ""}
-                      onChange={(e) =>
-                        updatePost(index, "debet", e.target.value === "" ? 0 : parseFloat(e.target.value))
-                      }
+                      type="text"
+                      inputMode="decimal"
+                      value={post.debet ? post.debet.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ""}
+                      onChange={(e) => {
+                        const value = e.target.value.replace(/\s/g, '').replace(',', '.');
+                        updatePost(index, "debet", value === "" ? 0 : parseFloat(value) || 0);
+                      }}
                       className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
                     />
                   </div>
@@ -410,13 +410,13 @@ export default function TransactionForm({
                       Kredit
                     </label>
                     <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={post.kredit || ""}
-                      onChange={(e) =>
-                        updatePost(index, "kredit", e.target.value === "" ? 0 : parseFloat(e.target.value))
-                      }
+                      type="text"
+                      inputMode="decimal"
+                      value={post.kredit ? post.kredit.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ""}
+                      onChange={(e) => {
+                        const value = e.target.value.replace(/\s/g, '').replace(',', '.');
+                        updatePost(index, "kredit", value === "" ? 0 : parseFloat(value) || 0);
+                      }}
                       className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
                     />
                   </div>

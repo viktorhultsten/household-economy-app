@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "migrate:numeric": "tsx scripts/migrate-real-to-numeric.ts"
   },
   "dependencies": {
     "next": "16.1.0",
@@ -21,9 +22,11 @@
     "@types/pg": "^8.16.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "dotenv": "^16.4.7",
     "eslint": "^9",
     "eslint-config-next": "16.1.0",
     "tailwindcss": "^4",
+    "tsx": "^4.19.2",
     "typescript": "5.9.3"
   }
 }

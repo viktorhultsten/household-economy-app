@@ -1,4 +1,4 @@
-import { Pool, PoolClient, QueryResult } from "pg";
+import { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
 import fs from "fs";
 import path from "path";
 
@@ -50,7 +50,7 @@ async function initializeSchema() {
 }
 
 // Helper function to execute a query
-export async function query<T = any>(
+export async function query<T extends QueryResultRow = any>(
   text: string,
   params?: any[]
 ): Promise<QueryResult<T>> {
@@ -60,7 +60,7 @@ export async function query<T = any>(
 }
 
 // Helper function to get a single row
-export async function queryOne<T = any>(
+export async function queryOne<T extends QueryResultRow = any>(
   text: string,
   params?: any[]
 ): Promise<T | null> {
@@ -69,7 +69,7 @@ export async function queryOne<T = any>(
 }
 
 // Helper function to get all rows
-export async function queryAll<T = any>(
+export async function queryAll<T extends QueryResultRow = any>(
   text: string,
   params?: any[]
 ): Promise<T[]> {
