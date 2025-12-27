@@ -359,21 +359,19 @@ export default function TransaktionerPage() {
                       <div className="flex items-center justify-end gap-2">
                         <button
                           onClick={() => handleExpand(transaction.id)}
-                          className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
+                          className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
                         >
                           {expandedId === transaction.id ? "Dölj" : "Visa"}
                         </button>
-                        <span className="text-zinc-300 dark:text-zinc-600">|</span>
                         <button
                           onClick={() => setSelectedTransaction(transaction)}
-                          className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
+                          className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
                         >
                           Redigera
                         </button>
-                        <span className="text-zinc-300 dark:text-zinc-600">|</span>
                         <button
                           onClick={() => setDeleteConfirmId(transaction.id)}
-                          className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                          className="px-3 py-1.5 text-xs font-medium rounded-md border border-red-300 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-950 dark:text-red-400 dark:hover:bg-red-900"
                         >
                           Ta bort
                         </button>

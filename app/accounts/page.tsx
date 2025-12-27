@@ -378,18 +378,17 @@ export default function KontonPage() {
                           <div className="flex items-center gap-2 ml-4">
                             <button
                               onClick={handleUpdateAccount}
-                              className="text-sm text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-300"
+                              className="mr-2 px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
                             >
                               Spara
                             </button>
-                            <span className="text-zinc-300 dark:text-zinc-600">|</span>
                             <button
                               onClick={() => {
                                 setEditingAccount(null);
                                 setEditAccountName("");
                                 setEditAccountGroupId(0);
                               }}
-                              className="text-sm text-zinc-600 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-300"
+                              className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
                             >
                               Avbryt
                             </button>
@@ -418,14 +417,13 @@ export default function KontonPage() {
                             </span>
                             <button
                               onClick={() => startEditAccount(account)}
-                              className="text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
+                              className="mr-2 px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
                             >
                               Redigera
                             </button>
-                            <span className="text-zinc-300 dark:text-zinc-600">|</span>
                             <button
                               onClick={() => handleDelete(account.id)}
-                              className="text-sm text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
+                              className="px-3 py-1.5 text-xs font-medium rounded-md border border-red-300 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-950 dark:text-red-400 dark:hover:bg-red-900"
                             >
                               Ta bort
                             </button>
@@ -568,13 +566,13 @@ export default function KontonPage() {
                         </div>
                         <button
                           onClick={() => handleUpdateGroup(editingGroup)}
-                          className="px-3 py-2 text-sm font-medium text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-300"
+                          className="mr-2 px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
                         >
                           Spara
                         </button>
                         <button
                           onClick={() => setEditingGroup(null)}
-                          className="px-3 py-2 text-sm font-medium text-zinc-600 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-300"
+                          className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
                         >
                           Avbryt
                         </button>
@@ -603,13 +601,13 @@ export default function KontonPage() {
                         </div>
                         <button
                           onClick={() => setEditingGroup(group)}
-                          className="px-3 py-2 text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
+                          className="mr-2 px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
                         >
                           Redigera
                         </button>
                         <button
                           onClick={() => handleDeleteGroup(group.id)}
-                          className="px-3 py-2 text-sm font-medium text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
+                          className="px-3 py-1.5 text-xs font-medium rounded-md border border-red-300 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-950 dark:text-red-400 dark:hover:bg-red-900"
                         >
                           Ta bort
                         </button>

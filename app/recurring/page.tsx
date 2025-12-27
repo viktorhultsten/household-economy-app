@@ -375,7 +375,7 @@ export default function UpprepningarPage() {
                         <td className="px-6 py-4 text-right">
                           <button
                             onClick={() => handleUpdate(item.id)}
-                            className="text-sm text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-300 mr-3"
+                            className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 mr-2"
                           >
                             Spara
                           </button>
@@ -384,7 +384,7 @@ export default function UpprepningarPage() {
                               setEditingId(null);
                               setError("");
                             }}
-                            className="text-sm text-zinc-600 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-300"
+                            className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
                           >
                             Avbryt
                           </button>
@@ -433,13 +433,13 @@ export default function UpprepningarPage() {
                         <td className="px-6 py-4 text-right text-sm">
                           <button
                             onClick={() => startEdit(item)}
-                            className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50 mr-3"
+                            className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 mr-2"
                           >
                             Redigera
                           </button>
                           <button
                             onClick={() => handleDelete(item.id)}
-                            className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
+                            className="px-3 py-1.5 text-xs font-medium rounded-md border border-red-300 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-950 dark:text-red-400 dark:hover:bg-red-900"
                           >
                             Ta bort
                           </button>

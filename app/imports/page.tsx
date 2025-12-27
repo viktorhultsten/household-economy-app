@@ -180,7 +180,7 @@ export default function ImporterPage() {
                           totalEvents: imp.totalEvents,
                         });
                       }}
-                      className="ml-4 px-3 py-2 text-sm font-medium text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
+                      className="ml-4 px-3 py-1.5 text-xs font-medium rounded-md border border-red-300 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-950 dark:text-red-400 dark:hover:bg-red-900"
                     >
                       Ta bort
                     </button>
