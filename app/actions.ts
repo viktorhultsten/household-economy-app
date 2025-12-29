@@ -62,7 +62,7 @@ export async function getImportWithEvents(importId: number): Promise<{
       id: row.id,
       date: new Date(row.date),
       description: row.description,
-      amount: row.amount,
+      amount: Number(row.amount),
       isPosted: row.is_posted === 1,
       transactionId: row.transaction_id ?? undefined,
       importId: row.import_id,
@@ -128,7 +128,7 @@ export async function getBankEvents(): Promise<BankEvent[]> {
     id: row.id,
     date: new Date(row.date),
     description: row.description,
-    amount: row.amount,
+    amount: Number(row.amount),
     isPosted: row.is_posted === 1,
     transactionId: row.transaction_id ?? undefined,
     importId: row.import_id ?? undefined,
@@ -214,8 +214,8 @@ export async function getTransactions(): Promise<Transaction[]> {
         id: p.id,
         transactionId: p.transaction_id,
         accountId: p.account_id,
-        debet: p.debet,
-        kredit: p.kredit,
+        debet: Number(p.debet),
+        kredit: Number(p.kredit),
         description: p.description ?? undefined,
         account: {
           id: p.account_id,
@@ -443,10 +443,10 @@ export async function getAccountBalances(
 
     if (accountType === "Tillgång" || accountType === "Utgift") {
       // Debit balance accounts
-      balance = row.total_debet - row.total_kredit;
+      balance = Number(row.total_debet) - Number(row.total_kredit);
     } else {
       // Credit balance accounts (Skuld, Intäkt)
-      balance = row.total_kredit - row.total_debet;
+      balance = Number(row.total_kredit) - Number(row.total_debet);
     }
 
     return {
@@ -506,8 +506,8 @@ export async function getAccountTransactionsForPeriod(
     transactionId: row.transaction_id,
     date: new Date(row.date),
     description: row.description,
-    postDebet: row.post_debet,
-    postKredit: row.post_kredit,
+    postDebet: Number(row.post_debet),
+    postKredit: Number(row.post_kredit),
     postDescription: row.post_description,
   }));
 }
@@ -585,7 +585,7 @@ export async function getAllTransactions(): Promise<Transaction[]> {
           id: bankEventRow.id,
           date: new Date(bankEventRow.date),
           description: bankEventRow.description,
-          amount: bankEventRow.amount,
+          amount: Number(bankEventRow.amount),
           isPosted: bankEventRow.is_posted === 1,
           transactionId: bankEventRow.transaction_id ?? undefined,
           importId: bankEventRow.import_id ?? undefined,
@@ -1073,12 +1073,12 @@ export async function getRecurringItemsStatus(
 
     const currentPeriodCount = currentTransactions.length;
     const currentPeriodAmount = currentTransactions.reduce(
-      (sum, t) => sum + t.total_amount,
+      (sum, t) => sum + Number(t.total_amount),
       0
     );
     const previousPeriodCount = previousTransactions.length;
     const previousPeriodAmount = previousTransactions.reduce(
-      (sum, t) => sum + t.total_amount,
+      (sum, t) => sum + Number(t.total_amount),
       0
     );
 

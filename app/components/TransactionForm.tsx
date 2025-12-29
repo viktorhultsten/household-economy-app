@@ -396,10 +396,16 @@ export default function TransactionForm({
                     <input
                       type="text"
                       inputMode="decimal"
-                      value={post.debet ? post.debet.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ""}
+                      value={post.debet > 0 ? String(post.debet).replace('.', ',') : ""}
                       onChange={(e) => {
                         const value = e.target.value.replace(/\s/g, '').replace(',', '.');
                         updatePost(index, "debet", value === "" ? 0 : parseFloat(value) || 0);
+                      }}
+                      onBlur={(e) => {
+                        // Format on blur - update state to trigger re-render with formatted value
+                        const value = e.target.value.replace(/\s/g, '').replace(',', '.');
+                        const numValue = value === "" ? 0 : parseFloat(value) || 0;
+                        updatePost(index, "debet", numValue);
                       }}
                       className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
                     />
@@ -412,10 +418,16 @@ export default function TransactionForm({
                     <input
                       type="text"
                       inputMode="decimal"
-                      value={post.kredit ? post.kredit.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ""}
+                      value={post.kredit > 0 ? String(post.kredit).replace('.', ',') : ""}
                       onChange={(e) => {
                         const value = e.target.value.replace(/\s/g, '').replace(',', '.');
                         updatePost(index, "kredit", value === "" ? 0 : parseFloat(value) || 0);
+                      }}
+                      onBlur={(e) => {
+                        // Format on blur - update state to trigger re-render with formatted value
+                        const value = e.target.value.replace(/\s/g, '').replace(',', '.');
+                        const numValue = value === "" ? 0 : parseFloat(value) || 0;
+                        updatePost(index, "kredit", numValue);
                       }}
                       className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
                     />

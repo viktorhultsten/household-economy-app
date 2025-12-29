@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { Transaction } from "../types";
 import { getAllTransactions, deleteTransaction } from "../actions";
@@ -36,9 +36,18 @@ export default function TransaktionerPage() {
   const [filterDateFrom, setFilterDateFrom] = useState("");
   const [filterDateTo, setFilterDateTo] = useState("");
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 50;
+
   useEffect(() => {
     loadTransactions();
   }, []);
+
+  // Reset to first page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, filterAccountType, filterDateFrom, filterDateTo]);
 
   async function loadTransactions() {
     setLoading(true);
@@ -65,74 +74,86 @@ export default function TransaktionerPage() {
     setExpandedId(expandedId === id ? null : id);
   }
 
-  function handleSort(field: SortField) {
+  const handleSort = useCallback((field: SortField) => {
     if (sortField === field) {
       setSortDirection(sortDirection === "asc" ? "desc" : "asc");
     } else {
       setSortField(field);
       setSortDirection("desc");
     }
-  }
+    setCurrentPage(1); // Reset to first page when sorting
+  }, [sortField, sortDirection]);
 
-  // Filter and search logic
-  const filteredAndSortedTransactions = transactions
-    .filter((txn) => {
-      // Search filter
-      if (searchQuery) {
-        const query = searchQuery.toLowerCase();
-        const matchesDescription = txn.description.toLowerCase().includes(query);
-        const matchesBankEvent = txn.bankEvent?.description.toLowerCase().includes(query) ?? false;
-        const matchesAccount = txn.posts.some(
-          (post) =>
-            post.account?.namn.toLowerCase().includes(query) ||
-            post.account?.group?.namn.toLowerCase().includes(query)
-        );
-        const matchesPostDescription = txn.posts.some(
-          (post) => post.description?.toLowerCase().includes(query)
-        );
-        if (!matchesDescription && !matchesBankEvent && !matchesAccount && !matchesPostDescription) {
-          return false;
+  // Memoized filter and search logic
+  const filteredAndSortedTransactions = useMemo(() => {
+    return transactions
+      .filter((txn) => {
+        // Search filter
+        if (searchQuery) {
+          const query = searchQuery.toLowerCase();
+          const matchesDescription = txn.description.toLowerCase().includes(query);
+          const matchesBankEvent = txn.bankEvent?.description.toLowerCase().includes(query) ?? false;
+          const matchesAccount = txn.posts.some(
+            (post) =>
+              post.account?.namn.toLowerCase().includes(query) ||
+              post.account?.group?.namn.toLowerCase().includes(query)
+          );
+          const matchesPostDescription = txn.posts.some(
+            (post) => post.description?.toLowerCase().includes(query)
+          );
+          if (!matchesDescription && !matchesBankEvent && !matchesAccount && !matchesPostDescription) {
+            return false;
+          }
         }
-      }
 
-      // Account type filter
-      if (filterAccountType !== "all") {
-        const hasAccountType = txn.posts.some(
-          (post) => post.account?.group?.typ === filterAccountType
-        );
-        if (!hasAccountType) return false;
-      }
+        // Account type filter
+        if (filterAccountType !== "all") {
+          const hasAccountType = txn.posts.some(
+            (post) => post.account?.group?.typ === filterAccountType
+          );
+          if (!hasAccountType) return false;
+        }
 
-      // Date range filter
-      if (filterDateFrom) {
-        const fromDate = new Date(filterDateFrom);
-        if (txn.date < fromDate) return false;
-      }
-      if (filterDateTo) {
-        const toDate = new Date(filterDateTo);
-        toDate.setHours(23, 59, 59, 999);
-        if (txn.date > toDate) return false;
-      }
+        // Date range filter
+        if (filterDateFrom) {
+          const fromDate = new Date(filterDateFrom);
+          if (txn.date < fromDate) return false;
+        }
+        if (filterDateTo) {
+          const toDate = new Date(filterDateTo);
+          toDate.setHours(23, 59, 59, 999);
+          if (txn.date > toDate) return false;
+        }
 
-      return true;
-    })
-    .sort((a, b) => {
-      let comparison = 0;
+        return true;
+      })
+      .sort((a, b) => {
+        let comparison = 0;
 
-      switch (sortField) {
-        case "date":
-          comparison = a.date.getTime() - b.date.getTime();
-          break;
-        case "description":
-          comparison = a.description.localeCompare(b.description, "sv-SE");
-          break;
-        case "accounts":
-          comparison = a.posts.length - b.posts.length;
-          break;
-      }
+        switch (sortField) {
+          case "date":
+            comparison = a.date.getTime() - b.date.getTime();
+            break;
+          case "description":
+            comparison = a.description.localeCompare(b.description, "sv-SE");
+            break;
+          case "accounts":
+            comparison = a.posts.length - b.posts.length;
+            break;
+        }
 
-      return sortDirection === "asc" ? comparison : -comparison;
-    });
+        return sortDirection === "asc" ? comparison : -comparison;
+      });
+  }, [transactions, searchQuery, filterAccountType, filterDateFrom, filterDateTo, sortField, sortDirection]);
+
+  // Paginated transactions
+  const paginatedTransactions = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return filteredAndSortedTransactions.slice(startIndex, endIndex);
+  }, [filteredAndSortedTransactions, currentPage, itemsPerPage]);
+
+  const totalPages = Math.ceil(filteredAndSortedTransactions.length / itemsPerPage);
 
   if (loading) {
     return (
@@ -238,6 +259,7 @@ export default function TransaktionerPage() {
           {/* Results count */}
           <div className="text-sm text-zinc-600 dark:text-zinc-400">
             Visar {filteredAndSortedTransactions.length} av {transactions.length} transaktioner
+            {totalPages > 1 && ` (sida ${currentPage} av ${totalPages})`}
           </div>
         </div>
 
@@ -291,7 +313,7 @@ export default function TransaktionerPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-200 dark:divide-zinc-700">
-                {filteredAndSortedTransactions.map((transaction) => (
+                {paginatedTransactions.map((transaction) => (
                   <tr
                     key={transaction.id}
                     className="hover:bg-zinc-50 dark:hover:bg-zinc-700/50"
@@ -381,6 +403,31 @@ export default function TransaktionerPage() {
                 ))}
               </tbody>
             </table>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="px-6 py-4 border-t border-zinc-200 dark:border-zinc-700 flex items-center justify-between">
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="px-4 py-2 text-sm font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                >
+                  ← Föregående
+                </button>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-zinc-600 dark:text-zinc-400">
+                    Sida {currentPage} av {totalPages}
+                  </span>
+                </div>
+                <button
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-4 py-2 text-sm font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                >
+                  Nästa →
+                </button>
+              </div>
+            )}
           </div>
         )}
       </main>
