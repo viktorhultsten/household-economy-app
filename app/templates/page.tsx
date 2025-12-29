@@ -12,6 +12,7 @@ import {
 } from "../actions";
 import AlertModal from "../components/AlertModal";
 import ConfirmModal from "../components/ConfirmModal";
+import AccountSelectorModal from "../components/AccountSelectorModal";
 
 interface TemplateRowInput {
   accountId: number;
@@ -38,6 +39,7 @@ export default function MallarPage() {
     message: string;
     onConfirm: () => void;
   } | null>(null);
+  const [showAccountSelector, setShowAccountSelector] = useState<number | null>(null);
 
   useEffect(() => {
     loadData();
@@ -212,21 +214,16 @@ export default function MallarPage() {
                       className="flex gap-2 items-start border border-zinc-200 dark:border-zinc-700 rounded-md p-3"
                     >
                       <div className="flex-1 space-y-2">
-                        <select
-                          value={row.accountId}
-                          onChange={(e) =>
-                            updateRow(index, "accountId", parseInt(e.target.value))
-                          }
-                          required
-                          className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+                        <button
+                          type="button"
+                          onClick={() => setShowAccountSelector(index)}
+                          className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-left text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50 hover:bg-zinc-50 dark:hover:bg-zinc-600"
                         >
-                          <option value={0}>Välj konto...</option>
-                          {accounts.map((account) => (
-                            <option key={account.id} value={account.id}>
-                              {account.namn} ({account.group?.namn})
-                            </option>
-                          ))}
-                        </select>
+                          {row.accountId === 0
+                            ? "Välj konto..."
+                            : accounts.find((a) => a.id === row.accountId)?.namn ||
+                              "Välj konto..."}
+                        </button>
                         <div className="flex gap-2">
                           <select
                             value={row.isDebet ? "debet" : "kredit"}
@@ -396,6 +393,18 @@ export default function MallarPage() {
           onConfirm={confirmAction.onConfirm}
           onCancel={() => setConfirmAction(null)}
           variant="danger"
+        />
+      )}
+
+      {showAccountSelector !== null && (
+        <AccountSelectorModal
+          accounts={accounts}
+          selectedAccountId={formRows[showAccountSelector]?.accountId || 0}
+          onSelect={(accountId) => {
+            updateRow(showAccountSelector, "accountId", accountId);
+            setShowAccountSelector(null);
+          }}
+          onClose={() => setShowAccountSelector(null)}
         />
       )}
     </div>

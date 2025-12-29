@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
-import { Transaction } from "../types";
-import { getAllTransactions, deleteTransaction } from "../actions";
+import { Transaction, Account } from "../types";
+import { getAllTransactions, deleteTransaction, getAccounts } from "../actions";
 import TransactionEditModal from "../components/TransactionEditModal";
 import ConfirmModal from "../components/ConfirmModal";
+import AccountSelectorModal from "../components/AccountSelectorModal";
 
 function formatSwedishDate(date: Date): string {
   return date.toLocaleDateString("sv-SE");
@@ -23,6 +24,7 @@ type SortDirection = "asc" | "desc";
 
 export default function TransaktionerPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
@@ -33,6 +35,7 @@ export default function TransaktionerPage() {
   const [sortField, setSortField] = useState<SortField>("date");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [filterAccountType, setFilterAccountType] = useState<string>("all");
+  const [filterAccountId, setFilterAccountId] = useState<string>("all");
   const [filterDateFrom, setFilterDateFrom] = useState("");
   const [filterDateTo, setFilterDateTo] = useState("");
 
@@ -40,20 +43,29 @@ export default function TransaktionerPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 50;
 
+  // Account selector modal state
+  const [showAccountFilterModal, setShowAccountFilterModal] = useState(false);
+
   useEffect(() => {
     loadTransactions();
+    loadAccounts();
   }, []);
 
   // Reset to first page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, filterAccountType, filterDateFrom, filterDateTo]);
+  }, [searchQuery, filterAccountType, filterAccountId, filterDateFrom, filterDateTo]);
 
   async function loadTransactions() {
     setLoading(true);
     const data = await getAllTransactions();
     setTransactions(data);
     setLoading(false);
+  }
+
+  async function loadAccounts() {
+    const data = await getAccounts();
+    setAccounts(data);
   }
 
   async function handleDeleteConfirm() {
@@ -114,6 +126,14 @@ export default function TransaktionerPage() {
           if (!hasAccountType) return false;
         }
 
+        // Specific account filter
+        if (filterAccountId !== "all") {
+          const hasAccount = txn.posts.some(
+            (post) => post.accountId === parseInt(filterAccountId)
+          );
+          if (!hasAccount) return false;
+        }
+
         // Date range filter
         if (filterDateFrom) {
           const fromDate = new Date(filterDateFrom);
@@ -144,7 +164,7 @@ export default function TransaktionerPage() {
 
         return sortDirection === "asc" ? comparison : -comparison;
       });
-  }, [transactions, searchQuery, filterAccountType, filterDateFrom, filterDateTo, sortField, sortDirection]);
+  }, [transactions, searchQuery, filterAccountType, filterAccountId, filterDateFrom, filterDateTo, sortField, sortDirection]);
 
   // Paginated transactions
   const paginatedTransactions = useMemo(() => {
@@ -181,7 +201,7 @@ export default function TransaktionerPage() {
           </h1>
 
           {/* Search and Filters */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
             {/* Search */}
             <div className="lg:col-span-2">
               <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
@@ -194,6 +214,23 @@ export default function TransaktionerPage() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50 dark:placeholder:text-zinc-400"
               />
+            </div>
+
+            {/* Specific Account Filter */}
+            <div>
+              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
+                Konto
+              </label>
+              <button
+                type="button"
+                onClick={() => setShowAccountFilterModal(true)}
+                className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-left text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50 hover:bg-zinc-50 dark:hover:bg-zinc-600"
+              >
+                {filterAccountId === "all"
+                  ? "Alla konton"
+                  : accounts.find((a) => a.id === parseInt(filterAccountId))?.namn ||
+                    "Alla konton"}
+              </button>
             </div>
 
             {/* Account Type Filter */}
@@ -219,6 +256,7 @@ export default function TransaktionerPage() {
               <button
                 onClick={() => {
                   setSearchQuery("");
+                  setFilterAccountId("all");
                   setFilterAccountType("all");
                   setFilterDateFrom("");
                   setFilterDateTo("");
@@ -449,6 +487,19 @@ export default function TransaktionerPage() {
           variant="danger"
           onConfirm={handleDeleteConfirm}
           onCancel={() => setDeleteConfirmId(null)}
+        />
+      )}
+
+      {showAccountFilterModal && (
+        <AccountSelectorModal
+          accounts={accounts}
+          selectedAccountId={filterAccountId === "all" ? 0 : parseInt(filterAccountId)}
+          showAllOption={true}
+          onSelect={(accountId) => {
+            setFilterAccountId(accountId === 0 ? "all" : accountId.toString());
+            setShowAccountFilterModal(false);
+          }}
+          onClose={() => setShowAccountFilterModal(false)}
         />
       )}
     </div>

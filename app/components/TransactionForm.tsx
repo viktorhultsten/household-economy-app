@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Account, BankEvent, Post, BookingTemplate, RecurringItemStatus } from "../types";
 import { getAccounts, createTransaction, isPeriodLocked, getBookingTemplates, createBookingTemplate, getRecurringItemsStatus, linkTransactionToRecurringItem } from "../actions";
+import AccountSelectorModal from "./AccountSelectorModal";
 
 interface TransactionFormProps {
   bankEvent?: BankEvent;
@@ -42,6 +43,7 @@ export default function TransactionForm({
   const [periodLockWarning, setPeriodLockWarning] = useState("");
   const [showSaveTemplate, setShowSaveTemplate] = useState(false);
   const [templateName, setTemplateName] = useState("");
+  const [showAccountSelector, setShowAccountSelector] = useState<number | null>(null);
 
   useEffect(() => {
     async function loadData() {
@@ -372,21 +374,16 @@ export default function TransactionForm({
                     <label className="block text-xs text-zinc-600 dark:text-zinc-400 mb-1">
                       Konto
                     </label>
-                    <select
-                      value={post.accountId}
-                      onChange={(e) =>
-                        updatePost(index, "accountId", parseInt(e.target.value))
-                      }
-                      required
-                      className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+                    <button
+                      type="button"
+                      onClick={() => setShowAccountSelector(index)}
+                      className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-left text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50 hover:bg-zinc-50 dark:hover:bg-zinc-600"
                     >
-                      <option value={0}>Välj konto...</option>
-                      {accounts.map((account) => (
-                        <option key={account.id} value={account.id}>
-                          {account.namn} ({account.group?.namn})
-                        </option>
-                      ))}
-                    </select>
+                      {post.accountId === 0
+                        ? "Välj konto..."
+                        : accounts.find((a) => a.id === post.accountId)?.namn ||
+                          "Välj konto..."}
+                    </button>
                   </div>
 
                   <div className="w-32">
@@ -627,6 +624,18 @@ export default function TransactionForm({
           )}
         </div>
       </div>
+
+      {showAccountSelector !== null && (
+        <AccountSelectorModal
+          accounts={accounts}
+          selectedAccountId={posts[showAccountSelector]?.accountId || 0}
+          onSelect={(accountId) => {
+            updatePost(showAccountSelector, "accountId", accountId);
+            setShowAccountSelector(null);
+          }}
+          onClose={() => setShowAccountSelector(null)}
+        />
+      )}
     </div>
   );
 }
