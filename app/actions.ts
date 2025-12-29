@@ -514,96 +514,238 @@ export async function getAccountTransactionsForPeriod(
 
 // Get all transactions with full details
 export async function getAllTransactions(): Promise<Transaction[]> {
-  const transactionRows = await queryAll<{
-    id: number;
-    date: string;
-    description: string;
-    bank_event_id: number | null;
-    created_at: string;
-  }>("SELECT * FROM transactions ORDER BY date DESC, id DESC");
+  // Get total count for pagination info
+  const countResult = await queryOne<{ count: number }>(
+    "SELECT COUNT(*) as count FROM transactions"
+  );
+  const totalCount = countResult?.count || 0;
 
-  const transactions: Transaction[] = [];
+  // Optimized query using JOINs instead of N+1 queries
+  const rows = await queryAll<{
+    // Transaction fields
+    txn_id: number;
+    txn_date: string;
+    txn_description: string;
+    txn_bank_event_id: number | null;
+    // Post fields
+    post_id: number;
+    post_account_id: number;
+    post_debet: string;
+    post_kredit: string;
+    post_description: string | null;
+    // Account fields
+    account_name: string;
+    group_id: number;
+    group_name: string;
+    group_type: string;
+    // Bank event fields (nullable)
+    be_id: number | null;
+    be_date: string | null;
+    be_description: string | null;
+    be_amount: string | null;
+    be_is_posted: number | null;
+    be_transaction_id: number | null;
+    be_import_id: number | null;
+  }>(`
+    SELECT
+      t.id as txn_id,
+      t.date as txn_date,
+      t.description as txn_description,
+      t.bank_event_id as txn_bank_event_id,
+      p.id as post_id,
+      p.account_id as post_account_id,
+      p.debet as post_debet,
+      p.kredit as post_kredit,
+      p.description as post_description,
+      a.namn as account_name,
+      g.id as group_id,
+      g.namn as group_name,
+      g.typ as group_type,
+      be.id as be_id,
+      be.date as be_date,
+      be.description as be_description,
+      be.amount as be_amount,
+      be.is_posted as be_is_posted,
+      be.transaction_id as be_transaction_id,
+      be.import_id as be_import_id
+    FROM transactions t
+    JOIN posts p ON p.transaction_id = t.id
+    JOIN accounts a ON a.id = p.account_id
+    JOIN groups g ON g.id = a.group_id
+    LEFT JOIN bank_events be ON be.id = t.bank_event_id
+    ORDER BY t.date DESC, t.id DESC, p.id ASC
+  `);
 
-  for (const txnRow of transactionRows) {
-    const postRows = await queryAll<{
-      id: number;
-      transaction_id: number;
-      account_id: number;
-      debet: number;
-      kredit: number;
-      description: string | null;
-      account_name: string;
-      group_id: number;
-      group_name: string;
-      group_type: string;
-    }>(
-      `
-      SELECT p.*, a.namn as account_name, g.id as group_id, g.namn as group_name, g.typ as group_type
-      FROM posts p
-      JOIN accounts a ON a.id = p.account_id
-      JOIN groups g ON g.id = a.group_id
-      WHERE p.transaction_id = $1
-      ORDER BY p.id
-    `,
-      [txnRow.id]
-    );
+  // Group rows by transaction
+  const transactionsMap = new Map<number, Transaction>();
 
-    const posts: Post[] = postRows.map((postRow) => ({
-      id: postRow.id,
-      transactionId: postRow.transaction_id,
-      accountId: postRow.account_id,
-      debet: postRow.debet,
-      kredit: postRow.kredit,
-      description: postRow.description ?? undefined,
-      account: {
-        id: postRow.account_id,
-        namn: postRow.account_name,
-        groupId: postRow.group_id,
-        group: {
-          id: postRow.group_id,
-          namn: postRow.group_name,
-          typ: postRow.group_type as AccountType,
-        },
-      },
-    }));
-
-    // Fetch bank event if this transaction has one
-    let bankEvent: BankEvent | undefined = undefined;
-    if (txnRow.bank_event_id) {
-      const bankEventRow = await queryOne<{
-        id: number;
-        date: string;
-        description: string;
-        amount: number;
-        is_posted: number;
-        transaction_id: number | null;
-        import_id: number | null;
-      }>("SELECT * FROM bank_events WHERE id = $1", [txnRow.bank_event_id]);
-
-      if (bankEventRow) {
-        bankEvent = {
-          id: bankEventRow.id,
-          date: new Date(bankEventRow.date),
-          description: bankEventRow.description,
-          amount: Number(bankEventRow.amount),
-          isPosted: bankEventRow.is_posted === 1,
-          transactionId: bankEventRow.transaction_id ?? undefined,
-          importId: bankEventRow.import_id ?? undefined,
-        };
-      }
+  for (const row of rows) {
+    if (!transactionsMap.has(row.txn_id)) {
+      transactionsMap.set(row.txn_id, {
+        id: row.txn_id,
+        date: new Date(row.txn_date),
+        description: row.txn_description,
+        bankEventId: row.txn_bank_event_id ?? undefined,
+        bankEvent: row.be_id
+          ? {
+              id: row.be_id,
+              date: new Date(row.be_date!),
+              description: row.be_description!,
+              amount: Number(row.be_amount),
+              isPosted: row.be_is_posted === 1,
+              transactionId: row.be_transaction_id ?? undefined,
+              importId: row.be_import_id ?? undefined,
+            }
+          : undefined,
+        posts: [],
+      });
     }
 
-    transactions.push({
-      id: txnRow.id,
-      date: new Date(txnRow.date),
-      description: txnRow.description,
-      bankEventId: txnRow.bank_event_id ?? undefined,
-      bankEvent,
-      posts,
+    const transaction = transactionsMap.get(row.txn_id)!;
+    transaction.posts.push({
+      id: row.post_id,
+      transactionId: row.txn_id,
+      accountId: row.post_account_id,
+      debet: Number(row.post_debet),
+      kredit: Number(row.post_kredit),
+      description: row.post_description ?? undefined,
+      account: {
+        id: row.post_account_id,
+        namn: row.account_name,
+        groupId: row.group_id,
+        group: {
+          id: row.group_id,
+          namn: row.group_name,
+          typ: row.group_type as AccountType,
+        },
+      },
     });
   }
 
-  return transactions;
+  return Array.from(transactionsMap.values());
+}
+
+export async function getTransactionsPaginated(
+  limit: number = 50,
+  offset: number = 0
+): Promise<{ transactions: Transaction[]; total: number }> {
+  // Get total count
+  const countResult = await queryOne<{ count: number }>(
+    "SELECT COUNT(*) as count FROM transactions"
+  );
+  const total = countResult?.count || 0;
+
+  // Optimized query with LIMIT/OFFSET
+  const rows = await queryAll<{
+    txn_id: number;
+    txn_date: string;
+    txn_description: string;
+    txn_bank_event_id: number | null;
+    post_id: number;
+    post_account_id: number;
+    post_debet: string;
+    post_kredit: string;
+    post_description: string | null;
+    account_name: string;
+    group_id: number;
+    group_name: string;
+    group_type: string;
+    be_id: number | null;
+    be_date: string | null;
+    be_description: string | null;
+    be_amount: string | null;
+    be_is_posted: number | null;
+    be_transaction_id: number | null;
+    be_import_id: number | null;
+  }>(
+    `
+    WITH paginated_transactions AS (
+      SELECT id, date, description, bank_event_id
+      FROM transactions
+      ORDER BY date DESC, id DESC
+      LIMIT $1 OFFSET $2
+    )
+    SELECT
+      t.id as txn_id,
+      t.date as txn_date,
+      t.description as txn_description,
+      t.bank_event_id as txn_bank_event_id,
+      p.id as post_id,
+      p.account_id as post_account_id,
+      p.debet as post_debet,
+      p.kredit as post_kredit,
+      p.description as post_description,
+      a.namn as account_name,
+      g.id as group_id,
+      g.namn as group_name,
+      g.typ as group_type,
+      be.id as be_id,
+      be.date as be_date,
+      be.description as be_description,
+      be.amount as be_amount,
+      be.is_posted as be_is_posted,
+      be.transaction_id as be_transaction_id,
+      be.import_id as be_import_id
+    FROM paginated_transactions t
+    JOIN posts p ON p.transaction_id = t.id
+    JOIN accounts a ON a.id = p.account_id
+    JOIN groups g ON g.id = a.group_id
+    LEFT JOIN bank_events be ON be.id = t.bank_event_id
+    ORDER BY t.date DESC, t.id DESC, p.id ASC
+  `,
+    [limit, offset]
+  );
+
+  // Group rows by transaction
+  const transactionsMap = new Map<number, Transaction>();
+
+  for (const row of rows) {
+    if (!transactionsMap.has(row.txn_id)) {
+      transactionsMap.set(row.txn_id, {
+        id: row.txn_id,
+        date: new Date(row.txn_date),
+        description: row.txn_description,
+        bankEventId: row.txn_bank_event_id ?? undefined,
+        bankEvent: row.be_id
+          ? {
+              id: row.be_id,
+              date: new Date(row.be_date!),
+              description: row.be_description!,
+              amount: Number(row.be_amount),
+              isPosted: row.be_is_posted === 1,
+              transactionId: row.be_transaction_id ?? undefined,
+              importId: row.be_import_id ?? undefined,
+            }
+          : undefined,
+        posts: [],
+      });
+    }
+
+    const transaction = transactionsMap.get(row.txn_id)!;
+    transaction.posts.push({
+      id: row.post_id,
+      transactionId: row.txn_id,
+      accountId: row.post_account_id,
+      debet: Number(row.post_debet),
+      kredit: Number(row.post_kredit),
+      description: row.post_description ?? undefined,
+      account: {
+        id: row.post_account_id,
+        namn: row.account_name,
+        groupId: row.group_id,
+        group: {
+          id: row.group_id,
+          namn: row.group_name,
+          typ: row.group_type as AccountType,
+        },
+      },
+    });
+  }
+
+  return {
+    transactions: Array.from(transactionsMap.values()),
+    total,
+  };
 }
 
 // Get a single transaction with full details

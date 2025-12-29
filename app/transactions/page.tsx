@@ -1,12 +1,11 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Transaction, Account } from "../types";
-import { getAllTransactions, deleteTransaction, getAccounts } from "../actions";
+import { Transaction } from "../types";
+import { getTransactionsPaginated, deleteTransaction } from "../actions";
 import TransactionEditModal from "../components/TransactionEditModal";
 import ConfirmModal from "../components/ConfirmModal";
-import AccountSelectorModal from "../components/AccountSelectorModal";
 
 function formatSwedishDate(date: Date): string {
   return date.toLocaleDateString("sv-SE");
@@ -19,53 +18,29 @@ function formatSwedishAmount(amount: number): string {
   });
 }
 
-type SortField = "date" | "description" | "accounts";
-type SortDirection = "asc" | "desc";
-
 export default function TransaktionerPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
 
-  // Search and filter state
-  const [searchQuery, setSearchQuery] = useState("");
-  const [sortField, setSortField] = useState<SortField>("date");
-  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
-  const [filterAccountType, setFilterAccountType] = useState<string>("all");
-  const [filterAccountId, setFilterAccountId] = useState<string>("all");
-  const [filterDateFrom, setFilterDateFrom] = useState("");
-  const [filterDateTo, setFilterDateTo] = useState("");
-
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
+  const [totalTransactions, setTotalTransactions] = useState(0);
   const itemsPerPage = 50;
-
-  // Account selector modal state
-  const [showAccountFilterModal, setShowAccountFilterModal] = useState(false);
 
   useEffect(() => {
     loadTransactions();
-    loadAccounts();
-  }, []);
-
-  // Reset to first page when filters change
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery, filterAccountType, filterAccountId, filterDateFrom, filterDateTo]);
+  }, [currentPage]); // Reload when page changes
 
   async function loadTransactions() {
     setLoading(true);
-    const data = await getAllTransactions();
+    const offset = (currentPage - 1) * itemsPerPage;
+    const { transactions: data, total } = await getTransactionsPaginated(itemsPerPage, offset);
     setTransactions(data);
+    setTotalTransactions(total);
     setLoading(false);
-  }
-
-  async function loadAccounts() {
-    const data = await getAccounts();
-    setAccounts(data);
   }
 
   async function handleDeleteConfirm() {
@@ -86,94 +61,7 @@ export default function TransaktionerPage() {
     setExpandedId(expandedId === id ? null : id);
   }
 
-  const handleSort = useCallback((field: SortField) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
-    } else {
-      setSortField(field);
-      setSortDirection("desc");
-    }
-    setCurrentPage(1); // Reset to first page when sorting
-  }, [sortField, sortDirection]);
-
-  // Memoized filter and search logic
-  const filteredAndSortedTransactions = useMemo(() => {
-    return transactions
-      .filter((txn) => {
-        // Search filter
-        if (searchQuery) {
-          const query = searchQuery.toLowerCase();
-          const matchesDescription = txn.description.toLowerCase().includes(query);
-          const matchesBankEvent = txn.bankEvent?.description.toLowerCase().includes(query) ?? false;
-          const matchesAccount = txn.posts.some(
-            (post) =>
-              post.account?.namn.toLowerCase().includes(query) ||
-              post.account?.group?.namn.toLowerCase().includes(query)
-          );
-          const matchesPostDescription = txn.posts.some(
-            (post) => post.description?.toLowerCase().includes(query)
-          );
-          if (!matchesDescription && !matchesBankEvent && !matchesAccount && !matchesPostDescription) {
-            return false;
-          }
-        }
-
-        // Account type filter
-        if (filterAccountType !== "all") {
-          const hasAccountType = txn.posts.some(
-            (post) => post.account?.group?.typ === filterAccountType
-          );
-          if (!hasAccountType) return false;
-        }
-
-        // Specific account filter
-        if (filterAccountId !== "all") {
-          const hasAccount = txn.posts.some(
-            (post) => post.accountId === parseInt(filterAccountId)
-          );
-          if (!hasAccount) return false;
-        }
-
-        // Date range filter
-        if (filterDateFrom) {
-          const fromDate = new Date(filterDateFrom);
-          if (txn.date < fromDate) return false;
-        }
-        if (filterDateTo) {
-          const toDate = new Date(filterDateTo);
-          toDate.setHours(23, 59, 59, 999);
-          if (txn.date > toDate) return false;
-        }
-
-        return true;
-      })
-      .sort((a, b) => {
-        let comparison = 0;
-
-        switch (sortField) {
-          case "date":
-            comparison = a.date.getTime() - b.date.getTime();
-            break;
-          case "description":
-            comparison = a.description.localeCompare(b.description, "sv-SE");
-            break;
-          case "accounts":
-            comparison = a.posts.length - b.posts.length;
-            break;
-        }
-
-        return sortDirection === "asc" ? comparison : -comparison;
-      });
-  }, [transactions, searchQuery, filterAccountType, filterAccountId, filterDateFrom, filterDateTo, sortField, sortDirection]);
-
-  // Paginated transactions
-  const paginatedTransactions = useMemo(() => {
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    const endIndex = startIndex + itemsPerPage;
-    return filteredAndSortedTransactions.slice(startIndex, endIndex);
-  }, [filteredAndSortedTransactions, currentPage, itemsPerPage]);
-
-  const totalPages = Math.ceil(filteredAndSortedTransactions.length / itemsPerPage);
+  const totalPages = Math.ceil(totalTransactions / itemsPerPage);
 
   if (loading) {
     return (
@@ -195,108 +83,12 @@ export default function TransaktionerPage() {
           </Link>
         </div>
 
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-50 mb-6">
+        <div className="mb-8 flex items-center justify-between">
+          <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">
             Transaktioner
           </h1>
-
-          {/* Search and Filters */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
-            {/* Search */}
-            <div className="lg:col-span-2">
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
-                Sök
-              </label>
-              <input
-                type="text"
-                placeholder="Sök efter beskrivning, konto..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50 dark:placeholder:text-zinc-400"
-              />
-            </div>
-
-            {/* Specific Account Filter */}
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
-                Konto
-              </label>
-              <button
-                type="button"
-                onClick={() => setShowAccountFilterModal(true)}
-                className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-left text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50 hover:bg-zinc-50 dark:hover:bg-zinc-600"
-              >
-                {filterAccountId === "all"
-                  ? "Alla konton"
-                  : accounts.find((a) => a.id === parseInt(filterAccountId))?.namn ||
-                    "Alla konton"}
-              </button>
-            </div>
-
-            {/* Account Type Filter */}
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
-                Kontotyp
-              </label>
-              <select
-                value={filterAccountType}
-                onChange={(e) => setFilterAccountType(e.target.value)}
-                className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
-              >
-                <option value="all">Alla typer</option>
-                <option value="Intäkt">Intäkt</option>
-                <option value="Utgift">Utgift</option>
-                <option value="Tillgång">Tillgång</option>
-                <option value="Skuld">Skuld</option>
-              </select>
-            </div>
-
-            {/* Clear Filters */}
-            <div className="flex items-end">
-              <button
-                onClick={() => {
-                  setSearchQuery("");
-                  setFilterAccountId("all");
-                  setFilterAccountType("all");
-                  setFilterDateFrom("");
-                  setFilterDateTo("");
-                }}
-                className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-700"
-              >
-                Rensa filter
-              </button>
-            </div>
-          </div>
-
-          {/* Date Range Filters */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
-                Från datum
-              </label>
-              <input
-                type="date"
-                value={filterDateFrom}
-                onChange={(e) => setFilterDateFrom(e.target.value)}
-                className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
-                Till datum
-              </label>
-              <input
-                type="date"
-                value={filterDateTo}
-                onChange={(e) => setFilterDateTo(e.target.value)}
-                className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
-              />
-            </div>
-          </div>
-
-          {/* Results count */}
           <div className="text-sm text-zinc-600 dark:text-zinc-400">
-            Visar {filteredAndSortedTransactions.length} av {transactions.length} transaktioner
+            {totalTransactions} transaktioner totalt
             {totalPages > 1 && ` (sida ${currentPage} av ${totalPages})`}
           </div>
         </div>
@@ -312,38 +104,14 @@ export default function TransaktionerPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900">
-                  <th className="px-6 py-3 text-left">
-                    <button
-                      onClick={() => handleSort("date")}
-                      className="flex items-center gap-1 text-sm font-semibold text-zinc-900 dark:text-zinc-50 hover:text-zinc-600 dark:hover:text-zinc-300"
-                    >
-                      Datum
-                      {sortField === "date" && (
-                        <span className="text-xs">{sortDirection === "asc" ? "↑" : "↓"}</span>
-                      )}
-                    </button>
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                    Datum
                   </th>
-                  <th className="px-6 py-3 text-left">
-                    <button
-                      onClick={() => handleSort("description")}
-                      className="flex items-center gap-1 text-sm font-semibold text-zinc-900 dark:text-zinc-50 hover:text-zinc-600 dark:hover:text-zinc-300"
-                    >
-                      Beskrivning
-                      {sortField === "description" && (
-                        <span className="text-xs">{sortDirection === "asc" ? "↑" : "↓"}</span>
-                      )}
-                    </button>
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                    Beskrivning
                   </th>
-                  <th className="px-6 py-3 text-right">
-                    <button
-                      onClick={() => handleSort("accounts")}
-                      className="ml-auto flex items-center gap-1 text-sm font-semibold text-zinc-900 dark:text-zinc-50 hover:text-zinc-600 dark:hover:text-zinc-300"
-                    >
-                      Konton
-                      {sortField === "accounts" && (
-                        <span className="text-xs">{sortDirection === "asc" ? "↑" : "↓"}</span>
-                      )}
-                    </button>
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                    Konton
                   </th>
                   <th className="px-6 py-3 text-right text-sm font-semibold text-zinc-900 dark:text-zinc-50">
                     Åtgärd
@@ -351,7 +119,7 @@ export default function TransaktionerPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-200 dark:divide-zinc-700">
-                {paginatedTransactions.map((transaction) => (
+                {transactions.map((transaction) => (
                   <tr
                     key={transaction.id}
                     className="hover:bg-zinc-50 dark:hover:bg-zinc-700/50"
@@ -487,19 +255,6 @@ export default function TransaktionerPage() {
           variant="danger"
           onConfirm={handleDeleteConfirm}
           onCancel={() => setDeleteConfirmId(null)}
-        />
-      )}
-
-      {showAccountFilterModal && (
-        <AccountSelectorModal
-          accounts={accounts}
-          selectedAccountId={filterAccountId === "all" ? 0 : parseInt(filterAccountId)}
-          showAllOption={true}
-          onSelect={(accountId) => {
-            setFilterAccountId(accountId === 0 ? "all" : accountId.toString());
-            setShowAccountFilterModal(false);
-          }}
-          onClose={() => setShowAccountFilterModal(false)}
         />
       )}
     </div>
