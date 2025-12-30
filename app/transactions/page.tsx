@@ -21,7 +21,6 @@ function formatSwedishAmount(amount: number): string {
 export default function TransaktionerPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expandedId, setExpandedId] = useState<number | null>(null);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
 
@@ -48,17 +47,12 @@ export default function TransaktionerPage() {
 
     await deleteTransaction(deleteConfirmId);
     await loadTransactions();
-    setExpandedId(null);
     setDeleteConfirmId(null);
   }
 
   async function handleEditSuccess() {
     await loadTransactions();
     setSelectedTransaction(null);
-  }
-
-  function handleExpand(id: number) {
-    setExpandedId(expandedId === id ? null : id);
   }
 
   const totalPages = Math.ceil(totalTransactions / itemsPerPage);
@@ -100,119 +94,109 @@ export default function TransaktionerPage() {
             </p>
           </div>
         ) : (
-          <div className="rounded-lg bg-white shadow dark:bg-zinc-800 overflow-hidden">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900">
-                  <th className="px-6 py-3 text-left text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                    Datum
-                  </th>
-                  <th className="px-6 py-3 text-left text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                    Beskrivning
-                  </th>
-                  <th className="px-6 py-3 text-left text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                    Konton
-                  </th>
-                  <th className="px-6 py-3 text-right text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                    Åtgärd
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-700">
-                {transactions.map((transaction) => (
-                  <tr
-                    key={transaction.id}
-                    className="hover:bg-zinc-50 dark:hover:bg-zinc-700/50"
-                  >
-                    <td className="whitespace-nowrap px-6 py-4 text-sm text-zinc-600 dark:text-zinc-400">
-                      {formatSwedishDate(transaction.date)}
-                    </td>
-                    <td className="px-6 py-4">
-                      {transaction.bankEvent && (
-                        <div className="text-xs text-zinc-500 dark:text-zinc-400 mb-1 flex items-center gap-2">
-                          <span>Bankhändelse: {transaction.bankEvent.description}</span>
-                          <span className={`font-medium tabular-nums ${
-                            transaction.bankEvent.amount >= 0
-                              ? 'text-green-600 dark:text-green-400'
-                              : 'text-red-600 dark:text-red-400'
-                          }`}>
-                            {formatSwedishAmount(transaction.bankEvent.amount)} kr
-                          </span>
-                        </div>
-                      )}
-                      <div className="text-sm text-zinc-900 dark:text-zinc-50">
-                        {transaction.description}
-                      </div>
-                      {expandedId === transaction.id && (
-                        <div className="mt-3 space-y-2 border-l-2 border-zinc-200 dark:border-zinc-700 pl-4">
-                          {transaction.posts.map((post) => (
-                            <div
-                              key={post.id}
-                              className="flex items-start justify-between gap-4 text-xs"
-                            >
-                              <div className="flex-1">
-                                <div className="font-medium text-zinc-900 dark:text-zinc-50">
-                                  {post.account?.namn}
-                                </div>
-                                <div className="text-zinc-500 dark:text-zinc-400">
-                                  {post.account?.group?.namn} ({post.account?.group?.typ})
-                                </div>
-                                {post.description && (
-                                  <div className="text-zinc-500 dark:text-zinc-400 italic mt-0.5">
-                                    {post.description}
-                                  </div>
-                                )}
-                              </div>
-                              <div className="font-medium tabular-nums whitespace-nowrap text-zinc-900 dark:text-zinc-50">
-                                {post.debet > 0 && (
-                                  <span className="text-blue-600 dark:text-blue-400">
-                                    D: {formatSwedishAmount(post.debet)} kr
-                                  </span>
-                                )}
-                                {post.kredit > 0 && (
-                                  <span className="text-amber-600 dark:text-amber-400">
-                                    K: {formatSwedishAmount(post.kredit)} kr
-                                  </span>
-                                )}
-                              </div>
+          <div className="space-y-4">
+            {transactions.map((transaction) => (
+              <div
+                key={transaction.id}
+                className="rounded-lg bg-white shadow dark:bg-zinc-800 overflow-hidden"
+              >
+                {/* Posts Table with Header */}
+                <table className="w-full table-fixed">
+                  <colgroup>
+                    <col className="w-[35%]" />
+                    <col className="w-[35%]" />
+                    <col className="w-[15%]" />
+                    <col className="w-[15%]" />
+                  </colgroup>
+                  <thead>
+                    <tr className="bg-zinc-100 dark:bg-zinc-800">
+                      <th colSpan={4} className="px-6 py-4 text-left border-b border-zinc-200 dark:border-zinc-700">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-1">
+                              <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                                {formatSwedishDate(transaction.date)}
+                              </span>
+                              <span className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
+                                {transaction.description}
+                              </span>
                             </div>
-                          ))}
+                            {transaction.bankEvent && (
+                              <div className="text-xs text-zinc-500 dark:text-zinc-400 flex items-center gap-2">
+                                <span>Bankhändelse: {transaction.bankEvent.description}</span>
+                                <span className={`font-medium tabular-nums ${
+                                  transaction.bankEvent.amount >= 0
+                                    ? 'text-green-600 dark:text-green-400'
+                                    : 'text-red-600 dark:text-red-400'
+                                }`}>
+                                  {formatSwedishAmount(transaction.bankEvent.amount)} kr
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => setSelectedTransaction(transaction)}
+                              className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600"
+                            >
+                              Redigera
+                            </button>
+                            <button
+                              onClick={() => setDeleteConfirmId(transaction.id)}
+                              className="px-3 py-1.5 text-xs font-medium rounded-md border border-red-300 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-950 dark:text-red-400 dark:hover:bg-red-900"
+                            >
+                              Ta bort
+                            </button>
+                          </div>
                         </div>
-                      )}
-                    </td>
-                    <td className="whitespace-nowrap px-6 py-4 text-right text-sm text-zinc-600 dark:text-zinc-400">
-                      {transaction.posts.length} konton
-                    </td>
-                    <td className="whitespace-nowrap px-6 py-4 text-right text-sm">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => handleExpand(transaction.id)}
-                          className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                        >
-                          {expandedId === transaction.id ? "Dölj" : "Visa"}
-                        </button>
-                        <button
-                          onClick={() => setSelectedTransaction(transaction)}
-                          className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                        >
-                          Redigera
-                        </button>
-                        <button
-                          onClick={() => setDeleteConfirmId(transaction.id)}
-                          className="px-3 py-1.5 text-xs font-medium rounded-md border border-red-300 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-950 dark:text-red-400 dark:hover:bg-red-900"
-                        >
-                          Ta bort
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      </th>
+                    </tr>
+                    <tr className="border-b border-zinc-200 dark:border-zinc-700">
+                      <th className="px-6 py-2 text-left text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                        Konto
+                      </th>
+                      <th className="px-6 py-2 text-left text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                        Beskrivning
+                      </th>
+                      <th className="px-6 py-2 text-right text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                        Debet
+                      </th>
+                      <th className="px-6 py-2 text-right text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                        Kredit
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-200 dark:divide-zinc-700">
+                    {transaction.posts.map((post) => (
+                      <tr
+                        key={post.id}
+                        className="hover:bg-zinc-50 dark:hover:bg-zinc-700/50"
+                      >
+                        <td className="px-6 py-3 text-sm text-zinc-900 dark:text-zinc-50">
+                          <div className="font-medium">{post.account?.namn}</div>
+                          <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                            {post.account?.group?.namn} ({post.account?.group?.typ})
+                          </div>
+                        </td>
+                        <td className="px-6 py-3 text-sm text-zinc-600 dark:text-zinc-400 italic">
+                          {post.description || "-"}
+                        </td>
+                        <td className="px-6 py-3 text-right text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
+                          {post.debet > 0 ? `${formatSwedishAmount(post.debet)} kr` : "-"}
+                        </td>
+                        <td className="px-6 py-3 text-right text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
+                          {post.kredit > 0 ? `${formatSwedishAmount(post.kredit)} kr` : "-"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
 
             {/* Pagination Controls */}
             {totalPages > 1 && (
-              <div className="px-6 py-4 border-t border-zinc-200 dark:border-zinc-700 flex items-center justify-between">
+              <div className="rounded-lg bg-white shadow dark:bg-zinc-800 px-6 py-4 flex items-center justify-between">
                 <button
                   onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                   disabled={currentPage === 1}
