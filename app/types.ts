@@ -101,3 +101,40 @@ export interface RecurringItemStatus {
   previousPeriodAmount: number;
   isComplete: boolean;
 }
+
+// Budget - monthly budget amount for an account
+export interface Budget {
+  id: number;
+  accountId: number;
+  year: number;
+  month: number;
+  amount: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Budget with account details for display
+export interface BudgetWithAccount extends Budget {
+  account: Account;
+}
+
+// Budget vs actual comparison for a specific period
+export interface BudgetComparison {
+  accountId: number;
+  accountName: string;
+  groupId: number;
+  groupName: string;
+  groupType: AccountType;
+  budgetAmount: number;
+  actualAmount: number;
+  variance: number; // positive = under budget (good for expenses)
+  variancePercent: number;
+  hasBudget: boolean; // false if no budget set
+}
+
+// Helper type for bulk budget setting (all 12 months)
+export interface YearlyBudget {
+  accountId: number;
+  year: number;
+  monthlyAmounts: number[]; // Array of 12 numbers (index 0 = January, 11 = December)
+}

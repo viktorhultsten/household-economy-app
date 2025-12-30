@@ -1,7 +1,7 @@
 "use server";
 
 import { queryAll, queryOne, query, transaction as dbTransaction } from "@/lib/db";
-import { BankEvent, Transaction, Post, Account, Group, Import, AccountType, PeriodLock, BookingTemplate, TemplateRow, RecurringItem, RecurringItemStatus } from "./types";
+import { BankEvent, Transaction, Post, Account, Group, Import, AccountType, PeriodLock, BookingTemplate, TemplateRow, RecurringItem, RecurringItemStatus, Budget, BudgetComparison } from "./types";
 
 // Imports (CSV import metadata)
 export async function getImports(): Promise<Import[]> {
@@ -1278,4 +1278,140 @@ export async function getRecurringItemMonthlyOverview(
   );
 
   return rows;
+}
+
+// ==================== BUDGETS ====================
+
+// Get all budgets for a specific account and year
+export async function getBudgetsForAccount(
+  accountId: number,
+  year: number
+): Promise<Budget[]> {
+  const rows = await queryAll<{
+    id: number;
+    account_id: number;
+    year: number;
+    month: number;
+    amount: number;
+    created_at: string;
+    updated_at: string;
+  }>(
+    "SELECT * FROM budgets WHERE account_id = $1 AND year = $2 ORDER BY month",
+    [accountId, year]
+  );
+
+  return rows.map((row) => ({
+    id: row.id,
+    accountId: row.account_id,
+    year: row.year,
+    month: row.month,
+    amount: Number(row.amount),
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+  }));
+}
+
+// Set budgets for all 12 months for a specific account/year
+// Uses UPSERT pattern (INSERT ... ON CONFLICT UPDATE)
+export async function setBudgetsForYear(
+  accountId: number,
+  year: number,
+  monthlyAmounts: number[] // Array of 12 numbers
+): Promise<void> {
+  if (monthlyAmounts.length !== 12) {
+    throw new Error("Must provide exactly 12 monthly amounts");
+  }
+
+  await dbTransaction(async (client) => {
+    for (let month = 1; month <= 12; month++) {
+      const amount = monthlyAmounts[month - 1];
+
+      // UPSERT: Insert or update if already exists
+      await client.query(
+        `INSERT INTO budgets (account_id, year, month, amount, updated_at)
+         VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+         ON CONFLICT (account_id, year, month)
+         DO UPDATE SET amount = $4, updated_at = CURRENT_TIMESTAMP`,
+        [accountId, year, month, amount]
+      );
+    }
+  });
+}
+
+// Get budget vs actual comparison for a specific month
+export async function getBudgetComparison(
+  year: number,
+  month: number
+): Promise<BudgetComparison[]> {
+  // First get all accounts with their balances (actuals)
+  const balances = await getAccountBalances(year, month);
+
+  // Filter to only income statement accounts (Intäkt and Utgift)
+  // Balance sheet accounts (Tillgång and Skuld) should not have budgets
+  const incomeStatementBalances = balances.filter(
+    (balance) => balance.groupType === "Intäkt" || balance.groupType === "Utgift"
+  );
+
+  // Get all budgets for this year/month
+  const budgetRows = await queryAll<{
+    account_id: number;
+    amount: number;
+  }>(
+    "SELECT account_id, amount FROM budgets WHERE year = $1 AND month = $2",
+    [year, month]
+  );
+
+  // Create a map of accountId -> budget amount
+  const budgetMap = new Map<number, number>();
+  budgetRows.forEach((row) => {
+    budgetMap.set(row.account_id, Number(row.amount));
+  });
+
+  // Build comparison results
+  const comparisons: BudgetComparison[] = incomeStatementBalances.map((balance) => {
+    const budgetAmount = budgetMap.get(balance.accountId) ?? 0;
+    const hasBudget = budgetMap.has(balance.accountId);
+    const actualAmount = balance.balance;
+
+    // Calculate variance
+    // For Utgift (Expense): budget - actual (positive = saved money, under budget)
+    // For Intäkt (Income): actual - budget (positive = more income than budgeted)
+    let variance: number;
+    if (balance.groupType === "Utgift") {
+      variance = budgetAmount - actualAmount;
+    } else {
+      // Intäkt
+      variance = actualAmount - budgetAmount;
+    }
+
+    const variancePercent = budgetAmount !== 0
+      ? (variance / budgetAmount) * 100
+      : 0;
+
+    return {
+      accountId: balance.accountId,
+      accountName: balance.accountName,
+      groupId: balance.groupId,
+      groupName: balance.groupName,
+      groupType: balance.groupType,
+      budgetAmount,
+      actualAmount,
+      variance,
+      variancePercent,
+      hasBudget,
+    };
+  });
+
+  return comparisons;
+}
+
+// Delete all budgets for a specific account/year
+export async function deleteBudgetsForYear(
+  accountId: number,
+  year: number
+): Promise<void> {
+  await query(
+    "DELETE FROM budgets WHERE account_id = $1 AND year = $2",
+    [accountId, year]
+  );
 }

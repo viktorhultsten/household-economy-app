@@ -66,7 +66,11 @@ export default function BalansPage() {
   async function loadBalances() {
     setLoading(true);
     const data = await getAccountBalances(year, month);
-    setBalances(data);
+    // Filter to only balance sheet accounts (Tillgång and Skuld)
+    const balanceSheetData = data.filter(
+      (balance) => balance.groupType === "Tillgång" || balance.groupType === "Skuld"
+    );
+    setBalances(balanceSheetData);
     setLoading(false);
   }
 
