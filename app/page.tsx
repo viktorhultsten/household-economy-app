@@ -104,7 +104,8 @@ export default function Home() {
                       {unpostedEvents.map((event) => (
                         <tr
                           key={event.id}
-                          className="hover:bg-zinc-50 dark:hover:bg-zinc-700/50"
+                          onClick={() => setSelectedEvent(event)}
+                          className="hover:bg-zinc-50 dark:hover:bg-zinc-700/50 cursor-pointer"
                         >
                           <td className="whitespace-nowrap px-6 py-4 text-sm text-zinc-600 dark:text-zinc-400">
                             {formatSwedishDate(event.date)}
@@ -122,12 +123,9 @@ export default function Home() {
                             {formatSwedishAmount(event.amount)}
                           </td>
                           <td className="whitespace-nowrap px-6 py-4 text-right text-sm">
-                            <button
-                              onClick={() => setSelectedEvent(event)}
-                              className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
-                            >
+                            <span className="inline-block px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
                               Bokför →
-                            </button>
+                            </span>
                           </td>
                         </tr>
                       ))}

@@ -19,19 +19,23 @@ export default function AccountSelectorModal({
   showAllOption = false,
 }: AccountSelectorModalProps) {
   const [searchTerm, setSearchTerm] = useState("");
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
         onClose();
       }
     };
 
-    document.addEventListener("keydown", handleEscape);
-    return () => document.removeEventListener("keydown", handleEscape);
+    // Use capture phase to catch the event before it reaches other modals
+    document.addEventListener("keydown", handleEscape, { capture: true });
+    return () => document.removeEventListener("keydown", handleEscape, { capture: true });
   }, [onClose]);
 
-  const groupedAccounts = useMemo(() => {
+  const { groupedAccounts, flatAccounts } = useMemo(() => {
     // Filter accounts by search term (search in account name, group name, and type)
     const searchLower = searchTerm.toLowerCase();
     const filtered = accounts.filter((account) =>
@@ -60,8 +64,48 @@ export default function AccountSelectorModal({
       accs.sort((a, b) => a.namn.localeCompare(b.namn, "sv-SE"));
     });
 
-    return sortedGroups;
-  }, [accounts, searchTerm]);
+    // Create flat list for keyboard navigation
+    const flat: Account[] = [];
+    if (showAllOption) {
+      // Add a fake account for "All accounts" option
+      flat.push({ id: 0, namn: "Alla konton", groupId: 0 });
+    }
+    sortedGroups.forEach(([, accs]) => {
+      flat.push(...accs);
+    });
+
+    return { groupedAccounts: sortedGroups, flatAccounts: flat };
+  }, [accounts, searchTerm, showAllOption]);
+
+  // Reset highlighted index when search term changes
+  useEffect(() => {
+    setHighlightedIndex(0);
+  }, [searchTerm]);
+
+  // Handle keyboard navigation
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (flatAccounts.length === 0) return;
+
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        setHighlightedIndex((prev) =>
+          prev < flatAccounts.length - 1 ? prev + 1 : prev
+        );
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        setHighlightedIndex((prev) => (prev > 0 ? prev - 1 : prev));
+        break;
+      case "Enter":
+        e.preventDefault();
+        if (flatAccounts[highlightedIndex]) {
+          onSelect(flatAccounts[highlightedIndex].id);
+          onClose();
+        }
+        break;
+    }
+  };
 
   // Helper function to highlight search term in text
   const highlightText = (text: string, search: string) => {
@@ -85,6 +129,11 @@ export default function AccountSelectorModal({
     );
   };
 
+  // Get current highlighted account index within flat list
+  const getAccountIndex = (accountId: number): number => {
+    return flatAccounts.findIndex((acc) => acc.id === accountId);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="rounded-lg bg-white dark:bg-zinc-800 shadow-xl max-w-2xl w-full h-[80vh] flex flex-col">
@@ -105,6 +154,7 @@ export default function AccountSelectorModal({
             placeholder="Sök konto..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
+            onKeyDown={handleKeyDown}
             className="w-full rounded-md border border-zinc-300 px-3 py-2 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
             autoFocus
           />
@@ -133,7 +183,9 @@ export default function AccountSelectorModal({
                     onClose();
                   }}
                   className={`cursor-pointer border-b border-zinc-100 dark:border-zinc-700 ${
-                    selectedAccountId === 0
+                    highlightedIndex === 0
+                      ? "bg-blue-100 dark:bg-blue-900"
+                      : selectedAccountId === 0
                       ? "bg-zinc-200 dark:bg-zinc-700"
                       : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
                   }`}
@@ -169,30 +221,37 @@ export default function AccountSelectorModal({
                         {groupName}
                       </td>
                     </tr>
-                    {groupAccounts.map((account) => (
-                      <tr
-                        key={account.id}
-                        onClick={() => {
-                          onSelect(account.id);
-                          onClose();
-                        }}
-                        className={`cursor-pointer border-b border-zinc-100 dark:border-zinc-700 ${
-                          account.id === selectedAccountId
-                            ? "bg-zinc-200 dark:bg-zinc-700"
-                            : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                        }`}
-                      >
-                        <td className="px-4 py-3 text-sm text-zinc-900 dark:text-zinc-50">
-                          {highlightText(account.namn, searchTerm)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400">
-                          {account.group?.namn ? highlightText(account.group.namn, searchTerm) : "-"}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400">
-                          {account.group?.typ ? highlightText(account.group.typ, searchTerm) : "-"}
-                        </td>
-                      </tr>
-                    ))}
+                    {groupAccounts.map((account) => {
+                      const accountIndex = getAccountIndex(account.id);
+                      const isHighlighted = accountIndex === highlightedIndex;
+
+                      return (
+                        <tr
+                          key={account.id}
+                          onClick={() => {
+                            onSelect(account.id);
+                            onClose();
+                          }}
+                          className={`cursor-pointer border-b border-zinc-100 dark:border-zinc-700 ${
+                            isHighlighted
+                              ? "bg-blue-100 dark:bg-blue-900"
+                              : account.id === selectedAccountId
+                              ? "bg-zinc-200 dark:bg-zinc-700"
+                              : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                          }`}
+                        >
+                          <td className="px-4 py-3 text-sm text-zinc-900 dark:text-zinc-50">
+                            {highlightText(account.namn, searchTerm)}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400">
+                            {account.group?.namn ? highlightText(account.group.namn, searchTerm) : "-"}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400">
+                            {account.group?.typ ? highlightText(account.group.typ, searchTerm) : "-"}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </React.Fragment>
                 ))
               )}
