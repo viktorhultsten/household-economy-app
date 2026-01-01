@@ -21,6 +21,9 @@ export interface Import {
   totalEvents: number;
   dateRangeStart: Date;
   dateRangeEnd: Date;
+  accountId?: number;
+  account?: Account;
+  postedEvents?: number; // Count of events that have been posted/booked
 }
 
 // Bank events from CSV import - raw bank movements
@@ -32,6 +35,7 @@ export interface BankEvent {
   isPosted: boolean;
   transactionId?: number;
   importId?: number;
+  import?: Import; // Include import data to access default account
 }
 
 // Accounting transaction with balanced posts
@@ -42,6 +46,10 @@ export interface Transaction {
   bankEventId?: number;
   bankEvent?: BankEvent; // Include full bank event for displaying original description
   posts: Post[];
+  originalTransactionId?: number; // If this is a period-shifted copy
+  periodShiftDate?: Date; // The accounting period this transaction belongs to
+  bridgeAccountId?: number; // Temporary account holding the money
+  linkedTransaction?: Transaction; // The linked period-shifted transaction
 }
 
 // Individual post/entry in a transaction

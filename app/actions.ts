@@ -12,7 +12,18 @@ export async function getImports(): Promise<Import[]> {
     total_events: number;
     date_range_start: string;
     date_range_end: string;
-  }>("SELECT * FROM imports ORDER BY imported_at DESC");
+    posted_events: number;
+  }>(
+    `
+    SELECT
+      i.*,
+      COALESCE(SUM(CASE WHEN be.is_posted = 1 THEN 1 ELSE 0 END), 0) as posted_events
+    FROM imports i
+    LEFT JOIN bank_events be ON be.import_id = i.id
+    GROUP BY i.id, i.filename, i.imported_at, i.total_events, i.date_range_start, i.date_range_end, i.account_id
+    ORDER BY i.imported_at DESC
+    `
+  );
 
   return rows.map((row) => ({
     id: row.id,
@@ -21,6 +32,7 @@ export async function getImports(): Promise<Import[]> {
     totalEvents: row.total_events,
     dateRangeStart: new Date(row.date_range_start),
     dateRangeEnd: new Date(row.date_range_end),
+    postedEvents: Number(row.posted_events),
   }));
 }
 
@@ -71,11 +83,19 @@ export async function getImportWithEvents(importId: number): Promise<{
 }
 
 export async function deleteImport(id: number): Promise<void> {
-  // First, get all bank_events from this import with their dates
-  const bankEvents = await queryAll<{ id: number; date: string }>(
-    "SELECT id, date FROM bank_events WHERE import_id = $1",
+  // First, get all bank_events from this import
+  const bankEvents = await queryAll<{ id: number; date: string; is_posted: number }>(
+    "SELECT id, date, is_posted FROM bank_events WHERE import_id = $1",
     [id]
   );
+
+  // Check if any bank events have been posted (booked)
+  const postedEvents = bankEvents.filter(e => e.is_posted === 1);
+  if (postedEvents.length > 0) {
+    throw new Error(
+      `Kan inte ta bort import. ${postedEvents.length} ${postedEvents.length === 1 ? 'händelse' : 'händelser'} har bokförts. Du måste först ta bort ${postedEvents.length === 1 ? 'transaktionen' : 'transaktionerna'} manuellt.`
+    );
+  }
 
   // Check if any bank events are in locked periods
   for (const event of bankEvents) {
@@ -93,23 +113,38 @@ export async function deleteImport(id: number): Promise<void> {
     }
   }
 
-  // For each bank_event, delete any associated transaction
-  for (const event of bankEvents) {
-    const txn = await queryOne<{ id: number }>(
-      "SELECT id FROM transactions WHERE bank_event_id = $1",
-      [event.id]
-    );
+  // Now delete the import (which will cascade delete bank_events)
+  // This is safe because we've verified no events are posted
+  await query("DELETE FROM imports WHERE id = $1", [id]);
+}
 
-    if (txn) {
-      // Delete posts first (cascade should handle this, but being explicit)
-      await query("DELETE FROM posts WHERE transaction_id = $1", [txn.id]);
-      // Delete transaction
-      await query("DELETE FROM transactions WHERE id = $1", [txn.id]);
-    }
+// Utility function to clean up orphaned bank event references
+export async function cleanupOrphanedBankEvents(): Promise<number> {
+  // Find bank events with transaction_id that don't exist in transactions table
+  const orphanedEvents = await queryAll<{ id: number }>(
+    `
+    SELECT be.id
+    FROM bank_events be
+    WHERE be.transaction_id IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM transactions t WHERE t.id = be.transaction_id
+    )
+    `
+  );
+
+  if (orphanedEvents.length > 0) {
+    // Clean up by setting transaction_id to NULL and is_posted to 0
+    await query(
+      `
+      UPDATE bank_events
+      SET transaction_id = NULL, is_posted = 0
+      WHERE id = ANY($1)
+      `,
+      [orphanedEvents.map(e => e.id)]
+    );
   }
 
-  // Now delete the import (which will cascade delete bank_events)
-  await query("DELETE FROM imports WHERE id = $1", [id]);
+  return orphanedEvents.length;
 }
 
 // Bank Events (CSV imports)
@@ -122,7 +157,13 @@ export async function getBankEvents(): Promise<BankEvent[]> {
     is_posted: number;
     transaction_id: number | null;
     import_id: number | null;
-  }>("SELECT * FROM bank_events ORDER BY date DESC");
+    import_account_id: number | null;
+  }>(`
+    SELECT be.*, i.account_id as import_account_id
+    FROM bank_events be
+    LEFT JOIN imports i ON be.import_id = i.id
+    ORDER BY be.date DESC
+  `);
 
   return rows.map((row) => ({
     id: row.id,
@@ -132,12 +173,14 @@ export async function getBankEvents(): Promise<BankEvent[]> {
     isPosted: row.is_posted === 1,
     transactionId: row.transaction_id ?? undefined,
     importId: row.import_id ?? undefined,
+    import: row.import_account_id ? { accountId: row.import_account_id } as Import : undefined,
   }));
 }
 
 export async function saveBankEvents(
   events: Omit<BankEvent, "id" | "isPosted" | "transactionId" | "importId">[],
-  filename: string
+  filename: string,
+  accountId?: number
 ): Promise<void> {
   if (events.length === 0) return;
 
@@ -149,8 +192,8 @@ export async function saveBankEvents(
   await dbTransaction(async (client) => {
     // Create import record
     const importResult = await client.query<{ id: number }>(
-      "INSERT INTO imports (filename, total_events, date_range_start, date_range_end) VALUES ($1, $2, $3, $4) RETURNING id",
-      [filename, events.length, dateRangeStart.toISOString(), dateRangeEnd.toISOString()]
+      "INSERT INTO imports (filename, total_events, date_range_start, date_range_end, account_id) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+      [filename, events.length, dateRangeStart.toISOString(), dateRangeEnd.toISOString(), accountId || null]
     );
 
     const importId = importResult.rows[0].id;
@@ -237,10 +280,16 @@ export async function getTransactions(): Promise<Transaction[]> {
 export async function createTransaction(
   transactionData: Omit<Transaction, "id">
 ): Promise<number> {
-  // Check if period is locked
+  // Check if period is locked for the main transaction
   await checkPeriodLock(transactionData.date);
 
+  // Check if period is locked for the shifted transaction
+  if (transactionData.periodShiftDate) {
+    await checkPeriodLock(transactionData.periodShiftDate);
+  }
+
   return await dbTransaction(async (client) => {
+    // Create the main transaction (at bank event date)
     const result = await client.query<{ id: number }>(
       "INSERT INTO transactions (date, description, bank_event_id) VALUES ($1, $2, $3) RETURNING id",
       [
@@ -252,7 +301,7 @@ export async function createTransaction(
 
     const transactionId = result.rows[0].id;
 
-    // Insert posts
+    // Insert posts for main transaction
     for (const post of transactionData.posts) {
       await client.query(
         "INSERT INTO posts (transaction_id, account_id, debet, kredit, description) VALUES ($1, $2, $3, $4, $5)",
@@ -266,6 +315,85 @@ export async function createTransaction(
         "UPDATE bank_events SET is_posted = 1, transaction_id = $1 WHERE id = $2",
         [transactionId, transactionData.bankEventId]
       );
+    }
+
+    // If period shift is enabled, create the second (shifted) transaction
+    if (transactionData.periodShiftDate && transactionData.bridgeAccountId) {
+      // Create the shifted transaction
+      const shiftedResult = await client.query<{ id: number }>(
+        `INSERT INTO transactions
+         (date, description, original_transaction_id, period_shift_date, bridge_account_id)
+         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [
+          transactionData.periodShiftDate.toISOString(),
+          `${transactionData.description} (periodförskjuten)`,
+          transactionId,
+          transactionData.periodShiftDate.toISOString(),
+          transactionData.bridgeAccountId,
+        ]
+      );
+
+      const shiftedTransactionId = shiftedResult.rows[0].id;
+
+      // The shifted transaction moves money FROM bridge account TO the actual expense/income accounts
+      // We need to reverse the bridge account entries from the original transaction
+
+      // Find the total debit and credit amounts from original transaction (excluding bridge account)
+      let totalDebet = 0;
+      let totalKredit = 0;
+
+      for (const post of transactionData.posts) {
+        if (post.accountId !== transactionData.bridgeAccountId) {
+          totalDebet += post.debet;
+          totalKredit += post.kredit;
+        }
+      }
+
+      // In the original transaction: add bridge account posts
+      // If original has expenses (kredit side), bridge gets debit
+      // If original has income (debit side), bridge gets kredit
+      if (totalKredit > 0) {
+        // Original transaction has money going out (kredit) - bridge receives it (debet)
+        await client.query(
+          "INSERT INTO posts (transaction_id, account_id, debet, kredit, description) VALUES ($1, $2, $3, $4, $5)",
+          [transactionId, transactionData.bridgeAccountId, totalKredit, 0, "Mellanliggande konto (periodförskjutning)"]
+        );
+      } else if (totalDebet > 0) {
+        // Original transaction has money coming in (debet) - bridge pays it out (kredit)
+        await client.query(
+          "INSERT INTO posts (transaction_id, account_id, debet, kredit, description) VALUES ($1, $2, $3, $4, $5)",
+          [transactionId, transactionData.bridgeAccountId, 0, totalDebet, "Mellanliggande konto (periodförskjutning)"]
+        );
+      }
+
+      // In the shifted transaction: copy the original posts but reverse the bridge account
+      for (const post of transactionData.posts) {
+        if (post.accountId !== transactionData.bridgeAccountId) {
+          await client.query(
+            "INSERT INTO posts (transaction_id, account_id, debet, kredit, description) VALUES ($1, $2, $3, $4, $5)",
+            [shiftedTransactionId, post.accountId, post.debet, post.kredit, post.description ?? null]
+          );
+        }
+      }
+
+      // Add the bridge account entry to the shifted transaction (opposite of original)
+      if (totalKredit > 0) {
+        // Shifted: bridge pays out (kredit)
+        await client.query(
+          "INSERT INTO posts (transaction_id, account_id, debet, kredit, description) VALUES ($1, $2, $3, $4, $5)",
+          [shiftedTransactionId, transactionData.bridgeAccountId, 0, totalKredit, "Mellanliggande konto (periodförskjutning)"]
+        );
+      } else if (totalDebet > 0) {
+        // Shifted: bridge receives (debet)
+        await client.query(
+          "INSERT INTO posts (transaction_id, account_id, debet, kredit, description) VALUES ($1, $2, $3, $4, $5)",
+          [shiftedTransactionId, transactionData.bridgeAccountId, totalDebet, 0, "Mellanliggande konto (periodförskjutning)"]
+        );
+      }
+
+      // Return the shifted transaction ID for recurring item linking
+      // The recurring item should be linked to the period-shifted transaction, not the original
+      return shiftedTransactionId;
     }
 
     return transactionId;
@@ -597,6 +725,9 @@ export async function getAllTransactions(): Promise<Transaction[]> {
               importId: row.be_import_id ?? undefined,
             }
           : undefined,
+        originalTransactionId: row.txn_original_transaction_id ?? undefined,
+        periodShiftDate: row.txn_period_shift_date ? new Date(row.txn_period_shift_date) : undefined,
+        bridgeAccountId: row.txn_bridge_account_id ?? undefined,
         posts: [],
       });
     }
@@ -627,20 +758,100 @@ export async function getAllTransactions(): Promise<Transaction[]> {
 
 export async function getTransactionsPaginated(
   limit: number = 50,
-  offset: number = 0
+  offset: number = 0,
+  searchQuery?: string,
+  sortField: "date" | "description" | "accounts" = "date",
+  sortDirection: "asc" | "desc" = "desc",
+  filterAccountType?: string,
+  filterDateFrom?: string,
+  filterDateTo?: string
 ): Promise<{ transactions: Transaction[]; total: number }> {
-  // Get total count
-  const countResult = await queryOne<{ count: number }>(
-    "SELECT COUNT(*) as count FROM transactions"
-  );
+  // Build WHERE clauses for filtering
+  const whereClauses: string[] = [];
+  const params: any[] = [];
+  let paramIndex = 1;
+
+  // Search filter
+  if (searchQuery && searchQuery.trim()) {
+    whereClauses.push(
+      `(t.description ILIKE $${paramIndex} OR EXISTS (
+        SELECT 1 FROM posts p2
+        JOIN accounts a2 ON a2.id = p2.account_id
+        WHERE p2.transaction_id = t.id AND a2.namn ILIKE $${paramIndex}
+      ))`
+    );
+    params.push(`%${searchQuery.trim()}%`);
+    paramIndex++;
+  }
+
+  // Date range filters
+  if (filterDateFrom) {
+    whereClauses.push(`t.date >= $${paramIndex}`);
+    params.push(filterDateFrom);
+    paramIndex++;
+  }
+
+  if (filterDateTo) {
+    whereClauses.push(`t.date <= $${paramIndex}`);
+    params.push(filterDateTo);
+    paramIndex++;
+  }
+
+  // Account type filter
+  if (filterAccountType && filterAccountType !== "all") {
+    whereClauses.push(
+      `EXISTS (
+        SELECT 1 FROM posts p3
+        JOIN accounts a3 ON a3.id = p3.account_id
+        JOIN groups g3 ON g3.id = a3.group_id
+        WHERE p3.transaction_id = t.id AND g3.typ = $${paramIndex}
+      )`
+    );
+    params.push(filterAccountType);
+    paramIndex++;
+  }
+
+  const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
+
+  // Build ORDER BY clause
+  let orderBy = "ORDER BY ";
+  if (sortField === "date") {
+    orderBy += `t.date ${sortDirection.toUpperCase()}, t.id ${sortDirection.toUpperCase()}`;
+  } else if (sortField === "description") {
+    orderBy += `t.description ${sortDirection.toUpperCase()}, t.date DESC, t.id DESC`;
+  } else if (sortField === "accounts") {
+    // Sort by first account name in posts
+    orderBy += `(
+      SELECT MIN(a.namn)
+      FROM posts p
+      JOIN accounts a ON a.id = p.account_id
+      WHERE p.transaction_id = t.id
+    ) ${sortDirection.toUpperCase()}, t.date DESC, t.id DESC`;
+  }
+
+  // Get total count with filters
+  const countQuery = `
+    SELECT COUNT(*) as count
+    FROM transactions t
+    ${whereClause}
+  `;
+  const countResult = await queryOne<{ count: number }>(countQuery, params);
   const total = countResult?.count || 0;
 
-  // Optimized query with LIMIT/OFFSET
+  // Optimized query with LIMIT/OFFSET and filters
+  params.push(limit);
+  const limitParam = paramIndex++;
+  params.push(offset);
+  const offsetParam = paramIndex++;
+
   const rows = await queryAll<{
     txn_id: number;
     txn_date: string;
     txn_description: string;
     txn_bank_event_id: number | null;
+    txn_original_transaction_id: number | null;
+    txn_period_shift_date: string | null;
+    txn_bridge_account_id: number | null;
     post_id: number;
     post_account_id: number;
     post_debet: string;
@@ -660,16 +871,20 @@ export async function getTransactionsPaginated(
   }>(
     `
     WITH paginated_transactions AS (
-      SELECT id, date, description, bank_event_id
-      FROM transactions
-      ORDER BY date DESC, id DESC
-      LIMIT $1 OFFSET $2
+      SELECT id, date, description, bank_event_id, original_transaction_id, period_shift_date, bridge_account_id
+      FROM transactions t
+      ${whereClause}
+      ${orderBy}
+      LIMIT $${limitParam} OFFSET $${offsetParam}
     )
     SELECT
       t.id as txn_id,
       t.date as txn_date,
       t.description as txn_description,
       t.bank_event_id as txn_bank_event_id,
+      t.original_transaction_id as txn_original_transaction_id,
+      t.period_shift_date as txn_period_shift_date,
+      t.bridge_account_id as txn_bridge_account_id,
       p.id as post_id,
       p.account_id as post_account_id,
       p.debet as post_debet,
@@ -691,9 +906,9 @@ export async function getTransactionsPaginated(
     JOIN accounts a ON a.id = p.account_id
     JOIN groups g ON g.id = a.group_id
     LEFT JOIN bank_events be ON be.id = t.bank_event_id
-    ORDER BY t.date DESC, t.id DESC, p.id ASC
+    ${orderBy}, p.id ASC
   `,
-    [limit, offset]
+    params
   );
 
   // Group rows by transaction
@@ -717,6 +932,9 @@ export async function getTransactionsPaginated(
               importId: row.be_import_id ?? undefined,
             }
           : undefined,
+        originalTransactionId: row.txn_original_transaction_id ?? undefined,
+        periodShiftDate: row.txn_period_shift_date ? new Date(row.txn_period_shift_date) : undefined,
+        bridgeAccountId: row.txn_bridge_account_id ?? undefined,
         posts: [],
       });
     }

@@ -7,7 +7,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "migrate:numeric": "tsx scripts/migrate-real-to-numeric.ts"
+    "migrate:numeric": "tsx scripts/migrate-real-to-numeric.ts",
+    "migrate:import-account": "tsx scripts/run-migration.ts",
+    "cleanup:orphaned-events": "tsx scripts/cleanup-orphaned-events.ts",
+    "cleanup:orphaned-transactions": "tsx scripts/cleanup-orphaned-transactions.ts",
+    "diagnose:imports": "tsx scripts/diagnose-imports.ts"
   },
   "dependencies": {
     "next": "16.1.0",

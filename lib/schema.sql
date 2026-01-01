@@ -24,7 +24,9 @@ CREATE TABLE IF NOT EXISTS imports (
   imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   total_events INTEGER NOT NULL,
   date_range_start TEXT NOT NULL,
-  date_range_end TEXT NOT NULL
+  date_range_end TEXT NOT NULL,
+  account_id INTEGER,
+  FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE SET NULL
 );
 
 -- Transactions table (accounting entries) - created before bank_events to avoid circular dependency

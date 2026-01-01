@@ -24,20 +24,30 @@ export default function TransactionForm({
     bankEvent?.date || new Date()
   );
   const [description, setDescription] = useState(bankEvent?.description || "");
-  const [posts, setPosts] = useState<Omit<Post, "id" | "transactionId">[]>([
-    {
-      accountId: 0,
-      debet: bankEvent && bankEvent.amount > 0 ? bankEvent.amount : 0,
-      kredit: bankEvent && bankEvent.amount < 0 ? -bankEvent.amount : 0,
-      description: "",
-    },
-    {
-      accountId: 0,
-      debet: bankEvent && bankEvent.amount < 0 ? -bankEvent.amount : 0,
-      kredit: bankEvent && bankEvent.amount > 0 ? bankEvent.amount : 0,
-      description: "",
-    },
-  ]);
+  const [posts, setPosts] = useState<Omit<Post, "id" | "transactionId">[]>(() => {
+    // If bankEvent has an import with an accountId, preset the appropriate row
+    const importAccountId = bankEvent?.import?.accountId || 0;
+
+    // The tillgång row should always be on top
+    // If amount is positive: tillgång gets debet (first row)
+    // If amount is negative: tillgång gets kredit (still first row)
+    return [
+      {
+        // First row: always the tillgång account
+        accountId: importAccountId,
+        debet: bankEvent && bankEvent.amount > 0 ? bankEvent.amount : 0,
+        kredit: bankEvent && bankEvent.amount < 0 ? -bankEvent.amount : 0,
+        description: "",
+      },
+      {
+        // Second row: the opposing account
+        accountId: 0,
+        debet: bankEvent && bankEvent.amount < 0 ? -bankEvent.amount : 0,
+        kredit: bankEvent && bankEvent.amount > 0 ? bankEvent.amount : 0,
+        description: "",
+      },
+    ];
+  });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [periodLockWarning, setPeriodLockWarning] = useState("");
@@ -45,10 +55,18 @@ export default function TransactionForm({
   const [templateName, setTemplateName] = useState("");
   const [showAccountSelector, setShowAccountSelector] = useState<number | null>(null);
 
+  // Period shift state
+  const [enablePeriodShift, setEnablePeriodShift] = useState(false);
+  const [periodShiftDate, setPeriodShiftDate] = useState<Date | null>(null);
+  const [bridgeAccountId, setBridgeAccountId] = useState<number>(0);
+  const [periodShiftLockWarning, setPeriodShiftLockWarning] = useState("");
+
   useEffect(() => {
     async function loadData() {
-      const year = date.getFullYear();
-      const month = date.getMonth() + 1;
+      // Use period shift date for recurring items if enabled, otherwise use the transaction date
+      const effectiveDate = enablePeriodShift && periodShiftDate ? periodShiftDate : date;
+      const year = effectiveDate.getFullYear();
+      const month = effectiveDate.getMonth() + 1;
       const [accountsData, templatesData, recurringItemsData] = await Promise.all([
         getAccounts(),
         getBookingTemplates(),
@@ -59,7 +77,7 @@ export default function TransactionForm({
       setRecurringItems(recurringItemsData);
     }
     loadData();
-  }, [date]);
+  }, [date, enablePeriodShift, periodShiftDate]);
 
   useEffect(() => {
     async function checkPeriodLock() {
@@ -76,6 +94,27 @@ export default function TransactionForm({
     }
     checkPeriodLock();
   }, [date]);
+
+  useEffect(() => {
+    async function checkPeriodShiftLock() {
+      if (!enablePeriodShift || !periodShiftDate) {
+        setPeriodShiftLockWarning("");
+        return;
+      }
+
+      const isLocked = await isPeriodLocked(periodShiftDate);
+      if (isLocked) {
+        const year = periodShiftDate.getFullYear();
+        const month = periodShiftDate.getMonth() + 1;
+        setPeriodShiftLockWarning(
+          `Periodförskjutningen kan inte sparas: Perioden ${year}-${String(month).padStart(2, "0")} är låst.`
+        );
+      } else {
+        setPeriodShiftLockWarning("");
+      }
+    }
+    checkPeriodShiftLock();
+  }, [enablePeriodShift, periodShiftDate]);
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -222,6 +261,21 @@ export default function TransactionForm({
       return;
     }
 
+    if (enablePeriodShift) {
+      if (!periodShiftDate) {
+        setError("Bokföringsdatum för periodförskjutning måste anges!");
+        return;
+      }
+      if (bridgeAccountId === 0) {
+        setError("Mellanliggande konto för periodförskjutning måste väljas!");
+        return;
+      }
+      if (periodShiftLockWarning) {
+        setError("Periodförskjutningen kan inte sparas - målperioden är låst!");
+        return;
+      }
+    }
+
     setLoading(true);
 
     try {
@@ -234,6 +288,8 @@ export default function TransactionForm({
           id: 0, // Will be set by server
           transactionId: 0, // Will be set by server
         })),
+        periodShiftDate: enablePeriodShift ? periodShiftDate! : undefined,
+        bridgeAccountId: enablePeriodShift ? bridgeAccountId : undefined,
       });
 
       // Link to recurring item if selected
@@ -349,6 +405,80 @@ export default function TransactionForm({
               />
             </div>
           </div>
+
+          {/* Period Shift Section */}
+          {bankEvent && (
+            <div className="p-4 border border-zinc-200 dark:border-zinc-700 rounded-md bg-zinc-50 dark:bg-zinc-900">
+              <div className="flex items-center gap-3 mb-3">
+                <input
+                  type="checkbox"
+                  id="enable-period-shift"
+                  checked={enablePeriodShift}
+                  onChange={(e) => {
+                    setEnablePeriodShift(e.target.checked);
+                    if (!e.target.checked) {
+                      setPeriodShiftDate(null);
+                      setBridgeAccountId(0);
+                      setPeriodShiftLockWarning("");
+                    }
+                  }}
+                  className="rounded border-zinc-300 dark:border-zinc-600"
+                />
+                <label htmlFor="enable-period-shift" className="text-sm font-medium text-zinc-700 dark:text-zinc-300 cursor-pointer">
+                  Periodförskjutning (flytta till annan bokföringsperiod)
+                </label>
+              </div>
+
+              {enablePeriodShift && (
+                <>
+                  <p className="text-xs text-zinc-600 dark:text-zinc-400 mb-3">
+                    Om en bankhändelse inträffar i slutet/början av månaden men hör till en annan bokföringsperiod,
+                    kan du skapa en periodförskjutning. Detta skapar en extra transaktion som flyttar beloppet
+                    till rätt period via ett mellanliggande konto.
+                  </p>
+
+                  {periodShiftLockWarning && (
+                    <div className="mb-3 rounded-md bg-amber-50 dark:bg-amber-900/20 p-3 text-sm text-amber-800 dark:text-amber-200">
+                      ⚠️ {periodShiftLockWarning}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                        Bokföringsdatum (rätt period)
+                      </label>
+                      <input
+                        type="date"
+                        value={periodShiftDate?.toISOString().split("T")[0] || ""}
+                        onChange={(e) => setPeriodShiftDate(e.target.value ? new Date(e.target.value) : null)}
+                        required={enablePeriodShift}
+                        className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                        Mellanliggande konto
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setShowAccountSelector(-1)}
+                        className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-left text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50 hover:bg-zinc-50 dark:hover:bg-zinc-600"
+                      >
+                        {bridgeAccountId === 0
+                          ? "Välj konto..."
+                          : accounts.find((a) => a.id === bridgeAccountId)?.namn ||
+                            "Välj konto..."}
+                      </button>
+                      <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                        Konto där pengarna tillfälligt "parkeras" mellan perioderna
+                      </p>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           <div>
             <div className="flex items-center justify-between mb-3">
@@ -555,9 +685,16 @@ export default function TransactionForm({
 
         {/* Recurring Items Sidebar */}
         <div className="w-80 border-l border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 overflow-y-auto p-4">
-          <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 mb-4">
-            Återkommande
-          </h3>
+          <div className="mb-4">
+            <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+              Återkommande
+            </h3>
+            {enablePeriodShift && periodShiftDate && (
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+                Visar för period: {periodShiftDate.toLocaleDateString("sv-SE", { year: "numeric", month: "long" })}
+              </p>
+            )}
+          </div>
           {recurringItems.length === 0 ? (
             <p className="text-sm text-zinc-600 dark:text-zinc-400 text-center py-4">
               Inga återkommande transaktioner för denna månad.{" "}
@@ -628,9 +765,19 @@ export default function TransactionForm({
       {showAccountSelector !== null && (
         <AccountSelectorModal
           accounts={accounts}
-          selectedAccountId={posts[showAccountSelector]?.accountId || 0}
+          selectedAccountId={
+            showAccountSelector === -1
+              ? bridgeAccountId
+              : posts[showAccountSelector]?.accountId || 0
+          }
           onSelect={(accountId) => {
-            updatePost(showAccountSelector, "accountId", accountId);
+            if (showAccountSelector === -1) {
+              // Selecting bridge account
+              setBridgeAccountId(accountId);
+            } else {
+              // Selecting regular post account
+              updatePost(showAccountSelector, "accountId", accountId);
+            }
             setShowAccountSelector(null);
           }}
           onClose={() => setShowAccountSelector(null)}

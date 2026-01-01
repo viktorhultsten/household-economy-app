@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Import, BankEvent } from "../types";
 import { getImports, getImportWithEvents, deleteImport, saveBankEvents } from "../actions";
-import FileUpload from "../components/FileUpload";
+import ImportModal from "../components/ImportModal";
 import { parseSwedishCSV } from "../utils/csvParser";
 import ConfirmModal from "../components/ConfirmModal";
 
@@ -35,6 +35,7 @@ export default function ImporterPage() {
   const [expandedImportId, setExpandedImportId] = useState<number | null>(null);
   const [expandedEvents, setExpandedEvents] = useState<BankEvent[]>([]);
   const [loadingEvents, setLoadingEvents] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{
     id: number;
     filename: string;
@@ -52,16 +53,17 @@ export default function ImporterPage() {
     setLoading(false);
   }
 
-  async function handleFileLoad(content: string, filename: string) {
+  async function handleImport(content: string, filename: string, accountId?: number) {
     const parsedEvents = parseSwedishCSV(content);
 
     // Save to database
-    await saveBankEvents(parsedEvents, filename);
+    await saveBankEvents(parsedEvents, filename, accountId);
 
     // Reload imports
     await loadImports();
 
-    // If we had an import expanded, collapse it
+    // Close modal and collapse any expanded import
+    setShowImportModal(false);
     setExpandedImportId(null);
     setExpandedEvents([]);
   }
@@ -120,9 +122,13 @@ export default function ImporterPage() {
           <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">
             Importer
           </h1>
+          <button
+            onClick={() => setShowImportModal(true)}
+            className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-zinc-50 hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+          >
+            Importera CSV
+          </button>
         </div>
-
-        <FileUpload onFileLoad={handleFileLoad} />
 
         {imports.length === 0 ? (
           <div className="rounded-lg bg-white shadow dark:bg-zinc-800 p-8 text-center">
@@ -173,6 +179,9 @@ export default function ImporterPage() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
+                        if ((imp.postedEvents ?? 0) > 0) {
+                          return; // Don't open modal if there are posted events
+                        }
                         setDeleteConfirm({
                           id: imp.id,
                           filename: imp.filename,
@@ -180,7 +189,13 @@ export default function ImporterPage() {
                           totalEvents: imp.totalEvents,
                         });
                       }}
-                      className="ml-4 px-3 py-1.5 text-xs font-medium rounded-md border border-red-300 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-950 dark:text-red-400 dark:hover:bg-red-900"
+                      disabled={(imp.postedEvents ?? 0) > 0}
+                      title={(imp.postedEvents ?? 0) > 0 ? `Kan inte ta bort - ${imp.postedEvents} händelse${imp.postedEvents === 1 ? '' : 'r'} har bokförts` : 'Ta bort import'}
+                      className={`ml-4 px-3 py-1.5 text-xs font-medium rounded-md border ${
+                        (imp.postedEvents ?? 0) > 0
+                          ? 'border-zinc-300 bg-zinc-100 text-zinc-400 cursor-not-allowed dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-600'
+                          : 'border-red-300 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-950 dark:text-red-400 dark:hover:bg-red-900 cursor-pointer'
+                      }`}
                     >
                       Ta bort
                     </button>
@@ -263,6 +278,13 @@ export default function ImporterPage() {
           </div>
         )}
       </main>
+
+      {showImportModal && (
+        <ImportModal
+          onImport={handleImport}
+          onClose={() => setShowImportModal(false)}
+        />
+      )}
 
       {deleteConfirm && (
         <ConfirmModal

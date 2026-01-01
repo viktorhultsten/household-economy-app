@@ -31,18 +31,53 @@ export default function TransaktionerPage() {
   const [totalTransactions, setTotalTransactions] = useState(0);
   const itemsPerPage = 50;
 
+  // Filter and sort state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortField, setSortField] = useState<"date" | "description" | "accounts">("date");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
+  const [filterAccountType, setFilterAccountType] = useState<string>("all");
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
+
   useEffect(() => {
     loadTransactions();
-  }, [currentPage]); // Reload when page changes
+  }, [currentPage, searchQuery, sortField, sortDirection, filterAccountType, filterDateFrom, filterDateTo]); // Reload when filters change
 
   async function loadTransactions() {
     setLoading(true);
     const offset = (currentPage - 1) * itemsPerPage;
-    const { transactions: data, total } = await getTransactionsPaginated(itemsPerPage, offset);
+    const { transactions: data, total } = await getTransactionsPaginated(
+      itemsPerPage,
+      offset,
+      searchQuery,
+      sortField,
+      sortDirection,
+      filterAccountType,
+      filterDateFrom,
+      filterDateTo
+    );
     setTransactions(data);
     setTotalTransactions(total);
     setLoading(false);
   }
+
+  function clearFilters() {
+    setSearchQuery("");
+    setSortField("date");
+    setSortDirection("desc");
+    setFilterAccountType("all");
+    setFilterDateFrom("");
+    setFilterDateTo("");
+    setCurrentPage(1);
+  }
+
+  const hasActiveFilters =
+    searchQuery !== "" ||
+    sortField !== "date" ||
+    sortDirection !== "desc" ||
+    filterAccountType !== "all" ||
+    filterDateFrom !== "" ||
+    filterDateTo !== "";
 
   async function handleDeleteConfirm() {
     if (deleteConfirmId === null) return;
@@ -102,6 +137,116 @@ export default function TransaktionerPage() {
           </div>
         </div>
 
+        {/* Search and Filter Controls */}
+        <div className="mb-6 rounded-lg bg-white shadow dark:bg-zinc-800 p-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Search */}
+            <div className="lg:col-span-2">
+              <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                Sök
+              </label>
+              <input
+                type="text"
+                placeholder="Sök efter beskrivning, konto..."
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+              />
+            </div>
+
+            {/* Account Type Filter */}
+            <div>
+              <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                Kontotyp
+              </label>
+              <select
+                value={filterAccountType}
+                onChange={(e) => {
+                  setFilterAccountType(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+              >
+                <option value="all">Alla typer</option>
+                <option value="Intäkt">Intäkt</option>
+                <option value="Utgift">Utgift</option>
+                <option value="Tillgång">Tillgång</option>
+                <option value="Skuld">Skuld</option>
+              </select>
+            </div>
+
+            {/* Sort By */}
+            <div>
+              <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                Sortera efter
+              </label>
+              <select
+                value={`${sortField}-${sortDirection}`}
+                onChange={(e) => {
+                  const [field, direction] = e.target.value.split("-") as [typeof sortField, typeof sortDirection];
+                  setSortField(field);
+                  setSortDirection(direction);
+                }}
+                className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+              >
+                <option value="date-desc">Datum (nyast först)</option>
+                <option value="date-asc">Datum (äldst först)</option>
+                <option value="description-asc">Beskrivning (A-Ö)</option>
+                <option value="description-desc">Beskrivning (Ö-A)</option>
+                <option value="accounts-asc">Konton (A-Ö)</option>
+                <option value="accounts-desc">Konton (Ö-A)</option>
+              </select>
+            </div>
+
+            {/* Date From */}
+            <div>
+              <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                Från datum
+              </label>
+              <input
+                type="date"
+                value={filterDateFrom}
+                onChange={(e) => {
+                  setFilterDateFrom(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+              />
+            </div>
+
+            {/* Date To */}
+            <div>
+              <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                Till datum
+              </label>
+              <input
+                type="date"
+                value={filterDateTo}
+                onChange={(e) => {
+                  setFilterDateTo(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+              />
+            </div>
+
+            {/* Clear Filters Button */}
+            {hasActiveFilters && (
+              <div className="lg:col-start-4 flex items-end">
+                <button
+                  onClick={clearFilters}
+                  className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                >
+                  Rensa filter
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
         {transactions.length === 0 ? (
           <div className="rounded-lg bg-white shadow dark:bg-zinc-800 p-8 text-center">
             <p className="text-zinc-600 dark:text-zinc-400">
@@ -135,6 +280,11 @@ export default function TransaktionerPage() {
                               <span className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
                                 {transaction.description}
                               </span>
+                              {transaction.originalTransactionId && (
+                                <span className="px-2 py-0.5 text-xs font-medium rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
+                                  Periodförskjuten
+                                </span>
+                              )}
                             </div>
                             {transaction.bankEvent && (
                               <div className="text-xs text-zinc-500 dark:text-zinc-400 flex items-center gap-2">
@@ -148,17 +298,26 @@ export default function TransaktionerPage() {
                                 </span>
                               </div>
                             )}
+                            {transaction.originalTransactionId && (
+                              <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                                Denna transaktion kan inte redigeras direkt. Redigera originaltransaktionen (ID: {transaction.originalTransactionId}) för att ändra periodförskjutningen.
+                              </div>
+                            )}
                           </div>
                           <div className="flex items-center gap-2">
                             <button
                               onClick={() => setSelectedTransaction(transaction)}
-                              className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600"
+                              disabled={!!transaction.originalTransactionId}
+                              title={transaction.originalTransactionId ? "Periodförskjutna transaktioner kan inte redigeras direkt" : "Redigera transaktion"}
+                              className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                               Redigera
                             </button>
                             <button
                               onClick={() => setDeleteConfirmId(transaction.id)}
-                              className="px-3 py-1.5 text-xs font-medium rounded-md border border-red-300 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-950 dark:text-red-400 dark:hover:bg-red-900"
+                              disabled={!!transaction.originalTransactionId}
+                              title={transaction.originalTransactionId ? "Periodförskjutna transaktioner kan inte tas bort direkt" : "Ta bort transaktion"}
+                              className="px-3 py-1.5 text-xs font-medium rounded-md border border-red-300 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-950 dark:text-red-400 dark:hover:bg-red-900 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                               Ta bort
                             </button>
