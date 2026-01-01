@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { AccountType, Transaction } from "../types";
-import { getAccountBalances, getAccountTransactionsForPeriod, getTransaction } from "../actions";
+import { getResultBudgetComparison, getAccountTransactionsForPeriod, getTransaction } from "../actions";
 import TransactionForm from "../components/TransactionForm";
 
 interface AccountBalance {
@@ -12,7 +12,12 @@ interface AccountBalance {
   groupId: number;
   groupName: string;
   groupType: AccountType;
-  balance: number;
+  periodActual: number;
+  periodBudget: number;
+  periodVariance: number;
+  ytdActual: number;
+  ytdBudget: number;
+  ytdVariance: number;
 }
 
 interface AccountTransaction {
@@ -32,7 +37,11 @@ function formatSwedishAmount(amount: number): string {
 }
 
 function formatSwedishDate(date: Date): string {
-  return date.toLocaleDateString("sv-SE");
+  return date.toLocaleDateString("sv-SE", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
 }
 
 function getTypeColor(type: AccountType): string {
@@ -46,6 +55,15 @@ function getTypeColor(type: AccountType): string {
     case "Skuld":
       return "text-orange-600 dark:text-orange-400";
   }
+}
+
+function getVarianceColor(variance: number): string {
+  if (variance > 0) {
+    return "text-green-600 dark:text-green-400";
+  } else if (variance < 0) {
+    return "text-red-600 dark:text-red-400";
+  }
+  return "text-zinc-600 dark:text-zinc-400";
 }
 
 export default function ResultatPage() {
@@ -65,12 +83,8 @@ export default function ResultatPage() {
 
   async function loadBalances() {
     setLoading(true);
-    const data = await getAccountBalances(year, month);
-    // Filter to only income statement accounts (Intäkt and Utgift)
-    const incomeStatementData = data.filter(
-      (balance) => balance.groupType === "Intäkt" || balance.groupType === "Utgift"
-    );
-    setBalances(incomeStatementData);
+    const data = await getResultBudgetComparison(year, month);
+    setBalances(data);
     setLoading(false);
   }
 
@@ -118,24 +132,48 @@ export default function ResultatPage() {
   }, {} as Record<AccountType, Record<string, AccountBalance[]>>);
 
   // Calculate totals
-  const typeTotals: Record<AccountType, number> = {
-    Intäkt: 0,
-    Utgift: 0,
-    Tillgång: 0,
-    Skuld: 0,
+  const typeTotals: Record<AccountType, {
+    periodActual: number;
+    periodBudget: number;
+    periodVariance: number;
+    ytdActual: number;
+    ytdBudget: number;
+    ytdVariance: number;
+  }> = {
+    Intäkt: { periodActual: 0, periodBudget: 0, periodVariance: 0, ytdActual: 0, ytdBudget: 0, ytdVariance: 0 },
+    Utgift: { periodActual: 0, periodBudget: 0, periodVariance: 0, ytdActual: 0, ytdBudget: 0, ytdVariance: 0 },
+    Tillgång: { periodActual: 0, periodBudget: 0, periodVariance: 0, ytdActual: 0, ytdBudget: 0, ytdVariance: 0 },
+    Skuld: { periodActual: 0, periodBudget: 0, periodVariance: 0, ytdActual: 0, ytdBudget: 0, ytdVariance: 0 },
   };
 
   balances.forEach((balance) => {
-    typeTotals[balance.groupType] += balance.balance;
+    typeTotals[balance.groupType].periodActual += balance.periodActual;
+    typeTotals[balance.groupType].periodBudget += balance.periodBudget;
+    typeTotals[balance.groupType].periodVariance += balance.periodVariance;
+    typeTotals[balance.groupType].ytdActual += balance.ytdActual;
+    typeTotals[balance.groupType].ytdBudget += balance.ytdBudget;
+    typeTotals[balance.groupType].ytdVariance += balance.ytdVariance;
   });
 
-  const groupTotals: Record<string, number> = {};
+  const groupTotals: Record<string, {
+    periodActual: number;
+    periodBudget: number;
+    periodVariance: number;
+    ytdActual: number;
+    ytdBudget: number;
+    ytdVariance: number;
+  }> = {};
   balances.forEach((balance) => {
     const key = `${balance.groupType}-${balance.groupName}`;
     if (!groupTotals[key]) {
-      groupTotals[key] = 0;
+      groupTotals[key] = { periodActual: 0, periodBudget: 0, periodVariance: 0, ytdActual: 0, ytdBudget: 0, ytdVariance: 0 };
     }
-    groupTotals[key] += balance.balance;
+    groupTotals[key].periodActual += balance.periodActual;
+    groupTotals[key].periodBudget += balance.periodBudget;
+    groupTotals[key].periodVariance += balance.periodVariance;
+    groupTotals[key].ytdActual += balance.ytdActual;
+    groupTotals[key].ytdBudget += balance.ytdBudget;
+    groupTotals[key].ytdVariance += balance.ytdVariance;
   });
 
   // Generate month/year options
@@ -255,110 +293,203 @@ export default function ResultatPage() {
                 <div key={type} className="rounded-lg bg-white shadow dark:bg-zinc-800 overflow-hidden">
                   {/* Type Header */}
                   <div className="bg-zinc-100 dark:bg-zinc-700 px-6 py-4 border-b border-zinc-200 dark:border-zinc-600">
-                    <div className="flex items-center justify-between">
-                      <h2 className={`text-xl font-bold ${getTypeColor(type)}`}>
-                        {type}
-                      </h2>
-                      <span className={`text-xl font-bold tabular-nums ${getTypeColor(type)}`}>
-                        {formatSwedishAmount(typeTotal)} kr
-                      </span>
+                    <h2 className={`text-xl font-bold ${getTypeColor(type)} mb-3`}>
+                      {type}
+                    </h2>
+                    <div className="grid grid-cols-7 gap-4 text-sm">
+                      <div className="col-span-1"></div>
+                      <div className="text-right">
+                        <div className="text-xs text-zinc-600 dark:text-zinc-400">Period faktisk</div>
+                        <div className={`font-bold tabular-nums ${getTypeColor(type)}`}>
+                          {formatSwedishAmount(typeTotal.periodActual)} kr
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs text-zinc-600 dark:text-zinc-400">Period budget</div>
+                        <div className={`font-bold tabular-nums ${getTypeColor(type)}`}>
+                          {formatSwedishAmount(typeTotal.periodBudget)} kr
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs text-zinc-600 dark:text-zinc-400">Period avvik</div>
+                        <div className={`font-bold tabular-nums ${getVarianceColor(typeTotal.periodVariance)}`}>
+                          {typeTotal.periodVariance > 0 ? "+" : ""}{formatSwedishAmount(typeTotal.periodVariance)} kr
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs text-zinc-600 dark:text-zinc-400">YTD faktisk</div>
+                        <div className={`font-bold tabular-nums ${getTypeColor(type)}`}>
+                          {formatSwedishAmount(typeTotal.ytdActual)} kr
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs text-zinc-600 dark:text-zinc-400">YTD budget</div>
+                        <div className={`font-bold tabular-nums ${getTypeColor(type)}`}>
+                          {formatSwedishAmount(typeTotal.ytdBudget)} kr
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs text-zinc-600 dark:text-zinc-400">YTD avvik</div>
+                        <div className={`font-bold tabular-nums ${getVarianceColor(typeTotal.ytdVariance)}`}>
+                          {typeTotal.ytdVariance > 0 ? "+" : ""}{formatSwedishAmount(typeTotal.ytdVariance)} kr
+                        </div>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Groups */}
-                  <div className="divide-y divide-zinc-200 dark:divide-zinc-700">
-                    {Object.keys(typeGroups).map((groupName) => {
-                      const accounts = typeGroups[groupName];
-                      const groupTotal = groupTotals[`${type}-${groupName}`];
+                  {/* Table */}
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900">
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-zinc-900 dark:text-zinc-50">
+                          Konto
+                        </th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold text-zinc-900 dark:text-zinc-50">
+                          Period<br/>Faktisk
+                        </th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold text-zinc-900 dark:text-zinc-50">
+                          Period<br/>Budget
+                        </th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold text-zinc-900 dark:text-zinc-50">
+                          Period<br/>Avvik
+                        </th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold text-zinc-900 dark:text-zinc-50">
+                          YTD<br/>Faktisk
+                        </th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold text-zinc-900 dark:text-zinc-50">
+                          YTD<br/>Budget
+                        </th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold text-zinc-900 dark:text-zinc-50">
+                          YTD<br/>Avvik
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-200 dark:divide-zinc-700">
+                      {Object.keys(typeGroups).map((groupName) => {
+                        const accounts = typeGroups[groupName];
+                        const groupTotal = groupTotals[`${type}-${groupName}`];
 
-                      return (
-                        <div key={groupName} className="px-6 py-4">
-                          {/* Group Header */}
-                          <div className="flex items-center justify-between mb-3">
-                            <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
-                              {groupName}
-                            </h3>
-                            <span className="text-lg font-semibold tabular-nums text-zinc-700 dark:text-zinc-300">
-                              {formatSwedishAmount(groupTotal)} kr
-                            </span>
-                          </div>
+                        return (
+                          <React.Fragment key={groupName}>
+                            {/* Group Header Row */}
+                            <tr className="bg-zinc-50 dark:bg-zinc-800">
+                              <td className="px-6 py-2 text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                                {groupName}
+                              </td>
+                              <td className="px-4 py-2 text-right text-sm font-semibold tabular-nums text-zinc-700 dark:text-zinc-300">
+                                {formatSwedishAmount(groupTotal.periodActual)} kr
+                              </td>
+                              <td className="px-4 py-2 text-right text-sm font-semibold tabular-nums text-zinc-700 dark:text-zinc-300">
+                                {formatSwedishAmount(groupTotal.periodBudget)} kr
+                              </td>
+                              <td className={`px-4 py-2 text-right text-sm font-semibold tabular-nums ${getVarianceColor(groupTotal.periodVariance)}`}>
+                                {groupTotal.periodVariance > 0 ? "+" : ""}{formatSwedishAmount(groupTotal.periodVariance)} kr
+                              </td>
+                              <td className="px-4 py-2 text-right text-sm font-semibold tabular-nums text-zinc-700 dark:text-zinc-300">
+                                {formatSwedishAmount(groupTotal.ytdActual)} kr
+                              </td>
+                              <td className="px-4 py-2 text-right text-sm font-semibold tabular-nums text-zinc-700 dark:text-zinc-300">
+                                {formatSwedishAmount(groupTotal.ytdBudget)} kr
+                              </td>
+                              <td className={`px-4 py-2 text-right text-sm font-semibold tabular-nums ${getVarianceColor(groupTotal.ytdVariance)}`}>
+                                {groupTotal.ytdVariance > 0 ? "+" : ""}{formatSwedishAmount(groupTotal.ytdVariance)} kr
+                              </td>
+                            </tr>
 
-                          {/* Accounts */}
-                          <div className="space-y-2 ml-4">
+                            {/* Account Rows */}
                             {accounts.map((account) => (
-                              <div key={account.accountId}>
-                                <button
+                              <React.Fragment key={account.accountId}>
+                                <tr
                                   onClick={() => handleAccountClick(account.accountId)}
-                                  className="w-full flex items-center justify-between py-2 hover:bg-zinc-50 dark:hover:bg-zinc-700/50 rounded px-2 -mx-2 transition-colors"
+                                  className="hover:bg-zinc-50 dark:hover:bg-zinc-700/50 cursor-pointer"
                                 >
-                                  <span className="text-sm text-zinc-600 dark:text-zinc-400">
+                                  <td className="px-6 py-3 text-sm text-zinc-600 dark:text-zinc-400">
                                     {account.accountName}
                                     {expandedAccountId === account.accountId && " ▼"}
-                                  </span>
-                                  <span className="text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
-                                    {formatSwedishAmount(account.balance)} kr
-                                  </span>
-                                </button>
+                                  </td>
+                                  <td className="px-4 py-3 text-right text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
+                                    {formatSwedishAmount(account.periodActual)} kr
+                                  </td>
+                                  <td className="px-4 py-3 text-right text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
+                                    {formatSwedishAmount(account.periodBudget)} kr
+                                  </td>
+                                  <td className={`px-4 py-3 text-right text-sm font-bold tabular-nums ${getVarianceColor(account.periodVariance)}`}>
+                                    {account.periodVariance > 0 ? "+" : ""}{formatSwedishAmount(account.periodVariance)} kr
+                                  </td>
+                                  <td className="px-4 py-3 text-right text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
+                                    {formatSwedishAmount(account.ytdActual)} kr
+                                  </td>
+                                  <td className="px-4 py-3 text-right text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
+                                    {formatSwedishAmount(account.ytdBudget)} kr
+                                  </td>
+                                  <td className={`px-4 py-3 text-right text-sm font-bold tabular-nums ${getVarianceColor(account.ytdVariance)}`}>
+                                    {account.ytdVariance > 0 ? "+" : ""}{formatSwedishAmount(account.ytdVariance)} kr
+                                  </td>
+                                </tr>
 
                                 {/* Transaction details */}
                                 {expandedAccountId === account.accountId && (
-                                  <div className="mt-2 ml-4 border-l-2 border-zinc-200 dark:border-zinc-700 pl-4">
-                                    {loadingTransactions ? (
-                                      <p className="text-xs text-zinc-500 dark:text-zinc-400 py-2">
-                                        Laddar transaktioner...
-                                      </p>
-                                    ) : transactions.length === 0 ? (
-                                      <p className="text-xs text-zinc-500 dark:text-zinc-400 py-2">
-                                        Inga transaktioner denna månad
-                                      </p>
-                                    ) : (
-                                      <div className="space-y-2 py-2">
-                                        {transactions.map((txn) => (
-                                          <button
-                                            key={txn.transactionId}
-                                            onClick={() => handleTransactionClick(txn.transactionId)}
-                                            className="w-full text-left text-xs border-b border-zinc-100 dark:border-zinc-800 pb-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded px-2 -mx-2 transition-colors"
-                                          >
-                                            <div className="flex items-start justify-between gap-2">
-                                              <div className="flex-1">
-                                                <div className="text-zinc-900 dark:text-zinc-50 font-medium">
-                                                  {txn.description}
-                                                </div>
-                                                {txn.postDescription && (
-                                                  <div className="text-zinc-500 dark:text-zinc-400 italic mt-0.5">
-                                                    {txn.postDescription}
+                                  <tr key={`${account.accountId}-details`}>
+                                    <td colSpan={7} className="px-6 py-4 bg-zinc-50 dark:bg-zinc-900">
+                                      <div className="ml-4 border-l-2 border-zinc-200 dark:border-zinc-700 pl-4">
+                                        {loadingTransactions ? (
+                                          <p className="text-xs text-zinc-500 dark:text-zinc-400 py-2">
+                                            Laddar transaktioner...
+                                          </p>
+                                        ) : transactions.length === 0 ? (
+                                          <p className="text-xs text-zinc-500 dark:text-zinc-400 py-2">
+                                            Inga transaktioner denna månad
+                                          </p>
+                                        ) : (
+                                          <div className="space-y-2 py-2">
+                                            {transactions.map((txn) => (
+                                              <button
+                                                key={txn.transactionId}
+                                                onClick={() => handleTransactionClick(txn.transactionId)}
+                                                className="w-full text-left text-xs border-b border-zinc-100 dark:border-zinc-800 pb-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded px-2 -mx-2 transition-colors"
+                                              >
+                                                <div className="flex items-start justify-between gap-2">
+                                                  <div className="flex-1">
+                                                    <div className="text-zinc-900 dark:text-zinc-50 font-medium">
+                                                      {txn.description}
+                                                    </div>
+                                                    {txn.postDescription && (
+                                                      <div className="text-zinc-500 dark:text-zinc-400 italic mt-0.5">
+                                                        {txn.postDescription}
+                                                      </div>
+                                                    )}
+                                                    <div className="text-zinc-400 dark:text-zinc-500 mt-0.5">
+                                                      {formatSwedishDate(txn.date)}
+                                                    </div>
                                                   </div>
-                                                )}
-                                                <div className="text-zinc-400 dark:text-zinc-500 mt-0.5">
-                                                  {formatSwedishDate(txn.date)}
+                                                  <div className="font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
+                                                    {txn.postDebet > 0 && (
+                                                      <span className="text-blue-600 dark:text-blue-400">
+                                                        D: {formatSwedishAmount(txn.postDebet)} kr
+                                                      </span>
+                                                    )}
+                                                    {txn.postKredit > 0 && (
+                                                      <span className="text-amber-600 dark:text-amber-400">
+                                                        K: {formatSwedishAmount(txn.postKredit)} kr
+                                                      </span>
+                                                    )}
+                                                  </div>
                                                 </div>
-                                              </div>
-                                              <div className="font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
-                                                {txn.postDebet > 0 && (
-                                                  <span className="text-blue-600 dark:text-blue-400">
-                                                    D: {formatSwedishAmount(txn.postDebet)} kr
-                                                  </span>
-                                                )}
-                                                {txn.postKredit > 0 && (
-                                                  <span className="text-amber-600 dark:text-amber-400">
-                                                    K: {formatSwedishAmount(txn.postKredit)} kr
-                                                  </span>
-                                                )}
-                                              </div>
-                                            </div>
-                                          </button>
-                                        ))}
+                                              </button>
+                                            ))}
+                                          </div>
+                                        )}
                                       </div>
-                                    )}
-                                  </div>
+                                    </td>
+                                  </tr>
                                 )}
-                              </div>
+                              </React.Fragment>
                             ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                          </React.Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               );
             })}

@@ -493,20 +493,26 @@ export async function getAccountBalances(
       g.id as group_id,
       g.namn as group_name,
       g.typ as group_type,
-      COALESCE(SUM(p.debet), 0) as total_debet,
-      COALESCE(SUM(p.kredit), 0) as total_kredit
+      COALESCE(SUM(
+        CASE
+          WHEN t.date IS NULL THEN 0
+          WHEN g.typ IN ('Tillgång', 'Skuld') AND t.date <= $1 THEN p.debet
+          WHEN g.typ IN ('Intäkt', 'Utgift') AND t.date >= $2 AND t.date <= $1 THEN p.debet
+          ELSE 0
+        END
+      ), 0) as total_debet,
+      COALESCE(SUM(
+        CASE
+          WHEN t.date IS NULL THEN 0
+          WHEN g.typ IN ('Tillgång', 'Skuld') AND t.date <= $1 THEN p.kredit
+          WHEN g.typ IN ('Intäkt', 'Utgift') AND t.date >= $2 AND t.date <= $1 THEN p.kredit
+          ELSE 0
+        END
+      ), 0) as total_kredit
     FROM accounts a
     JOIN groups g ON a.group_id = g.id
     LEFT JOIN posts p ON p.account_id = a.id
     LEFT JOIN transactions t ON t.id = p.transaction_id
-    WHERE t.date IS NULL OR (
-      -- Balance accounts (Tillgång, Skuld): sum all transactions up to end of month
-      -- Result accounts (Intäkt, Utgift): sum only transactions within the month
-      CASE
-        WHEN g.typ IN ('Tillgång', 'Skuld') THEN t.date <= $1
-        WHEN g.typ IN ('Intäkt', 'Utgift') THEN t.date >= $2 AND t.date <= $1
-      END
-    )
     GROUP BY a.id, a.namn, g.id, g.namn, g.typ
     ORDER BY g.typ, g.namn, a.namn
   `,
@@ -606,6 +612,9 @@ export async function getAllTransactions(): Promise<Transaction[]> {
     txn_date: string;
     txn_description: string;
     txn_bank_event_id: number | null;
+    txn_original_transaction_id: number | null;
+    txn_period_shift_date: string | null;
+    txn_bridge_account_id: number | null;
     // Post fields
     post_id: number;
     post_account_id: number;
@@ -631,6 +640,9 @@ export async function getAllTransactions(): Promise<Transaction[]> {
       t.date as txn_date,
       t.description as txn_description,
       t.bank_event_id as txn_bank_event_id,
+      t.original_transaction_id as txn_original_transaction_id,
+      t.period_shift_date as txn_period_shift_date,
+      t.bridge_account_id as txn_bridge_account_id,
       p.id as post_id,
       p.account_id as post_account_id,
       p.debet as post_debet,
@@ -1555,10 +1567,12 @@ export async function getBudgetComparison(
   month: number
 ): Promise<BudgetComparison[]> {
   // First get all accounts with their balances (actuals)
+  // This includes ALL accounts, even those with zero balance
   const balances = await getAccountBalances(year, month);
 
   // Filter to only income statement accounts (Intäkt and Utgift)
   // Balance sheet accounts (Tillgång and Skuld) should not have budgets
+  // Keep ALL income statement accounts, regardless of whether they have balances
   const incomeStatementBalances = balances.filter(
     (balance) => balance.groupType === "Intäkt" || balance.groupType === "Utgift"
   );
@@ -1610,6 +1624,109 @@ export async function getBudgetComparison(
       variance,
       variancePercent,
       hasBudget,
+    };
+  });
+
+  return comparisons;
+}
+
+// Get budget comparison for result view with YTD data
+export async function getResultBudgetComparison(
+  year: number,
+  month: number
+): Promise<{
+  accountId: number;
+  accountName: string;
+  groupId: number;
+  groupName: string;
+  groupType: AccountType;
+  periodActual: number;
+  periodBudget: number;
+  periodVariance: number;
+  ytdActual: number;
+  ytdBudget: number;
+  ytdVariance: number;
+}[]> {
+  // Get period actual (current month)
+  const periodBalances = await getAccountBalances(year, month);
+
+  // Filter to only income statement accounts
+  const incomeStatementBalances = periodBalances.filter(
+    (balance) => balance.groupType === "Intäkt" || balance.groupType === "Utgift"
+  );
+
+  // Get YTD actual (January through current month)
+  const ytdActuals = new Map<number, number>();
+  for (let m = 1; m <= month; m++) {
+    const monthBalances = await getAccountBalances(year, m);
+    monthBalances.forEach((balance) => {
+      if (balance.groupType === "Intäkt" || balance.groupType === "Utgift") {
+        const current = ytdActuals.get(balance.accountId) || 0;
+        ytdActuals.set(balance.accountId, current + balance.balance);
+      }
+    });
+  }
+
+  // Get period budget (current month)
+  const periodBudgetRows = await queryAll<{
+    account_id: number;
+    amount: number;
+  }>(
+    "SELECT account_id, amount FROM budgets WHERE year = $1 AND month = $2",
+    [year, month]
+  );
+  const periodBudgetMap = new Map<number, number>();
+  periodBudgetRows.forEach((row) => {
+    periodBudgetMap.set(row.account_id, Number(row.amount));
+  });
+
+  // Get YTD budget (January through current month)
+  const ytdBudgetRows = await queryAll<{
+    account_id: number;
+    total_budget: number;
+  }>(
+    "SELECT account_id, SUM(amount) as total_budget FROM budgets WHERE year = $1 AND month <= $2 GROUP BY account_id",
+    [year, month]
+  );
+  const ytdBudgetMap = new Map<number, number>();
+  ytdBudgetRows.forEach((row) => {
+    ytdBudgetMap.set(row.account_id, Number(row.total_budget));
+  });
+
+  // Build comparison results
+  const comparisons = incomeStatementBalances.map((balance) => {
+    const periodActual = balance.balance;
+    const periodBudget = periodBudgetMap.get(balance.accountId) ?? 0;
+    const ytdActual = ytdActuals.get(balance.accountId) ?? 0;
+    const ytdBudget = ytdBudgetMap.get(balance.accountId) ?? 0;
+
+    // Calculate variance
+    // For Utgift (Expense): budget - actual (positive = saved money, under budget)
+    // For Intäkt (Income): actual - budget (positive = more income than budgeted)
+    let periodVariance: number;
+    let ytdVariance: number;
+
+    if (balance.groupType === "Utgift") {
+      periodVariance = periodBudget - periodActual;
+      ytdVariance = ytdBudget - ytdActual;
+    } else {
+      // Intäkt
+      periodVariance = periodActual - periodBudget;
+      ytdVariance = ytdActual - ytdBudget;
+    }
+
+    return {
+      accountId: balance.accountId,
+      accountName: balance.accountName,
+      groupId: balance.groupId,
+      groupName: balance.groupName,
+      groupType: balance.groupType,
+      periodActual,
+      periodBudget,
+      periodVariance,
+      ytdActual,
+      ytdBudget,
+      ytdVariance,
     };
   });
 

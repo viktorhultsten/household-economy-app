@@ -423,6 +423,7 @@ export default function TransactionForm({
                 value={date.toISOString().split("T")[0]}
                 onChange={(e) => setDate(new Date(e.target.value))}
                 required
+                lang="sv-SE"
                 className="w-full rounded-md border border-zinc-300 px-3 py-2 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
               />
             </div>
@@ -490,6 +491,7 @@ export default function TransactionForm({
                       value={periodShiftDate?.toISOString().split("T")[0] || ""}
                       onChange={(e) => setPeriodShiftDate(e.target.value ? new Date(e.target.value) : null)}
                       required={enablePeriodShift}
+                      lang="sv-SE"
                       className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
                     />
                   </div>
