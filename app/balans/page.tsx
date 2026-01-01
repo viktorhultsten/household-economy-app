@@ -50,8 +50,8 @@ function getTypeColor(type: AccountType): string {
 
 export default function BalansPage() {
   const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth() + 1);
+  const [year] = useState(now.getFullYear());
+  const [month] = useState(now.getMonth() + 1);
   const [balances, setBalances] = useState<AccountBalance[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedAccountId, setExpandedAccountId] = useState<number | null>(null);
@@ -61,7 +61,7 @@ export default function BalansPage() {
 
   useEffect(() => {
     loadBalances();
-  }, [year, month]);
+  }, []);
 
   async function loadBalances() {
     setLoading(true);
@@ -138,25 +138,6 @@ export default function BalansPage() {
     groupTotals[key] += balance.balance;
   });
 
-  // Generate month/year options
-  const months = [
-    { value: 1, label: "Januari" },
-    { value: 2, label: "Februari" },
-    { value: 3, label: "Mars" },
-    { value: 4, label: "April" },
-    { value: 5, label: "Maj" },
-    { value: 6, label: "Juni" },
-    { value: 7, label: "Juli" },
-    { value: 8, label: "Augusti" },
-    { value: 9, label: "September" },
-    { value: 10, label: "Oktober" },
-    { value: 11, label: "November" },
-    { value: 12, label: "December" },
-  ];
-
-  const currentYear = new Date().getFullYear();
-  const years = Array.from({ length: 5 }, (_, i) => currentYear - 2 + i);
-
   if (loading) {
     return (
       <div className="min-h-screen bg-zinc-50 dark:bg-zinc-900 flex items-center justify-center">
@@ -177,34 +158,10 @@ export default function BalansPage() {
           </Link>
         </div>
 
-        <div className="mb-8 flex items-center justify-between">
+        <div className="mb-8">
           <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">
             Balans
           </h1>
-          <div className="flex gap-3">
-            <select
-              value={month}
-              onChange={(e) => setMonth(parseInt(e.target.value))}
-              className="rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
-            >
-              {months.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-            <select
-              value={year}
-              onChange={(e) => setYear(parseInt(e.target.value))}
-              className="rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
-            >
-              {years.map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
-            </select>
-          </div>
         </div>
 
         {balances.length === 0 ? (

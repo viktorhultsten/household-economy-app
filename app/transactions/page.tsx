@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Transaction } from "../types";
 import { getTransactionsPaginated, deleteTransaction } from "../actions";
 import TransactionEditModal from "../components/TransactionEditModal";
+import TransactionForm from "../components/TransactionForm";
 import ConfirmModal from "../components/ConfirmModal";
 
 function formatSwedishDate(date: Date): string {
@@ -23,6 +24,7 @@ export default function TransaktionerPage() {
   const [loading, setLoading] = useState(true);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
+  const [showManualTransactionForm, setShowManualTransactionForm] = useState(false);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -55,6 +57,11 @@ export default function TransaktionerPage() {
     setSelectedTransaction(null);
   }
 
+  async function handlePostSuccess() {
+    await loadTransactions();
+    setShowManualTransactionForm(false);
+  }
+
   const totalPages = Math.ceil(totalTransactions / itemsPerPage);
 
   if (loading) {
@@ -81,9 +88,17 @@ export default function TransaktionerPage() {
           <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">
             Transaktioner
           </h1>
-          <div className="text-sm text-zinc-600 dark:text-zinc-400">
-            {totalTransactions} transaktioner totalt
-            {totalPages > 1 && ` (sida ${currentPage} av ${totalPages})`}
+          <div className="flex items-center gap-4">
+            <div className="text-sm text-zinc-600 dark:text-zinc-400">
+              {totalTransactions} transaktioner totalt
+              {totalPages > 1 && ` (sida ${currentPage} av ${totalPages})`}
+            </div>
+            <button
+              onClick={() => setShowManualTransactionForm(true)}
+              className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-zinc-50 hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+            >
+              Ny transaktion
+            </button>
           </div>
         </div>
 
@@ -239,6 +254,13 @@ export default function TransaktionerPage() {
           variant="danger"
           onConfirm={handleDeleteConfirm}
           onCancel={() => setDeleteConfirmId(null)}
+        />
+      )}
+
+      {showManualTransactionForm && (
+        <TransactionForm
+          onClose={() => setShowManualTransactionForm(false)}
+          onSuccess={handlePostSuccess}
         />
       )}
     </div>

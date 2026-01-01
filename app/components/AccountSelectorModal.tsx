@@ -32,9 +32,12 @@ export default function AccountSelectorModal({
   }, [onClose]);
 
   const groupedAccounts = useMemo(() => {
-    // Filter accounts by search term
+    // Filter accounts by search term (search in account name, group name, and type)
+    const searchLower = searchTerm.toLowerCase();
     const filtered = accounts.filter((account) =>
-      account.namn.toLowerCase().includes(searchTerm.toLowerCase())
+      account.namn.toLowerCase().includes(searchLower) ||
+      account.group?.namn.toLowerCase().includes(searchLower) ||
+      account.group?.typ.toLowerCase().includes(searchLower)
     );
 
     // Group accounts by group name
@@ -59,6 +62,28 @@ export default function AccountSelectorModal({
 
     return sortedGroups;
   }, [accounts, searchTerm]);
+
+  // Helper function to highlight search term in text
+  const highlightText = (text: string, search: string) => {
+    if (!search) return text;
+
+    const regex = new RegExp(`(${search})`, 'gi');
+    const parts = text.split(regex);
+
+    return (
+      <>
+        {parts.map((part, index) =>
+          regex.test(part) ? (
+            <mark key={index} className="bg-yellow-200 dark:bg-yellow-700 font-semibold">
+              {part}
+            </mark>
+          ) : (
+            part
+          )
+        )}
+      </>
+    );
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -158,13 +183,13 @@ export default function AccountSelectorModal({
                         }`}
                       >
                         <td className="px-4 py-3 text-sm text-zinc-900 dark:text-zinc-50">
-                          {account.namn}
+                          {highlightText(account.namn, searchTerm)}
                         </td>
                         <td className="px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400">
-                          {account.group?.namn || "-"}
+                          {account.group?.namn ? highlightText(account.group.namn, searchTerm) : "-"}
                         </td>
                         <td className="px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400">
-                          {account.group?.typ || "-"}
+                          {account.group?.typ ? highlightText(account.group.typ, searchTerm) : "-"}
                         </td>
                       </tr>
                     ))}
