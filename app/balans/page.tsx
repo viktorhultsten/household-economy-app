@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { AccountType, Transaction } from "../types";
 import { getAccountBalances, getAccountTransactionsForPeriod, getTransaction } from "../actions";
-import TransactionEditModal from "../components/TransactionEditModal";
+import TransactionForm from "../components/TransactionForm";
 
 interface AccountBalance {
   accountId: number;
@@ -296,7 +296,7 @@ export default function BalansPage() {
       </main>
 
       {selectedTransaction && (
-        <TransactionEditModal
+        <TransactionForm
           transaction={selectedTransaction}
           onClose={() => setSelectedTransaction(null)}
           onSuccess={handleEditSuccess}

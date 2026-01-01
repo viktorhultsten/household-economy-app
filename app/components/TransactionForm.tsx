@@ -1,30 +1,46 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Account, BankEvent, Post, BookingTemplate, RecurringItemStatus } from "../types";
-import { getAccounts, createTransaction, isPeriodLocked, getBookingTemplates, createBookingTemplate, getRecurringItemsStatus, linkTransactionToRecurringItem } from "../actions";
+import { Account, BankEvent, Post, BookingTemplate, RecurringItemStatus, Transaction } from "../types";
+import { getAccounts, createTransaction, updateTransaction, isPeriodLocked, getBookingTemplates, createBookingTemplate, getRecurringItemsStatus, linkTransactionToRecurringItem } from "../actions";
 import AccountSelectorModal from "./AccountSelectorModal";
 
 interface TransactionFormProps {
   bankEvent?: BankEvent;
+  transaction?: Transaction; // If provided, we're editing
   onClose: () => void;
   onSuccess: () => void;
 }
 
 export default function TransactionForm({
   bankEvent,
+  transaction,
   onClose,
   onSuccess,
 }: TransactionFormProps) {
+  const isEditing = !!transaction;
+  const transactionBankEvent = transaction?.bankEvent || bankEvent;
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [templates, setTemplates] = useState<BookingTemplate[]>([]);
   const [recurringItems, setRecurringItems] = useState<RecurringItemStatus[]>([]);
   const [selectedRecurringItemId, setSelectedRecurringItemId] = useState<number | null>(null);
   const [date, setDate] = useState(
-    bankEvent?.date || new Date()
+    transaction?.date || bankEvent?.date || new Date()
   );
-  const [description, setDescription] = useState(bankEvent?.description || "");
+  const [description, setDescription] = useState(
+    transaction?.description || bankEvent?.description || ""
+  );
   const [posts, setPosts] = useState<Omit<Post, "id" | "transactionId">[]>(() => {
+    // If editing, use existing posts
+    if (transaction) {
+      return transaction.posts.map((post) => ({
+        accountId: post.accountId,
+        debet: Number(post.debet) || 0,
+        kredit: Number(post.kredit) || 0,
+        description: post.description || "",
+      }));
+    }
+
     // If bankEvent has an import with an accountId, preset the appropriate row
     const importAccountId = bankEvent?.import?.accountId || 0;
 
@@ -55,10 +71,15 @@ export default function TransactionForm({
   const [templateName, setTemplateName] = useState("");
   const [showAccountSelector, setShowAccountSelector] = useState<number | null>(null);
 
-  // Period shift state
-  const [enablePeriodShift, setEnablePeriodShift] = useState(false);
-  const [periodShiftDate, setPeriodShiftDate] = useState<Date | null>(null);
-  const [bridgeAccountId, setBridgeAccountId] = useState<number>(0);
+  // Store raw input strings for debit/credit fields to allow typing commas
+  const [debetInputs, setDebetInputs] = useState<{ [key: number]: string }>({});
+  const [kreditInputs, setKreditInputs] = useState<{ [key: number]: string }>({});
+
+  // Period shift state - initialize from transaction if editing
+  const [enablePeriodShift, setEnablePeriodShift] = useState(!!transaction?.periodShiftDate);
+  const [periodShiftDate, setPeriodShiftDate] = useState<Date | null>(
+    transaction?.periodShiftDate || null
+  );
   const [periodShiftLockWarning, setPeriodShiftLockWarning] = useState("");
 
   useEffect(() => {
@@ -266,10 +287,6 @@ export default function TransactionForm({
         setError("Bokföringsdatum för periodförskjutning måste anges!");
         return;
       }
-      if (bridgeAccountId === 0) {
-        setError("Mellanliggande konto för periodförskjutning måste väljas!");
-        return;
-      }
       if (periodShiftLockWarning) {
         setError("Periodförskjutningen kan inte sparas - målperioden är låst!");
         return;
@@ -279,22 +296,36 @@ export default function TransactionForm({
     setLoading(true);
 
     try {
-      const transactionId = await createTransaction({
-        date,
-        description,
-        bankEventId: bankEvent?.id,
-        posts: posts.map((p) => ({
-          ...p,
-          id: 0, // Will be set by server
-          transactionId: 0, // Will be set by server
-        })),
-        periodShiftDate: enablePeriodShift ? periodShiftDate! : undefined,
-        bridgeAccountId: enablePeriodShift ? bridgeAccountId : undefined,
-      });
+      if (isEditing) {
+        // Update existing transaction
+        await updateTransaction(transaction!.id, {
+          date,
+          description,
+          posts: posts.map((p) => ({
+            accountId: p.accountId,
+            debet: p.debet,
+            kredit: p.kredit,
+            description: p.description,
+          })),
+        });
+      } else {
+        // Create new transaction
+        const transactionId = await createTransaction({
+          date,
+          description,
+          bankEventId: bankEvent?.id,
+          posts: posts.map((p) => ({
+            ...p,
+            id: 0, // Will be set by server
+            transactionId: 0, // Will be set by server
+          })),
+          periodShiftDate: enablePeriodShift ? periodShiftDate! : undefined,
+        });
 
-      // Link to recurring item if selected
-      if (selectedRecurringItemId) {
-        await linkTransactionToRecurringItem(transactionId, selectedRecurringItemId);
+        // Link to recurring item if selected
+        if (selectedRecurringItemId) {
+          await linkTransactionToRecurringItem(transactionId, selectedRecurringItemId);
+        }
       }
 
       onSuccess();
@@ -313,7 +344,7 @@ export default function TransactionForm({
         <div className="sticky top-0 bg-white dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 px-6 py-4 shrink-0">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">
-              {bankEvent ? "Bokför transaktion" : "Ny transaktion"}
+              {isEditing ? "Redigera transaktion" : transactionBankEvent ? "Bokför transaktion" : "Ny transaktion"}
             </h2>
             <button
               onClick={onClose}
@@ -322,16 +353,16 @@ export default function TransactionForm({
               ✕
             </button>
           </div>
-          {bankEvent && (
+          {transactionBankEvent && (
             <div className="mt-2 p-3 bg-zinc-50 dark:bg-zinc-900 rounded-md border border-zinc-200 dark:border-zinc-700">
               <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1">
-                Original bankhändelse:
+                Bankhändelse:
               </div>
               <div className="text-sm text-zinc-900 dark:text-zinc-50 font-medium">
-                {bankEvent.description}
+                {transactionBankEvent.description}
               </div>
               <div className="text-sm text-zinc-600 dark:text-zinc-400 mt-1">
-                {bankEvent.amount.toLocaleString("sv-SE", {
+                {transactionBankEvent.amount.toLocaleString("sv-SE", {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
                 })}{" "}
@@ -407,7 +438,7 @@ export default function TransactionForm({
           </div>
 
           {/* Period Shift Section */}
-          {bankEvent && (
+          {transactionBankEvent && !isEditing && (
             <div className="p-4 border border-zinc-200 dark:border-zinc-700 rounded-md bg-zinc-50 dark:bg-zinc-900">
               <div className="flex items-center gap-3 mb-3">
                 <input
@@ -418,7 +449,6 @@ export default function TransactionForm({
                     setEnablePeriodShift(e.target.checked);
                     if (!e.target.checked) {
                       setPeriodShiftDate(null);
-                      setBridgeAccountId(0);
                       setPeriodShiftLockWarning("");
                     }
                   }}
@@ -432,9 +462,8 @@ export default function TransactionForm({
               {enablePeriodShift && (
                 <>
                   <p className="text-xs text-zinc-600 dark:text-zinc-400 mb-3">
-                    Om en bankhändelse inträffar i slutet/början av månaden men hör till en annan bokföringsperiod,
-                    kan du skapa en periodförskjutning. Detta skapar en extra transaktion som flyttar beloppet
-                    till rätt period via ett mellanliggande konto.
+                    Skapar två separata transaktioner: en för bankhändelsen (idag) och en för rätt bokföringsperiod.
+                    Du behöver själv skapa konteringsposterna som kopplar dessa samman.
                   </p>
 
                   {periodShiftLockWarning && (
@@ -443,37 +472,17 @@ export default function TransactionForm({
                     </div>
                   )}
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
-                        Bokföringsdatum (rätt period)
-                      </label>
-                      <input
-                        type="date"
-                        value={periodShiftDate?.toISOString().split("T")[0] || ""}
-                        onChange={(e) => setPeriodShiftDate(e.target.value ? new Date(e.target.value) : null)}
-                        required={enablePeriodShift}
-                        className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
-                        Mellanliggande konto
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => setShowAccountSelector(-1)}
-                        className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-left text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50 hover:bg-zinc-50 dark:hover:bg-zinc-600"
-                      >
-                        {bridgeAccountId === 0
-                          ? "Välj konto..."
-                          : accounts.find((a) => a.id === bridgeAccountId)?.namn ||
-                            "Välj konto..."}
-                      </button>
-                      <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                        Konto där pengarna tillfälligt "parkeras" mellan perioderna
-                      </p>
-                    </div>
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                      Bokföringsdatum (rätt period)
+                    </label>
+                    <input
+                      type="date"
+                      value={periodShiftDate?.toISOString().split("T")[0] || ""}
+                      onChange={(e) => setPeriodShiftDate(e.target.value ? new Date(e.target.value) : null)}
+                      required={enablePeriodShift}
+                      className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+                    />
                   </div>
                 </>
               )}
@@ -523,16 +532,23 @@ export default function TransactionForm({
                     <input
                       type="text"
                       inputMode="decimal"
-                      value={post.debet > 0 ? String(post.debet).replace('.', ',') : ""}
+                      value={debetInputs[index] ?? (post.debet > 0 ? String(post.debet).replace('.', ',') : "")}
                       onChange={(e) => {
-                        const value = e.target.value.replace(/\s/g, '').replace(',', '.');
-                        updatePost(index, "debet", value === "" ? 0 : parseFloat(value) || 0);
+                        const value = e.target.value.replace(/\s/g, '');
+                        // Only update if it's a valid number format (allows comma or dot)
+                        if (value === "" || /^[0-9]*[,.]?[0-9]*$/.test(value)) {
+                          // Store the raw input
+                          setDebetInputs({ ...debetInputs, [index]: value });
+                          // Parse and update the post
+                          const numValue = value === "" ? 0 : parseFloat(value.replace(',', '.')) || 0;
+                          updatePost(index, "debet", numValue);
+                        }
                       }}
-                      onBlur={(e) => {
-                        // Format on blur - update state to trigger re-render with formatted value
-                        const value = e.target.value.replace(/\s/g, '').replace(',', '.');
-                        const numValue = value === "" ? 0 : parseFloat(value) || 0;
-                        updatePost(index, "debet", numValue);
+                      onBlur={() => {
+                        // Clear the input string on blur to show formatted value
+                        const newInputs = { ...debetInputs };
+                        delete newInputs[index];
+                        setDebetInputs(newInputs);
                       }}
                       className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
                     />
@@ -545,16 +561,23 @@ export default function TransactionForm({
                     <input
                       type="text"
                       inputMode="decimal"
-                      value={post.kredit > 0 ? String(post.kredit).replace('.', ',') : ""}
+                      value={kreditInputs[index] ?? (post.kredit > 0 ? String(post.kredit).replace('.', ',') : "")}
                       onChange={(e) => {
-                        const value = e.target.value.replace(/\s/g, '').replace(',', '.');
-                        updatePost(index, "kredit", value === "" ? 0 : parseFloat(value) || 0);
+                        const value = e.target.value.replace(/\s/g, '');
+                        // Only update if it's a valid number format (allows comma or dot)
+                        if (value === "" || /^[0-9]*[,.]?[0-9]*$/.test(value)) {
+                          // Store the raw input
+                          setKreditInputs({ ...kreditInputs, [index]: value });
+                          // Parse and update the post
+                          const numValue = value === "" ? 0 : parseFloat(value.replace(',', '.')) || 0;
+                          updatePost(index, "kredit", numValue);
+                        }
                       }}
-                      onBlur={(e) => {
-                        // Format on blur - update state to trigger re-render with formatted value
-                        const value = e.target.value.replace(/\s/g, '').replace(',', '.');
-                        const numValue = value === "" ? 0 : parseFloat(value) || 0;
-                        updatePost(index, "kredit", numValue);
+                      onBlur={() => {
+                        // Clear the input string on blur to show formatted value
+                        const newInputs = { ...kreditInputs };
+                        delete newInputs[index];
+                        setKreditInputs(newInputs);
                       }}
                       className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
                     />
@@ -676,7 +699,7 @@ export default function TransactionForm({
                 disabled={!isBalanced || loading || !!periodLockWarning}
                 className="px-4 py-2 text-sm font-semibold rounded-md bg-zinc-900 text-zinc-50 hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
               >
-                {loading ? "Sparar..." : "Spara transaktion"}
+                {loading ? "Sparar..." : isEditing ? "Uppdatera" : "Spara transaktion"}
               </button>
             </div>
           </div>
@@ -765,19 +788,9 @@ export default function TransactionForm({
       {showAccountSelector !== null && (
         <AccountSelectorModal
           accounts={accounts}
-          selectedAccountId={
-            showAccountSelector === -1
-              ? bridgeAccountId
-              : posts[showAccountSelector]?.accountId || 0
-          }
+          selectedAccountId={posts[showAccountSelector]?.accountId || 0}
           onSelect={(accountId) => {
-            if (showAccountSelector === -1) {
-              // Selecting bridge account
-              setBridgeAccountId(accountId);
-            } else {
-              // Selecting regular post account
-              updatePost(showAccountSelector, "accountId", accountId);
-            }
+            updatePost(showAccountSelector, "accountId", accountId);
             setShowAccountSelector(null);
           }}
           onClose={() => setShowAccountSelector(null)}

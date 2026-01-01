@@ -318,76 +318,27 @@ export async function createTransaction(
     }
 
     // If period shift is enabled, create the second (shifted) transaction
-    if (transactionData.periodShiftDate && transactionData.bridgeAccountId) {
-      // Create the shifted transaction
+    if (transactionData.periodShiftDate) {
+      // Create the shifted transaction with the same posts
       const shiftedResult = await client.query<{ id: number }>(
         `INSERT INTO transactions
-         (date, description, original_transaction_id, period_shift_date, bridge_account_id)
-         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+         (date, description, original_transaction_id, period_shift_date)
+         VALUES ($1, $2, $3, $4) RETURNING id`,
         [
           transactionData.periodShiftDate.toISOString(),
           `${transactionData.description} (periodförskjuten)`,
           transactionId,
           transactionData.periodShiftDate.toISOString(),
-          transactionData.bridgeAccountId,
         ]
       );
 
       const shiftedTransactionId = shiftedResult.rows[0].id;
 
-      // The shifted transaction moves money FROM bridge account TO the actual expense/income accounts
-      // We need to reverse the bridge account entries from the original transaction
-
-      // Find the total debit and credit amounts from original transaction (excluding bridge account)
-      let totalDebet = 0;
-      let totalKredit = 0;
-
+      // Copy the same posts to the shifted transaction
       for (const post of transactionData.posts) {
-        if (post.accountId !== transactionData.bridgeAccountId) {
-          totalDebet += post.debet;
-          totalKredit += post.kredit;
-        }
-      }
-
-      // In the original transaction: add bridge account posts
-      // If original has expenses (kredit side), bridge gets debit
-      // If original has income (debit side), bridge gets kredit
-      if (totalKredit > 0) {
-        // Original transaction has money going out (kredit) - bridge receives it (debet)
         await client.query(
           "INSERT INTO posts (transaction_id, account_id, debet, kredit, description) VALUES ($1, $2, $3, $4, $5)",
-          [transactionId, transactionData.bridgeAccountId, totalKredit, 0, "Mellanliggande konto (periodförskjutning)"]
-        );
-      } else if (totalDebet > 0) {
-        // Original transaction has money coming in (debet) - bridge pays it out (kredit)
-        await client.query(
-          "INSERT INTO posts (transaction_id, account_id, debet, kredit, description) VALUES ($1, $2, $3, $4, $5)",
-          [transactionId, transactionData.bridgeAccountId, 0, totalDebet, "Mellanliggande konto (periodförskjutning)"]
-        );
-      }
-
-      // In the shifted transaction: copy the original posts but reverse the bridge account
-      for (const post of transactionData.posts) {
-        if (post.accountId !== transactionData.bridgeAccountId) {
-          await client.query(
-            "INSERT INTO posts (transaction_id, account_id, debet, kredit, description) VALUES ($1, $2, $3, $4, $5)",
-            [shiftedTransactionId, post.accountId, post.debet, post.kredit, post.description ?? null]
-          );
-        }
-      }
-
-      // Add the bridge account entry to the shifted transaction (opposite of original)
-      if (totalKredit > 0) {
-        // Shifted: bridge pays out (kredit)
-        await client.query(
-          "INSERT INTO posts (transaction_id, account_id, debet, kredit, description) VALUES ($1, $2, $3, $4, $5)",
-          [shiftedTransactionId, transactionData.bridgeAccountId, 0, totalKredit, "Mellanliggande konto (periodförskjutning)"]
-        );
-      } else if (totalDebet > 0) {
-        // Shifted: bridge receives (debet)
-        await client.query(
-          "INSERT INTO posts (transaction_id, account_id, debet, kredit, description) VALUES ($1, $2, $3, $4, $5)",
-          [shiftedTransactionId, transactionData.bridgeAccountId, totalDebet, 0, "Mellanliggande konto (periodförskjutning)"]
+          [shiftedTransactionId, post.accountId, post.debet, post.kredit, post.description ?? null]
         );
       }
 
@@ -763,6 +714,7 @@ export async function getTransactionsPaginated(
   sortField: "date" | "description" | "accounts" = "date",
   sortDirection: "asc" | "desc" = "desc",
   filterAccountType?: string,
+  filterAccountId?: number,
   filterDateFrom?: string,
   filterDateTo?: string
 ): Promise<{ transactions: Transaction[]; total: number }> {
@@ -808,6 +760,18 @@ export async function getTransactionsPaginated(
       )`
     );
     params.push(filterAccountType);
+    paramIndex++;
+  }
+
+  // Specific account filter
+  if (filterAccountId && filterAccountId !== 0) {
+    whereClauses.push(
+      `EXISTS (
+        SELECT 1 FROM posts p4
+        WHERE p4.transaction_id = t.id AND p4.account_id = $${paramIndex}
+      )`
+    );
+    params.push(filterAccountId);
     paramIndex++;
   }
 
