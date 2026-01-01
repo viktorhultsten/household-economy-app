@@ -1419,6 +1419,16 @@ export async function getRecurringItemsStatus(
   return statuses;
 }
 
+export async function getRecurringItemForTransaction(
+  transactionId: number
+): Promise<number | null> {
+  const result = await queryOne<{ recurring_item_id: number }>(
+    "SELECT recurring_item_id FROM transaction_recurring_items WHERE transaction_id = $1",
+    [transactionId]
+  );
+  return result?.recurring_item_id ?? null;
+}
+
 export async function linkTransactionToRecurringItem(
   transactionId: number,
   recurringItemId: number
@@ -1437,6 +1447,25 @@ export async function unlinkTransactionFromRecurringItem(
     "DELETE FROM transaction_recurring_items WHERE transaction_id = $1 AND recurring_item_id = $2",
     [transactionId, recurringItemId]
   );
+}
+
+export async function updateTransactionRecurringItemLink(
+  transactionId: number,
+  recurringItemId: number | null
+): Promise<void> {
+  // First, remove any existing links
+  await query(
+    "DELETE FROM transaction_recurring_items WHERE transaction_id = $1",
+    [transactionId]
+  );
+
+  // If a recurring item is selected, create the link
+  if (recurringItemId !== null) {
+    await query(
+      "INSERT INTO transaction_recurring_items (transaction_id, recurring_item_id) VALUES ($1, $2)",
+      [transactionId, recurringItemId]
+    );
+  }
 }
 
 // Get transaction count by month for each recurring item

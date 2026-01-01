@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Account, BankEvent, Post, BookingTemplate, RecurringItemStatus, Transaction } from "../types";
-import { getAccounts, createTransaction, updateTransaction, isPeriodLocked, getBookingTemplates, createBookingTemplate, getRecurringItemsStatus, linkTransactionToRecurringItem } from "../actions";
+import { getAccounts, createTransaction, updateTransaction, isPeriodLocked, getBookingTemplates, createBookingTemplate, getRecurringItemsStatus, linkTransactionToRecurringItem, getRecurringItemForTransaction, updateTransactionRecurringItemLink } from "../actions";
 import AccountSelectorModal from "./AccountSelectorModal";
 
 interface TransactionFormProps {
@@ -96,9 +96,15 @@ export default function TransactionForm({
       setAccounts(accountsData);
       setTemplates(templatesData);
       setRecurringItems(recurringItemsData);
+
+      // If editing, load the existing recurring item link
+      if (isEditing && transaction) {
+        const existingRecurringItemId = await getRecurringItemForTransaction(transaction.id);
+        setSelectedRecurringItemId(existingRecurringItemId);
+      }
     }
     loadData();
-  }, [date, enablePeriodShift, periodShiftDate]);
+  }, [date, enablePeriodShift, periodShiftDate, isEditing, transaction]);
 
   useEffect(() => {
     async function checkPeriodLock() {
@@ -308,6 +314,9 @@ export default function TransactionForm({
             description: p.description,
           })),
         });
+
+        // Update recurring item link
+        await updateTransactionRecurringItemLink(transaction!.id, selectedRecurringItemId);
       } else {
         // Create new transaction
         const transactionId = await createTransaction({
