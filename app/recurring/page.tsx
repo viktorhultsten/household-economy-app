@@ -215,13 +215,6 @@ export default function UpprepningarPage() {
               </select>
             </div>
             <button
-              onClick={() => loadItems()}
-              className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-700"
-              title="Uppdatera data"
-            >
-              ↻ Uppdatera
-            </button>
-            <button
               onClick={() => setShowAddForm(true)}
               className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-zinc-50 hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
             >
@@ -418,25 +411,33 @@ export default function UpprepningarPage() {
                           {item.expectedPerMonth}
                         </td>
                         <td className="px-6 py-4 text-sm text-zinc-600 dark:text-zinc-400">
-                          <div className="flex flex-wrap gap-1">
-                            {item.activeMonths.sort((a, b) => a - b).map((monthNum) => {
-                              const month = MONTHS.find((m) => m.value === monthNum);
+                          <div className="grid grid-cols-12 gap-1">
+                            {MONTHS.map((month) => {
+                              const monthNum = month.value;
+                              const isActive = item.activeMonths.includes(monthNum);
                               const itemMonthData = monthlyOverviews.get(item.id);
                               const count = itemMonthData?.get(monthNum) || 0;
                               const expected = item.expectedPerMonth;
+                              const isComplete = isActive && count >= expected;
 
                               return (
                                 <span
                                   key={monthNum}
-                                  className="px-2 py-1 text-xs rounded bg-zinc-100 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300 flex items-center gap-1"
-                                  title={`${month?.label}: ${count}/${expected} transaktioner`}
+                                  className={`px-1 py-1 text-xs rounded flex flex-col items-center justify-center gap-1 ${
+                                    isComplete
+                                      ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                                      : isActive
+                                      ? 'bg-zinc-100 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300'
+                                      : 'bg-transparent text-zinc-300 dark:text-zinc-700'
+                                  }`}
+                                  title={isActive ? `${month.label}: ${count}/${expected} transaktioner` : month.label}
                                 >
-                                  <span>{month?.label}</span>
-                                  <span className="flex items-center gap-0.5">
-                                    {[...Array(expected)].map((_, i) => (
+                                  <span className="text-[10px] leading-none">{month.label}</span>
+                                  <span className="flex items-center gap-0.5 min-h-[4px]">
+                                    {isActive && [...Array(expected)].map((_, i) => (
                                       <span
                                         key={i}
-                                        className={`inline-block w-1.5 h-1.5 rounded-full ${
+                                        className={`inline-block w-1 h-1 rounded-full ${
                                           i < count
                                             ? 'bg-green-600 dark:bg-green-400'
                                             : 'bg-zinc-300 dark:bg-zinc-600'
