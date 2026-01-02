@@ -2,8 +2,16 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { AccountType } from "../types";
-import { getResultBudgetComparison, getAccount11MonthsHistory } from "../actions";
+import { AccountType, CustomResultView, Account, Group } from "../types";
+import {
+  getResultBudgetComparison,
+  getAccount11MonthsHistory,
+  getCustomResultViews,
+  getAccounts,
+  getGroups,
+} from "../actions";
+import CustomViewManager from "../components/CustomViewManager";
+import { isAccountInCustomView } from "../lib/customViewUtils";
 
 interface AccountBalance {
   accountId: number;
@@ -70,9 +78,32 @@ export default function ResultatPage() {
   const [accountsHistory, setAccountsHistory] = useState<Map<number, MonthHistory[]>>(new Map());
   const [loadingAccounts, setLoadingAccounts] = useState<Set<number>>(new Set());
 
+  // Custom view state
+  const [customViews, setCustomViews] = useState<CustomResultView[]>([]);
+  const [selectedViewId, setSelectedViewId] = useState<number | null>(null);
+  const [showViewManager, setShowViewManager] = useState(false);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
+
   useEffect(() => {
     loadBalances();
+    loadCustomViews();
+    loadAccountsAndGroups();
   }, [year, month]);
+
+  async function loadCustomViews() {
+    const views = await getCustomResultViews();
+    setCustomViews(views);
+  }
+
+  async function loadAccountsAndGroups() {
+    const [accountsData, groupsData] = await Promise.all([
+      getAccounts(),
+      getGroups(),
+    ]);
+    setAccounts(accountsData);
+    setGroups(groupsData);
+  }
 
   async function loadBalances() {
     setLoading(true);
@@ -119,8 +150,21 @@ export default function ResultatPage() {
     }
   }
 
+  // Filter balances based on selected custom view
+  const selectedView = customViews.find((v) => v.id === selectedViewId);
+  const filteredBalances = selectedViewId && selectedView
+    ? balances.filter((balance) =>
+        isAccountInCustomView(
+          balance.accountId,
+          balance.groupId,
+          balance.groupType,
+          selectedView
+        )
+      )
+    : balances;
+
   // Group balances by type -> group -> accounts
-  const grouped = balances.reduce((acc, balance) => {
+  const grouped = filteredBalances.reduce((acc, balance) => {
     if (!acc[balance.groupType]) {
       acc[balance.groupType] = {};
     }
@@ -146,7 +190,7 @@ export default function ResultatPage() {
     Skuld: { periodActual: 0, periodBudget: 0, periodVariance: 0, r12Actual: 0, r12Budget: 0, r12Variance: 0 },
   };
 
-  balances.forEach((balance) => {
+  filteredBalances.forEach((balance) => {
     typeTotals[balance.groupType].periodActual += balance.periodActual;
     typeTotals[balance.groupType].periodBudget += balance.periodBudget;
     typeTotals[balance.groupType].periodVariance += balance.periodVariance;
@@ -163,7 +207,7 @@ export default function ResultatPage() {
     r12Budget: number;
     r12Variance: number;
   }> = {};
-  balances.forEach((balance) => {
+  filteredBalances.forEach((balance) => {
     const key = `${balance.groupType}-${balance.groupName}`;
     if (!groupTotals[key]) {
       groupTotals[key] = { periodActual: 0, periodBudget: 0, periodVariance: 0, r12Actual: 0, r12Budget: 0, r12Variance: 0 };
@@ -271,6 +315,30 @@ export default function ResultatPage() {
               Nästa månad →
             </button>
           </div>
+        </div>
+
+        {/* Custom View Switcher */}
+        <div className="mb-6 flex items-center gap-3">
+          <select
+            value={selectedViewId || ""}
+            onChange={(e) =>
+              setSelectedViewId(e.target.value ? parseInt(e.target.value) : null)
+            }
+            className="flex-1 rounded-md border border-zinc-300 px-4 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+          >
+            <option value="">Alla konton</option>
+            {customViews.map((view) => (
+              <option key={view.id} value={view.id}>
+                {view.namn}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={() => setShowViewManager(true)}
+            className="px-4 py-2 text-sm font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 whitespace-nowrap"
+          >
+            Hantera vyer
+          </button>
         </div>
 
         {balances.length === 0 ? (
@@ -490,6 +558,19 @@ export default function ResultatPage() {
           </div>
         )}
       </main>
+
+      {/* Custom View Manager Modal */}
+      {showViewManager && (
+        <CustomViewManager
+          views={customViews}
+          accounts={accounts}
+          groups={groups}
+          onClose={() => setShowViewManager(false)}
+          onViewsChanged={() => {
+            loadCustomViews();
+          }}
+        />
+      )}
     </div>
   );
 }

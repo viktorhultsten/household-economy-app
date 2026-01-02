@@ -147,3 +147,25 @@ export interface YearlyBudget {
   year: number;
   monthlyAmounts: number[]; // Array of 12 numbers (index 0 = January, 11 = December)
 }
+
+// Custom result view - allows filtering which accounts to show in result view
+export interface CustomResultView {
+  id: number;
+  namn: string;
+  createdAt: Date;
+  updatedAt: Date;
+  accounts?: number[]; // Array of selected account IDs
+  groups?: number[]; // Array of selected group IDs
+  types?: AccountType[]; // Array of selected account types
+}
+
+// Custom result view with full details
+export interface CustomResultViewWithDetails {
+  id: number;
+  namn: string;
+  createdAt: Date;
+  updatedAt: Date;
+  accounts: Account[];
+  groups: Group[];
+  types: AccountType[];
+}

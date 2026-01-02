@@ -1,7 +1,7 @@
 "use server";
 
 import { queryAll, queryOne, query, transaction as dbTransaction } from "@/lib/db";
-import { BankEvent, Transaction, Post, Account, Group, Import, AccountType, PeriodLock, BookingTemplate, TemplateRow, RecurringItem, RecurringItemStatus, Budget, BudgetComparison } from "./types";
+import { BankEvent, Transaction, Post, Account, Group, Import, AccountType, PeriodLock, BookingTemplate, TemplateRow, RecurringItem, RecurringItemStatus, Budget, BudgetComparison, CustomResultView, CustomResultViewWithDetails } from "./types";
 
 // Imports (CSV import metadata)
 export async function getImports(): Promise<Import[]> {
@@ -1979,4 +1979,230 @@ export async function deleteBudgetsForYear(
     "DELETE FROM budgets WHERE account_id = $1 AND year = $2",
     [accountId, year]
   );
+}
+
+// Custom Result Views
+export async function getCustomResultViews(): Promise<CustomResultView[]> {
+  const rows = await queryAll<{
+    id: number;
+    namn: string;
+    created_at: string;
+    updated_at: string;
+  }>(
+    "SELECT * FROM custom_result_views ORDER BY namn ASC"
+  );
+
+  const views: CustomResultView[] = [];
+
+  for (const row of rows) {
+    // Get selected accounts
+    const accountRows = await queryAll<{ account_id: number }>(
+      "SELECT account_id FROM custom_result_view_accounts WHERE view_id = $1",
+      [row.id]
+    );
+
+    // Get selected groups
+    const groupRows = await queryAll<{ group_id: number }>(
+      "SELECT group_id FROM custom_result_view_groups WHERE view_id = $1",
+      [row.id]
+    );
+
+    // Get selected types
+    const typeRows = await queryAll<{ account_type: AccountType }>(
+      "SELECT account_type FROM custom_result_view_types WHERE view_id = $1",
+      [row.id]
+    );
+
+    views.push({
+      id: row.id,
+      namn: row.namn,
+      createdAt: new Date(row.created_at),
+      updatedAt: new Date(row.updated_at),
+      accounts: accountRows.map(r => r.account_id),
+      groups: groupRows.map(r => r.group_id),
+      types: typeRows.map(r => r.account_type),
+    });
+  }
+
+  return views;
+}
+
+export async function getCustomResultView(id: number): Promise<CustomResultViewWithDetails | null> {
+  const row = await queryOne<{
+    id: number;
+    namn: string;
+    created_at: string;
+    updated_at: string;
+  }>(
+    "SELECT * FROM custom_result_views WHERE id = $1",
+    [id]
+  );
+
+  if (!row) return null;
+
+  // Get selected accounts with full details
+  const accountRows = await queryAll<{
+    id: number;
+    namn: string;
+    group_id: number;
+  }>(
+    `SELECT a.* FROM accounts a
+     INNER JOIN custom_result_view_accounts crva ON crva.account_id = a.id
+     WHERE crva.view_id = $1
+     ORDER BY a.namn ASC`,
+    [id]
+  );
+
+  // Get selected groups with full details
+  const groupRows = await queryAll<{
+    id: number;
+    namn: string;
+    typ: AccountType;
+  }>(
+    `SELECT g.* FROM groups g
+     INNER JOIN custom_result_view_groups crvg ON crvg.group_id = g.id
+     WHERE crvg.view_id = $1
+     ORDER BY g.namn ASC`,
+    [id]
+  );
+
+  // Get selected types
+  const typeRows = await queryAll<{ account_type: AccountType }>(
+    "SELECT account_type FROM custom_result_view_types WHERE view_id = $1",
+    [id]
+  );
+
+  return {
+    id: row.id,
+    namn: row.namn,
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+    accounts: accountRows.map(r => ({
+      id: r.id,
+      namn: r.namn,
+      groupId: r.group_id,
+    })),
+    groups: groupRows.map(r => ({
+      id: r.id,
+      namn: r.namn,
+      typ: r.typ,
+    })),
+    types: typeRows.map(r => r.account_type),
+  };
+}
+
+export async function createCustomResultView(
+  namn: string,
+  accountIds: number[],
+  groupIds: number[],
+  types: AccountType[]
+): Promise<CustomResultView> {
+  return await dbTransaction(async (client) => {
+    // Create the view
+    const viewResult = await client.query<{
+      id: number;
+      namn: string;
+      created_at: string;
+      updated_at: string;
+    }>(
+      "INSERT INTO custom_result_views (namn) VALUES ($1) RETURNING *",
+      [namn]
+    );
+
+    const viewRow = viewResult.rows[0];
+    if (!viewRow) {
+      throw new Error("Failed to create custom result view");
+    }
+
+    // Insert selected accounts
+    for (const accountId of accountIds) {
+      await client.query(
+        "INSERT INTO custom_result_view_accounts (view_id, account_id) VALUES ($1, $2)",
+        [viewRow.id, accountId]
+      );
+    }
+
+    // Insert selected groups
+    for (const groupId of groupIds) {
+      await client.query(
+        "INSERT INTO custom_result_view_groups (view_id, group_id) VALUES ($1, $2)",
+        [viewRow.id, groupId]
+      );
+    }
+
+    // Insert selected types
+    for (const type of types) {
+      await client.query(
+        "INSERT INTO custom_result_view_types (view_id, account_type) VALUES ($1, $2)",
+        [viewRow.id, type]
+      );
+    }
+
+    return {
+      id: viewRow.id,
+      namn: viewRow.namn,
+      createdAt: new Date(viewRow.created_at),
+      updatedAt: new Date(viewRow.updated_at),
+      accounts: accountIds,
+      groups: groupIds,
+      types,
+    };
+  });
+}
+
+export async function updateCustomResultView(
+  id: number,
+  namn: string,
+  accountIds: number[],
+  groupIds: number[],
+  types: AccountType[]
+): Promise<void> {
+  await dbTransaction(async (client) => {
+    // Update the view name and updated_at timestamp
+    await client.query(
+      "UPDATE custom_result_views SET namn = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+      [namn, id]
+    );
+
+    // Delete existing selections
+    await client.query(
+      "DELETE FROM custom_result_view_accounts WHERE view_id = $1",
+      [id]
+    );
+    await client.query(
+      "DELETE FROM custom_result_view_groups WHERE view_id = $1",
+      [id]
+    );
+    await client.query(
+      "DELETE FROM custom_result_view_types WHERE view_id = $1",
+      [id]
+    );
+
+    // Insert new selections
+    for (const accountId of accountIds) {
+      await client.query(
+        "INSERT INTO custom_result_view_accounts (view_id, account_id) VALUES ($1, $2)",
+        [id, accountId]
+      );
+    }
+
+    for (const groupId of groupIds) {
+      await client.query(
+        "INSERT INTO custom_result_view_groups (view_id, group_id) VALUES ($1, $2)",
+        [id, groupId]
+      );
+    }
+
+    for (const type of types) {
+      await client.query(
+        "INSERT INTO custom_result_view_types (view_id, account_type) VALUES ($1, $2)",
+        [id, type]
+      );
+    }
+  });
+}
+
+export async function deleteCustomResultView(id: number): Promise<void> {
+  // CASCADE delete will automatically remove related records
+  await query("DELETE FROM custom_result_views WHERE id = $1", [id]);
 }
