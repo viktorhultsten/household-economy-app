@@ -60,7 +60,6 @@ const MONTHS = [
 export default function BudgetPage() {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth() + 1);
   const [comparisons, setComparisons] = useState<BudgetComparison[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
@@ -75,12 +74,12 @@ export default function BudgetPage() {
 
   useEffect(() => {
     loadData();
-  }, [year, month]);
+  }, [year]);
 
   async function loadData() {
     setLoading(true);
     const [comparisonData, accountsData] = await Promise.all([
-      getBudgetComparison(year, month),
+      getBudgetComparison(year, 12),
       getAccounts(),
     ]);
     setComparisons(comparisonData);
@@ -183,18 +182,7 @@ export default function BudgetPage() {
           <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">
             Budget
           </h1>
-          <div className="flex gap-3">
-            <select
-              value={month}
-              onChange={(e) => setMonth(parseInt(e.target.value))}
-              className="rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
-            >
-              {MONTHS.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
+          <div>
             <select
               value={year}
               onChange={(e) => setYear(parseInt(e.target.value))}
