@@ -138,6 +138,11 @@ const TransactionList = memo(function TransactionList({
                               Periodförskjuten
                             </span>
                           )}
+                          {transaction.recurringItems && transaction.recurringItems.length > 0 && (
+                            <span className="px-2 py-0.5 text-xs font-medium rounded bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300" title={transaction.recurringItems.map(ri => ri.namn).join(", ")}>
+                              Återkommande
+                            </span>
+                          )}
                         </div>
                         {transaction.bankEvent && (
                           <div className="text-xs text-zinc-600 dark:text-zinc-400">

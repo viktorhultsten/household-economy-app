@@ -598,6 +598,42 @@ export async function getAccountTransactionsForPeriod(
 }
 
 // Get all transactions with full details
+// Helper function to fetch recurring items for multiple transactions
+async function fetchRecurringItemsForTransactions(transactionIds: number[]): Promise<Map<number, RecurringItem[]>> {
+  if (transactionIds.length === 0) return new Map();
+
+  const rows = await queryAll<{
+    transaction_id: number;
+    id: number;
+    namn: string;
+    expected_per_month: number;
+    active_months: number[];
+    created_at: string;
+  }>(
+    `SELECT tri.transaction_id, ri.*
+     FROM recurring_items ri
+     JOIN transaction_recurring_items tri ON tri.recurring_item_id = ri.id
+     WHERE tri.transaction_id = ANY($1)`,
+    [transactionIds]
+  );
+
+  const recurringMap = new Map<number, RecurringItem[]>();
+  for (const row of rows) {
+    if (!recurringMap.has(row.transaction_id)) {
+      recurringMap.set(row.transaction_id, []);
+    }
+    recurringMap.get(row.transaction_id)!.push({
+      id: row.id,
+      namn: row.namn,
+      expectedPerMonth: row.expected_per_month,
+      activeMonths: row.active_months,
+      createdAt: new Date(row.created_at),
+    });
+  }
+
+  return recurringMap;
+}
+
 export async function getAllTransactions(): Promise<Transaction[]> {
   // Get total count for pagination info
   const countResult = await queryOne<{ count: number }>(
@@ -714,6 +750,18 @@ export async function getAllTransactions(): Promise<Transaction[]> {
         },
       },
     });
+  }
+
+  // Fetch recurring items for all transactions
+  const transactionIds = Array.from(transactionsMap.keys());
+  const recurringMap = await fetchRecurringItemsForTransactions(transactionIds);
+
+  // Add recurring items to transactions
+  for (const [txnId, transaction] of transactionsMap) {
+    const recurringItems = recurringMap.get(txnId);
+    if (recurringItems && recurringItems.length > 0) {
+      transaction.recurringItems = recurringItems;
+    }
   }
 
   return Array.from(transactionsMap.values());
@@ -936,6 +984,18 @@ export async function getTransactionsPaginated(
     });
   }
 
+  // Fetch recurring items for all transactions
+  const transactionIds = Array.from(transactionsMap.keys());
+  const recurringMap = await fetchRecurringItemsForTransactions(transactionIds);
+
+  // Add recurring items to transactions
+  for (const [txnId, transaction] of transactionsMap) {
+    const recurringItems = recurringMap.get(txnId);
+    if (recurringItems && recurringItems.length > 0) {
+      transaction.recurringItems = recurringItems;
+    }
+  }
+
   return {
     transactions: Array.from(transactionsMap.values()),
     total,
@@ -996,12 +1056,36 @@ export async function getTransaction(id: number): Promise<Transaction | null> {
     },
   }));
 
+  // Fetch recurring items for this transaction
+  const recurringRows = await queryAll<{
+    id: number;
+    namn: string;
+    expected_per_month: number;
+    active_months: number[];
+    created_at: string;
+  }>(
+    `SELECT ri.*
+     FROM recurring_items ri
+     JOIN transaction_recurring_items tri ON tri.recurring_item_id = ri.id
+     WHERE tri.transaction_id = $1`,
+    [txnRow.id]
+  );
+
+  const recurringItems: RecurringItem[] = recurringRows.map((row) => ({
+    id: row.id,
+    namn: row.namn,
+    expectedPerMonth: row.expected_per_month,
+    activeMonths: row.active_months,
+    createdAt: new Date(row.created_at),
+  }));
+
   return {
     id: txnRow.id,
     date: new Date(txnRow.date),
     description: txnRow.description,
     bankEventId: txnRow.bank_event_id ?? undefined,
     posts,
+    recurringItems: recurringItems.length > 0 ? recurringItems : undefined,
   };
 }
 
@@ -1731,6 +1815,107 @@ export async function getResultBudgetComparison(
   });
 
   return comparisons;
+}
+
+// Get 11 previous months of data for a specific account
+export async function getAccount11MonthsHistory(
+  accountId: number,
+  endYear: number,
+  endMonth: number
+): Promise<{
+  year: number;
+  month: number;
+  monthName: string;
+  periodActual: number;
+  periodBudget: number;
+  periodVariance: number;
+  ytdActual: number;
+  ytdBudget: number;
+  ytdVariance: number;
+}[]> {
+  const monthNames = [
+    "Januari", "Februari", "Mars", "April", "Maj", "Juni",
+    "Juli", "Augusti", "September", "Oktober", "November", "December"
+  ];
+
+  const results = [];
+
+  // Calculate 11 previous months (not including the current selected month)
+  for (let i = 11; i >= 1; i--) {
+    let targetMonth = endMonth - i;
+    let targetYear = endYear;
+
+    // Handle year wrapping
+    while (targetMonth < 1) {
+      targetMonth += 12;
+      targetYear -= 1;
+    }
+
+    // Get the account's group type
+    const accountInfo = await queryOne<{ group_type: AccountType }>(
+      `SELECT g.typ as group_type
+       FROM accounts a
+       JOIN groups g ON a.group_id = g.id
+       WHERE a.id = $1`,
+      [accountId]
+    );
+
+    if (!accountInfo) continue;
+
+    // Get period actual
+    const periodBalances = await getAccountBalances(targetYear, targetMonth);
+    const accountBalance = periodBalances.find(b => b.accountId === accountId);
+    const periodActual = accountBalance?.balance ?? 0;
+
+    // Get period budget
+    const periodBudgetRow = await queryOne<{ amount: number }>(
+      "SELECT amount FROM budgets WHERE account_id = $1 AND year = $2 AND month = $3",
+      [accountId, targetYear, targetMonth]
+    );
+    const periodBudget = periodBudgetRow ? Number(periodBudgetRow.amount) : 0;
+
+    // Get YTD actual (January through target month)
+    let ytdActual = 0;
+    for (let m = 1; m <= targetMonth; m++) {
+      const monthBalances = await getAccountBalances(targetYear, m);
+      const monthBalance = monthBalances.find(b => b.accountId === accountId);
+      ytdActual += monthBalance?.balance ?? 0;
+    }
+
+    // Get YTD budget (January through target month)
+    const ytdBudgetRow = await queryOne<{ total_budget: number }>(
+      "SELECT SUM(amount) as total_budget FROM budgets WHERE account_id = $1 AND year = $2 AND month <= $3",
+      [accountId, targetYear, targetMonth]
+    );
+    const ytdBudget = ytdBudgetRow ? Number(ytdBudgetRow.total_budget) : 0;
+
+    // Calculate variance
+    let periodVariance: number;
+    let ytdVariance: number;
+
+    if (accountInfo.group_type === "Utgift") {
+      periodVariance = periodBudget - periodActual;
+      ytdVariance = ytdBudget - ytdActual;
+    } else {
+      // Intäkt
+      periodVariance = periodActual - periodBudget;
+      ytdVariance = ytdActual - ytdBudget;
+    }
+
+    results.push({
+      year: targetYear,
+      month: targetMonth,
+      monthName: monthNames[targetMonth - 1],
+      periodActual,
+      periodBudget,
+      periodVariance,
+      ytdActual,
+      ytdBudget,
+      ytdVariance,
+    });
+  }
+
+  return results;
 }
 
 // Delete all budgets for a specific account/year

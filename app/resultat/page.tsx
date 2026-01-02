@@ -2,9 +2,8 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { AccountType, Transaction } from "../types";
-import { getResultBudgetComparison, getAccountTransactionsForPeriod, getTransaction } from "../actions";
-import TransactionForm from "../components/TransactionForm";
+import { AccountType } from "../types";
+import { getResultBudgetComparison, getAccount11MonthsHistory } from "../actions";
 
 interface AccountBalance {
   accountId: number;
@@ -20,27 +19,22 @@ interface AccountBalance {
   ytdVariance: number;
 }
 
-interface AccountTransaction {
-  transactionId: number;
-  date: Date;
-  description: string;
-  postDebet: number;
-  postKredit: number;
-  postDescription: string | null;
+interface MonthHistory {
+  year: number;
+  month: number;
+  monthName: string;
+  periodActual: number;
+  periodBudget: number;
+  periodVariance: number;
+  ytdActual: number;
+  ytdBudget: number;
+  ytdVariance: number;
 }
 
 function formatSwedishAmount(amount: number): string {
   return amount.toLocaleString("sv-SE", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  });
-}
-
-function formatSwedishDate(date: Date): string {
-  return date.toLocaleDateString("sv-SE", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
   });
 }
 
@@ -73,9 +67,8 @@ export default function ResultatPage() {
   const [balances, setBalances] = useState<AccountBalance[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedAccountId, setExpandedAccountId] = useState<number | null>(null);
-  const [transactions, setTransactions] = useState<AccountTransaction[]>([]);
-  const [loadingTransactions, setLoadingTransactions] = useState(false);
-  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+  const [monthsHistory, setMonthsHistory] = useState<MonthHistory[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   useEffect(() => {
     loadBalances();
@@ -91,32 +84,15 @@ export default function ResultatPage() {
   async function handleAccountClick(accountId: number) {
     if (expandedAccountId === accountId) {
       setExpandedAccountId(null);
-      setTransactions([]);
+      setMonthsHistory([]);
       return;
     }
 
     setExpandedAccountId(accountId);
-    setLoadingTransactions(true);
-    const data = await getAccountTransactionsForPeriod(accountId, year, month);
-    setTransactions(data);
-    setLoadingTransactions(false);
-  }
-
-  async function handleTransactionClick(transactionId: number) {
-    const txn = await getTransaction(transactionId);
-    if (txn) {
-      setSelectedTransaction(txn);
-    }
-  }
-
-  async function handleEditSuccess() {
-    setSelectedTransaction(null);
-    await loadBalances();
-    // Reload transactions if an account is expanded
-    if (expandedAccountId !== null) {
-      const data = await getAccountTransactionsForPeriod(expandedAccountId, year, month);
-      setTransactions(data);
-    }
+    setLoadingHistory(true);
+    const data = await getAccount11MonthsHistory(accountId, year, month);
+    setMonthsHistory(data);
+    setLoadingHistory(false);
   }
 
   // Group balances by type -> group -> accounts
@@ -427,59 +403,53 @@ export default function ResultatPage() {
                                   </td>
                                 </tr>
 
-                                {/* Transaction details */}
+                                {/* Historical months details */}
                                 {expandedAccountId === account.accountId && (
                                   <tr key={`${account.accountId}-details`}>
-                                    <td colSpan={7} className="px-6 py-4 bg-zinc-50 dark:bg-zinc-900">
-                                      <div className="ml-4 border-l-2 border-zinc-200 dark:border-zinc-700 pl-4">
-                                        {loadingTransactions ? (
-                                          <p className="text-xs text-zinc-500 dark:text-zinc-400 py-2">
-                                            Laddar transaktioner...
+                                    <td colSpan={7} className="px-0 py-0 bg-zinc-50 dark:bg-zinc-900">
+                                      {loadingHistory ? (
+                                        <div className="px-6 py-4">
+                                          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                                            Laddar historik...
                                           </p>
-                                        ) : transactions.length === 0 ? (
-                                          <p className="text-xs text-zinc-500 dark:text-zinc-400 py-2">
-                                            Inga transaktioner denna månad
+                                        </div>
+                                      ) : monthsHistory.length === 0 ? (
+                                        <div className="px-6 py-4">
+                                          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                                            Ingen historik tillgänglig
                                           </p>
-                                        ) : (
-                                          <div className="space-y-2 py-2">
-                                            {transactions.map((txn) => (
-                                              <button
-                                                key={txn.transactionId}
-                                                onClick={() => handleTransactionClick(txn.transactionId)}
-                                                className="w-full text-left text-xs border-b border-zinc-100 dark:border-zinc-800 pb-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded px-2 -mx-2 transition-colors"
-                                              >
-                                                <div className="flex items-start justify-between gap-2">
-                                                  <div className="flex-1">
-                                                    <div className="text-zinc-900 dark:text-zinc-50 font-medium">
-                                                      {txn.description}
-                                                    </div>
-                                                    {txn.postDescription && (
-                                                      <div className="text-zinc-500 dark:text-zinc-400 italic mt-0.5">
-                                                        {txn.postDescription}
-                                                      </div>
-                                                    )}
-                                                    <div className="text-zinc-400 dark:text-zinc-500 mt-0.5">
-                                                      {formatSwedishDate(txn.date)}
-                                                    </div>
-                                                  </div>
-                                                  <div className="font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
-                                                    {txn.postDebet > 0 && (
-                                                      <span className="text-blue-600 dark:text-blue-400">
-                                                        D: {formatSwedishAmount(txn.postDebet)} kr
-                                                      </span>
-                                                    )}
-                                                    {txn.postKredit > 0 && (
-                                                      <span className="text-amber-600 dark:text-amber-400">
-                                                        K: {formatSwedishAmount(txn.postKredit)} kr
-                                                      </span>
-                                                    )}
-                                                  </div>
-                                                </div>
-                                              </button>
+                                        </div>
+                                      ) : (
+                                        <table className="w-full text-xs">
+                                          <tbody className="divide-y divide-zinc-200 dark:divide-zinc-700">
+                                            {monthsHistory.map((monthData) => (
+                                              <tr key={`${monthData.year}-${monthData.month}`} className="bg-zinc-100/50 dark:bg-zinc-800/50">
+                                                <td className="px-6 py-2 text-zinc-600 dark:text-zinc-400 font-medium">
+                                                  {monthData.monthName} {monthData.year}
+                                                </td>
+                                                <td className="px-4 py-2 text-right tabular-nums text-zinc-700 dark:text-zinc-300">
+                                                  {formatSwedishAmount(monthData.periodActual)} kr
+                                                </td>
+                                                <td className="px-4 py-2 text-right tabular-nums text-zinc-700 dark:text-zinc-300">
+                                                  {formatSwedishAmount(monthData.periodBudget)} kr
+                                                </td>
+                                                <td className={`px-4 py-2 text-right tabular-nums font-semibold ${getVarianceColor(monthData.periodVariance)}`}>
+                                                  {monthData.periodVariance > 0 ? "+" : ""}{formatSwedishAmount(monthData.periodVariance)} kr
+                                                </td>
+                                                <td className="px-4 py-2 text-right tabular-nums text-zinc-700 dark:text-zinc-300">
+                                                  {formatSwedishAmount(monthData.ytdActual)} kr
+                                                </td>
+                                                <td className="px-4 py-2 text-right tabular-nums text-zinc-700 dark:text-zinc-300">
+                                                  {formatSwedishAmount(monthData.ytdBudget)} kr
+                                                </td>
+                                                <td className={`px-4 py-2 text-right tabular-nums font-semibold ${getVarianceColor(monthData.ytdVariance)}`}>
+                                                  {monthData.ytdVariance > 0 ? "+" : ""}{formatSwedishAmount(monthData.ytdVariance)} kr
+                                                </td>
+                                              </tr>
                                             ))}
-                                          </div>
-                                        )}
-                                      </div>
+                                          </tbody>
+                                        </table>
+                                      )}
                                     </td>
                                   </tr>
                                 )}
@@ -496,14 +466,6 @@ export default function ResultatPage() {
           </div>
         )}
       </main>
-
-      {selectedTransaction && (
-        <TransactionForm
-          transaction={selectedTransaction}
-          onClose={() => setSelectedTransaction(null)}
-          onSuccess={handleEditSuccess}
-        />
-      )}
     </div>
   );
 }
