@@ -1714,7 +1714,7 @@ export async function getBudgetComparison(
   return comparisons;
 }
 
-// Get budget comparison for result view with YTD data
+// Get budget comparison for result view with R12 data
 export async function getResultBudgetComparison(
   year: number,
   month: number
@@ -1727,9 +1727,9 @@ export async function getResultBudgetComparison(
   periodActual: number;
   periodBudget: number;
   periodVariance: number;
-  ytdActual: number;
-  ytdBudget: number;
-  ytdVariance: number;
+  r12Actual: number;
+  r12Budget: number;
+  r12Variance: number;
 }[]> {
   // Get period actual (current month)
   const periodBalances = await getAccountBalances(year, month);
@@ -1739,14 +1739,23 @@ export async function getResultBudgetComparison(
     (balance) => balance.groupType === "Intäkt" || balance.groupType === "Utgift"
   );
 
-  // Get YTD actual (January through current month)
-  const ytdActuals = new Map<number, number>();
-  for (let m = 1; m <= month; m++) {
-    const monthBalances = await getAccountBalances(year, m);
+  // Get R12 actual (rolling 12 months ending at current month)
+  const r12Actuals = new Map<number, number>();
+  for (let i = 11; i >= 0; i--) {
+    let targetMonth = month - i;
+    let targetYear = year;
+
+    // Handle year wrapping
+    while (targetMonth < 1) {
+      targetMonth += 12;
+      targetYear -= 1;
+    }
+
+    const monthBalances = await getAccountBalances(targetYear, targetMonth);
     monthBalances.forEach((balance) => {
       if (balance.groupType === "Intäkt" || balance.groupType === "Utgift") {
-        const current = ytdActuals.get(balance.accountId) || 0;
-        ytdActuals.set(balance.accountId, current + balance.balance);
+        const current = r12Actuals.get(balance.accountId) || 0;
+        r12Actuals.set(balance.accountId, current + balance.balance);
       }
     });
   }
@@ -1764,39 +1773,52 @@ export async function getResultBudgetComparison(
     periodBudgetMap.set(row.account_id, Number(row.amount));
   });
 
-  // Get YTD budget (January through current month)
-  const ytdBudgetRows = await queryAll<{
-    account_id: number;
-    total_budget: number;
-  }>(
-    "SELECT account_id, SUM(amount) as total_budget FROM budgets WHERE year = $1 AND month <= $2 GROUP BY account_id",
-    [year, month]
-  );
-  const ytdBudgetMap = new Map<number, number>();
-  ytdBudgetRows.forEach((row) => {
-    ytdBudgetMap.set(row.account_id, Number(row.total_budget));
-  });
+  // Get R12 budget (rolling 12 months)
+  const r12BudgetMap = new Map<number, number>();
+  for (let i = 11; i >= 0; i--) {
+    let targetMonth = month - i;
+    let targetYear = year;
+
+    // Handle year wrapping
+    while (targetMonth < 1) {
+      targetMonth += 12;
+      targetYear -= 1;
+    }
+
+    const monthBudgetRows = await queryAll<{
+      account_id: number;
+      amount: number;
+    }>(
+      "SELECT account_id, amount FROM budgets WHERE year = $1 AND month = $2",
+      [targetYear, targetMonth]
+    );
+
+    monthBudgetRows.forEach((row) => {
+      const current = r12BudgetMap.get(row.account_id) || 0;
+      r12BudgetMap.set(row.account_id, current + Number(row.amount));
+    });
+  }
 
   // Build comparison results
   const comparisons = incomeStatementBalances.map((balance) => {
     const periodActual = balance.balance;
     const periodBudget = periodBudgetMap.get(balance.accountId) ?? 0;
-    const ytdActual = ytdActuals.get(balance.accountId) ?? 0;
-    const ytdBudget = ytdBudgetMap.get(balance.accountId) ?? 0;
+    const r12Actual = r12Actuals.get(balance.accountId) ?? 0;
+    const r12Budget = r12BudgetMap.get(balance.accountId) ?? 0;
 
     // Calculate variance
     // For Utgift (Expense): budget - actual (positive = saved money, under budget)
     // For Intäkt (Income): actual - budget (positive = more income than budgeted)
     let periodVariance: number;
-    let ytdVariance: number;
+    let r12Variance: number;
 
     if (balance.groupType === "Utgift") {
       periodVariance = periodBudget - periodActual;
-      ytdVariance = ytdBudget - ytdActual;
+      r12Variance = r12Budget - r12Actual;
     } else {
       // Intäkt
       periodVariance = periodActual - periodBudget;
-      ytdVariance = ytdActual - ytdBudget;
+      r12Variance = r12Actual - r12Budget;
     }
 
     return {
@@ -1808,9 +1830,9 @@ export async function getResultBudgetComparison(
       periodActual,
       periodBudget,
       periodVariance,
-      ytdActual,
-      ytdBudget,
-      ytdVariance,
+      r12Actual,
+      r12Budget,
+      r12Variance,
     };
   });
 
@@ -1829,19 +1851,41 @@ export async function getAccount11MonthsHistory(
   periodActual: number;
   periodBudget: number;
   periodVariance: number;
-  ytdActual: number;
-  ytdBudget: number;
-  ytdVariance: number;
+  r12Actual: number;
+  r12Budget: number;
+  r12Variance: number;
 }[]> {
   const monthNames = [
     "Januari", "Februari", "Mars", "April", "Maj", "Juni",
     "Juli", "Augusti", "September", "Oktober", "November", "December"
   ];
 
-  const results = [];
+  const results: {
+    year: number;
+    month: number;
+    monthName: string;
+    periodActual: number;
+    periodBudget: number;
+    periodVariance: number;
+    r12Actual: number;
+    r12Budget: number;
+    r12Variance: number;
+  }[] = [];
+
+  // Get the account's group type once
+  const accountInfo = await queryOne<{ group_type: AccountType }>(
+    `SELECT g.typ as group_type
+     FROM accounts a
+     JOIN groups g ON a.group_id = g.id
+     WHERE a.id = $1`,
+    [accountId]
+  );
+
+  if (!accountInfo) return results;
 
   // Calculate 11 previous months (not including the current selected month)
-  for (let i = 11; i >= 1; i--) {
+  // Loop from 1 to 11 to get reverse chronological order (most recent first)
+  for (let i = 1; i <= 11; i++) {
     let targetMonth = endMonth - i;
     let targetYear = endYear;
 
@@ -1850,17 +1894,6 @@ export async function getAccount11MonthsHistory(
       targetMonth += 12;
       targetYear -= 1;
     }
-
-    // Get the account's group type
-    const accountInfo = await queryOne<{ group_type: AccountType }>(
-      `SELECT g.typ as group_type
-       FROM accounts a
-       JOIN groups g ON a.group_id = g.id
-       WHERE a.id = $1`,
-      [accountId]
-    );
-
-    if (!accountInfo) continue;
 
     // Get period actual
     const periodBalances = await getAccountBalances(targetYear, targetMonth);
@@ -1874,32 +1907,51 @@ export async function getAccount11MonthsHistory(
     );
     const periodBudget = periodBudgetRow ? Number(periodBudgetRow.amount) : 0;
 
-    // Get YTD actual (January through target month)
-    let ytdActual = 0;
-    for (let m = 1; m <= targetMonth; m++) {
-      const monthBalances = await getAccountBalances(targetYear, m);
+    // Get R12 actual (rolling 12 months ending at target month)
+    let r12Actual = 0;
+    for (let j = 11; j >= 0; j--) {
+      let r12Month = targetMonth - j;
+      let r12Year = targetYear;
+
+      while (r12Month < 1) {
+        r12Month += 12;
+        r12Year -= 1;
+      }
+
+      const monthBalances = await getAccountBalances(r12Year, r12Month);
       const monthBalance = monthBalances.find(b => b.accountId === accountId);
-      ytdActual += monthBalance?.balance ?? 0;
+      r12Actual += monthBalance?.balance ?? 0;
     }
 
-    // Get YTD budget (January through target month)
-    const ytdBudgetRow = await queryOne<{ total_budget: number }>(
-      "SELECT SUM(amount) as total_budget FROM budgets WHERE account_id = $1 AND year = $2 AND month <= $3",
-      [accountId, targetYear, targetMonth]
-    );
-    const ytdBudget = ytdBudgetRow ? Number(ytdBudgetRow.total_budget) : 0;
+    // Get R12 budget (rolling 12 months ending at target month)
+    let r12Budget = 0;
+    for (let j = 11; j >= 0; j--) {
+      let r12Month = targetMonth - j;
+      let r12Year = targetYear;
+
+      while (r12Month < 1) {
+        r12Month += 12;
+        r12Year -= 1;
+      }
+
+      const budgetRow = await queryOne<{ amount: number }>(
+        "SELECT amount FROM budgets WHERE account_id = $1 AND year = $2 AND month = $3",
+        [accountId, r12Year, r12Month]
+      );
+      r12Budget += budgetRow ? Number(budgetRow.amount) : 0;
+    }
 
     // Calculate variance
     let periodVariance: number;
-    let ytdVariance: number;
+    let r12Variance: number;
 
     if (accountInfo.group_type === "Utgift") {
       periodVariance = periodBudget - periodActual;
-      ytdVariance = ytdBudget - ytdActual;
+      r12Variance = r12Budget - r12Actual;
     } else {
       // Intäkt
       periodVariance = periodActual - periodBudget;
-      ytdVariance = ytdActual - ytdBudget;
+      r12Variance = r12Actual - r12Budget;
     }
 
     results.push({
@@ -1909,9 +1961,9 @@ export async function getAccount11MonthsHistory(
       periodActual,
       periodBudget,
       periodVariance,
-      ytdActual,
-      ytdBudget,
-      ytdVariance,
+      r12Actual,
+      r12Budget,
+      r12Variance,
     });
   }
 

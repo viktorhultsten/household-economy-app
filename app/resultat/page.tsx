@@ -14,9 +14,9 @@ interface AccountBalance {
   periodActual: number;
   periodBudget: number;
   periodVariance: number;
-  ytdActual: number;
-  ytdBudget: number;
-  ytdVariance: number;
+  r12Actual: number;
+  r12Budget: number;
+  r12Variance: number;
 }
 
 interface MonthHistory {
@@ -26,9 +26,9 @@ interface MonthHistory {
   periodActual: number;
   periodBudget: number;
   periodVariance: number;
-  ytdActual: number;
-  ytdBudget: number;
-  ytdVariance: number;
+  r12Actual: number;
+  r12Budget: number;
+  r12Variance: number;
 }
 
 function formatSwedishAmount(amount: number): string {
@@ -66,9 +66,9 @@ export default function ResultatPage() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [balances, setBalances] = useState<AccountBalance[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expandedAccountId, setExpandedAccountId] = useState<number | null>(null);
-  const [monthsHistory, setMonthsHistory] = useState<MonthHistory[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [expandedAccounts, setExpandedAccounts] = useState<Set<number>>(new Set());
+  const [accountsHistory, setAccountsHistory] = useState<Map<number, MonthHistory[]>>(new Map());
+  const [loadingAccounts, setLoadingAccounts] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     loadBalances();
@@ -82,17 +82,41 @@ export default function ResultatPage() {
   }
 
   async function handleAccountClick(accountId: number) {
-    if (expandedAccountId === accountId) {
-      setExpandedAccountId(null);
-      setMonthsHistory([]);
-      return;
-    }
+    // Toggle expansion for this specific account
+    const newExpandedAccounts = new Set(expandedAccounts);
 
-    setExpandedAccountId(accountId);
-    setLoadingHistory(true);
-    const data = await getAccount11MonthsHistory(accountId, year, month);
-    setMonthsHistory(data);
-    setLoadingHistory(false);
+    if (expandedAccounts.has(accountId)) {
+      // Collapse this account
+      newExpandedAccounts.delete(accountId);
+      setExpandedAccounts(newExpandedAccounts);
+
+      // Remove history for this account
+      const newHistory = new Map(accountsHistory);
+      newHistory.delete(accountId);
+      setAccountsHistory(newHistory);
+    } else {
+      // Expand this account
+      newExpandedAccounts.add(accountId);
+      setExpandedAccounts(newExpandedAccounts);
+
+      // Mark as loading
+      const newLoading = new Set(loadingAccounts);
+      newLoading.add(accountId);
+      setLoadingAccounts(newLoading);
+
+      // Fetch history for this account
+      const data = await getAccount11MonthsHistory(accountId, year, month);
+
+      // Store history
+      const newHistory = new Map(accountsHistory);
+      newHistory.set(accountId, data);
+      setAccountsHistory(newHistory);
+
+      // Remove loading state
+      const finalLoading = new Set(loadingAccounts);
+      finalLoading.delete(accountId);
+      setLoadingAccounts(finalLoading);
+    }
   }
 
   // Group balances by type -> group -> accounts
@@ -112,44 +136,44 @@ export default function ResultatPage() {
     periodActual: number;
     periodBudget: number;
     periodVariance: number;
-    ytdActual: number;
-    ytdBudget: number;
-    ytdVariance: number;
+    r12Actual: number;
+    r12Budget: number;
+    r12Variance: number;
   }> = {
-    Intäkt: { periodActual: 0, periodBudget: 0, periodVariance: 0, ytdActual: 0, ytdBudget: 0, ytdVariance: 0 },
-    Utgift: { periodActual: 0, periodBudget: 0, periodVariance: 0, ytdActual: 0, ytdBudget: 0, ytdVariance: 0 },
-    Tillgång: { periodActual: 0, periodBudget: 0, periodVariance: 0, ytdActual: 0, ytdBudget: 0, ytdVariance: 0 },
-    Skuld: { periodActual: 0, periodBudget: 0, periodVariance: 0, ytdActual: 0, ytdBudget: 0, ytdVariance: 0 },
+    Intäkt: { periodActual: 0, periodBudget: 0, periodVariance: 0, r12Actual: 0, r12Budget: 0, r12Variance: 0 },
+    Utgift: { periodActual: 0, periodBudget: 0, periodVariance: 0, r12Actual: 0, r12Budget: 0, r12Variance: 0 },
+    Tillgång: { periodActual: 0, periodBudget: 0, periodVariance: 0, r12Actual: 0, r12Budget: 0, r12Variance: 0 },
+    Skuld: { periodActual: 0, periodBudget: 0, periodVariance: 0, r12Actual: 0, r12Budget: 0, r12Variance: 0 },
   };
 
   balances.forEach((balance) => {
     typeTotals[balance.groupType].periodActual += balance.periodActual;
     typeTotals[balance.groupType].periodBudget += balance.periodBudget;
     typeTotals[balance.groupType].periodVariance += balance.periodVariance;
-    typeTotals[balance.groupType].ytdActual += balance.ytdActual;
-    typeTotals[balance.groupType].ytdBudget += balance.ytdBudget;
-    typeTotals[balance.groupType].ytdVariance += balance.ytdVariance;
+    typeTotals[balance.groupType].r12Actual += balance.r12Actual;
+    typeTotals[balance.groupType].r12Budget += balance.r12Budget;
+    typeTotals[balance.groupType].r12Variance += balance.r12Variance;
   });
 
   const groupTotals: Record<string, {
     periodActual: number;
     periodBudget: number;
     periodVariance: number;
-    ytdActual: number;
-    ytdBudget: number;
-    ytdVariance: number;
+    r12Actual: number;
+    r12Budget: number;
+    r12Variance: number;
   }> = {};
   balances.forEach((balance) => {
     const key = `${balance.groupType}-${balance.groupName}`;
     if (!groupTotals[key]) {
-      groupTotals[key] = { periodActual: 0, periodBudget: 0, periodVariance: 0, ytdActual: 0, ytdBudget: 0, ytdVariance: 0 };
+      groupTotals[key] = { periodActual: 0, periodBudget: 0, periodVariance: 0, r12Actual: 0, r12Budget: 0, r12Variance: 0 };
     }
     groupTotals[key].periodActual += balance.periodActual;
     groupTotals[key].periodBudget += balance.periodBudget;
     groupTotals[key].periodVariance += balance.periodVariance;
-    groupTotals[key].ytdActual += balance.ytdActual;
-    groupTotals[key].ytdBudget += balance.ytdBudget;
-    groupTotals[key].ytdVariance += balance.ytdVariance;
+    groupTotals[key].r12Actual += balance.r12Actual;
+    groupTotals[key].r12Budget += balance.r12Budget;
+    groupTotals[key].r12Variance += balance.r12Variance;
   });
 
   // Generate month/year options
@@ -293,21 +317,21 @@ export default function ResultatPage() {
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="text-xs text-zinc-600 dark:text-zinc-400">YTD faktisk</div>
+                        <div className="text-xs text-zinc-600 dark:text-zinc-400">R12 faktisk</div>
                         <div className={`font-bold tabular-nums ${getTypeColor(type)}`}>
-                          {formatSwedishAmount(typeTotal.ytdActual)} kr
+                          {formatSwedishAmount(typeTotal.r12Actual)} kr
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="text-xs text-zinc-600 dark:text-zinc-400">YTD budget</div>
+                        <div className="text-xs text-zinc-600 dark:text-zinc-400">R12 budget</div>
                         <div className={`font-bold tabular-nums ${getTypeColor(type)}`}>
-                          {formatSwedishAmount(typeTotal.ytdBudget)} kr
+                          {formatSwedishAmount(typeTotal.r12Budget)} kr
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="text-xs text-zinc-600 dark:text-zinc-400">YTD avvik</div>
-                        <div className={`font-bold tabular-nums ${getVarianceColor(typeTotal.ytdVariance)}`}>
-                          {typeTotal.ytdVariance > 0 ? "+" : ""}{formatSwedishAmount(typeTotal.ytdVariance)} kr
+                        <div className="text-xs text-zinc-600 dark:text-zinc-400">R12 avvik</div>
+                        <div className={`font-bold tabular-nums ${getVarianceColor(typeTotal.r12Variance)}`}>
+                          {typeTotal.r12Variance > 0 ? "+" : ""}{formatSwedishAmount(typeTotal.r12Variance)} kr
                         </div>
                       </div>
                     </div>
@@ -330,13 +354,13 @@ export default function ResultatPage() {
                           Period<br/>Avvik
                         </th>
                         <th className="px-4 py-3 text-right text-xs font-semibold text-zinc-900 dark:text-zinc-50">
-                          YTD<br/>Faktisk
+                          R12<br/>Faktisk
                         </th>
                         <th className="px-4 py-3 text-right text-xs font-semibold text-zinc-900 dark:text-zinc-50">
-                          YTD<br/>Budget
+                          R12<br/>Budget
                         </th>
                         <th className="px-4 py-3 text-right text-xs font-semibold text-zinc-900 dark:text-zinc-50">
-                          YTD<br/>Avvik
+                          R12<br/>Avvik
                         </th>
                       </tr>
                     </thead>
@@ -362,13 +386,13 @@ export default function ResultatPage() {
                                 {groupTotal.periodVariance > 0 ? "+" : ""}{formatSwedishAmount(groupTotal.periodVariance)} kr
                               </td>
                               <td className="px-4 py-2 text-right text-sm font-semibold tabular-nums text-zinc-700 dark:text-zinc-300">
-                                {formatSwedishAmount(groupTotal.ytdActual)} kr
+                                {formatSwedishAmount(groupTotal.r12Actual)} kr
                               </td>
                               <td className="px-4 py-2 text-right text-sm font-semibold tabular-nums text-zinc-700 dark:text-zinc-300">
-                                {formatSwedishAmount(groupTotal.ytdBudget)} kr
+                                {formatSwedishAmount(groupTotal.r12Budget)} kr
                               </td>
-                              <td className={`px-4 py-2 text-right text-sm font-semibold tabular-nums ${getVarianceColor(groupTotal.ytdVariance)}`}>
-                                {groupTotal.ytdVariance > 0 ? "+" : ""}{formatSwedishAmount(groupTotal.ytdVariance)} kr
+                              <td className={`px-4 py-2 text-right text-sm font-semibold tabular-nums ${getVarianceColor(groupTotal.r12Variance)}`}>
+                                {groupTotal.r12Variance > 0 ? "+" : ""}{formatSwedishAmount(groupTotal.r12Variance)} kr
                               </td>
                             </tr>
 
@@ -381,7 +405,7 @@ export default function ResultatPage() {
                                 >
                                   <td className="px-6 py-3 text-sm text-zinc-600 dark:text-zinc-400">
                                     {account.accountName}
-                                    {expandedAccountId === account.accountId && " ▼"}
+                                    {expandedAccounts.has(account.accountId) && " ▼"}
                                   </td>
                                   <td className="px-4 py-3 text-right text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
                                     {formatSwedishAmount(account.periodActual)} kr
@@ -393,27 +417,27 @@ export default function ResultatPage() {
                                     {account.periodVariance > 0 ? "+" : ""}{formatSwedishAmount(account.periodVariance)} kr
                                   </td>
                                   <td className="px-4 py-3 text-right text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
-                                    {formatSwedishAmount(account.ytdActual)} kr
+                                    {formatSwedishAmount(account.r12Actual)} kr
                                   </td>
                                   <td className="px-4 py-3 text-right text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
-                                    {formatSwedishAmount(account.ytdBudget)} kr
+                                    {formatSwedishAmount(account.r12Budget)} kr
                                   </td>
-                                  <td className={`px-4 py-3 text-right text-sm font-bold tabular-nums ${getVarianceColor(account.ytdVariance)}`}>
-                                    {account.ytdVariance > 0 ? "+" : ""}{formatSwedishAmount(account.ytdVariance)} kr
+                                  <td className={`px-4 py-3 text-right text-sm font-bold tabular-nums ${getVarianceColor(account.r12Variance)}`}>
+                                    {account.r12Variance > 0 ? "+" : ""}{formatSwedishAmount(account.r12Variance)} kr
                                   </td>
                                 </tr>
 
                                 {/* Historical months details */}
-                                {expandedAccountId === account.accountId && (
+                                {expandedAccounts.has(account.accountId) && (
                                   <tr key={`${account.accountId}-details`}>
                                     <td colSpan={7} className="px-0 py-0 bg-zinc-50 dark:bg-zinc-900">
-                                      {loadingHistory ? (
+                                      {loadingAccounts.has(account.accountId) ? (
                                         <div className="px-6 py-4">
                                           <p className="text-xs text-zinc-500 dark:text-zinc-400">
                                             Laddar historik...
                                           </p>
                                         </div>
-                                      ) : monthsHistory.length === 0 ? (
+                                      ) : !accountsHistory.has(account.accountId) || accountsHistory.get(account.accountId)!.length === 0 ? (
                                         <div className="px-6 py-4">
                                           <p className="text-xs text-zinc-500 dark:text-zinc-400">
                                             Ingen historik tillgänglig
@@ -422,7 +446,7 @@ export default function ResultatPage() {
                                       ) : (
                                         <table className="w-full text-xs">
                                           <tbody className="divide-y divide-zinc-200 dark:divide-zinc-700">
-                                            {monthsHistory.map((monthData) => (
+                                            {accountsHistory.get(account.accountId)!.map((monthData) => (
                                               <tr key={`${monthData.year}-${monthData.month}`} className="bg-zinc-100/50 dark:bg-zinc-800/50">
                                                 <td className="px-6 py-2 text-zinc-600 dark:text-zinc-400 font-medium">
                                                   {monthData.monthName} {monthData.year}
@@ -437,13 +461,13 @@ export default function ResultatPage() {
                                                   {monthData.periodVariance > 0 ? "+" : ""}{formatSwedishAmount(monthData.periodVariance)} kr
                                                 </td>
                                                 <td className="px-4 py-2 text-right tabular-nums text-zinc-700 dark:text-zinc-300">
-                                                  {formatSwedishAmount(monthData.ytdActual)} kr
+                                                  {formatSwedishAmount(monthData.r12Actual)} kr
                                                 </td>
                                                 <td className="px-4 py-2 text-right tabular-nums text-zinc-700 dark:text-zinc-300">
-                                                  {formatSwedishAmount(monthData.ytdBudget)} kr
+                                                  {formatSwedishAmount(monthData.r12Budget)} kr
                                                 </td>
-                                                <td className={`px-4 py-2 text-right tabular-nums font-semibold ${getVarianceColor(monthData.ytdVariance)}`}>
-                                                  {monthData.ytdVariance > 0 ? "+" : ""}{formatSwedishAmount(monthData.ytdVariance)} kr
+                                                <td className={`px-4 py-2 text-right tabular-nums font-semibold ${getVarianceColor(monthData.r12Variance)}`}>
+                                                  {monthData.r12Variance > 0 ? "+" : ""}{formatSwedishAmount(monthData.r12Variance)} kr
                                                 </td>
                                               </tr>
                                             ))}
