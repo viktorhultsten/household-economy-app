@@ -10,11 +10,9 @@ export function getDatabase(): Pool {
   if (!pool) {
     pool = new Pool({
       connectionString: process.env.DATABASE_URL,
-      // Only use SSL if explicitly enabled via DATABASE_SSL=true
-      // Internal databases typically don't need SSL
-      ssl: process.env.DATABASE_SSL === "true"
+      ssl: process.env.NODE_ENV === "production"
         ? { rejectUnauthorized: false }
-        : false,
+        : undefined,
     });
   }
 
