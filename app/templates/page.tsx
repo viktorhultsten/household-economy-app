@@ -155,15 +155,6 @@ export default function MallarPage() {
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-900">
       <main className="mx-auto max-w-4xl px-4 py-8">
-        <div className="mb-4 flex items-center gap-2">
-          <Link
-            href="/"
-            className="text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
-          >
-            ← Tillbaka
-          </Link>
-        </div>
-
         <div className="mb-8 flex items-center justify-between">
           <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">
             Bokningsmallar

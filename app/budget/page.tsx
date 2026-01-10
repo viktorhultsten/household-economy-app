@@ -31,17 +31,6 @@ function getTypeColor(type: AccountType): string {
   }
 }
 
-function getVarianceColor(variance: number, accountType: AccountType): string {
-  // For expenses: positive variance = under budget (good) = green
-  // For income: positive variance = over budget (good) = green
-  if (variance > 0) {
-    return "text-green-600 dark:text-green-400";
-  } else if (variance < 0) {
-    return "text-red-600 dark:text-red-400";
-  }
-  return "text-zinc-600 dark:text-zinc-400";
-}
-
 const MONTHS = [
   { value: 1, label: "Januari" },
   { value: 2, label: "Februari" },
@@ -143,16 +132,15 @@ export default function BudgetPage() {
   }, {} as Record<AccountType, Record<string, BudgetComparison[]>>);
 
   // Calculate totals
-  const typeTotals: Record<AccountType, { budget: number; actual: number }> = {
-    Intäkt: { budget: 0, actual: 0 },
-    Utgift: { budget: 0, actual: 0 },
-    Tillgång: { budget: 0, actual: 0 },
-    Skuld: { budget: 0, actual: 0 },
+  const typeTotals: Record<AccountType, { budget: number }> = {
+    Intäkt: { budget: 0 },
+    Utgift: { budget: 0 },
+    Tillgång: { budget: 0 },
+    Skuld: { budget: 0 },
   };
 
   comparisons.forEach((comp) => {
     typeTotals[comp.groupType].budget += comp.budgetAmount;
-    typeTotals[comp.groupType].actual += comp.actualAmount;
   });
 
   const currentYear = new Date().getFullYear();
@@ -169,15 +157,6 @@ export default function BudgetPage() {
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-900">
       <main className="mx-auto max-w-6xl px-4 py-8">
-        <div className="mb-4 flex items-center gap-2">
-          <Link
-            href="/"
-            className="text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
-          >
-            ← Tillbaka
-          </Link>
-        </div>
-
         <div className="mb-8 flex items-center justify-between">
           <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">
             Budget
@@ -232,19 +211,11 @@ export default function BudgetPage() {
                       <h2 className={`text-xl font-bold ${getTypeColor(type)}`}>
                         {type}
                       </h2>
-                      <div className="flex gap-6">
-                        <div className="text-right">
-                          <p className="text-xs text-zinc-600 dark:text-zinc-400">Budget</p>
-                          <span className={`text-lg font-bold tabular-nums ${getTypeColor(type)}`}>
-                            {formatSwedishAmount(typeTotal.budget)} kr
-                          </span>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-xs text-zinc-600 dark:text-zinc-400">Faktiskt</p>
-                          <span className={`text-lg font-bold tabular-nums ${getTypeColor(type)}`}>
-                            {formatSwedishAmount(typeTotal.actual)} kr
-                          </span>
-                        </div>
+                      <div className="text-right">
+                        <p className="text-xs text-zinc-600 dark:text-zinc-400">Budget</p>
+                        <span className={`text-lg font-bold tabular-nums ${getTypeColor(type)}`}>
+                          {formatSwedishAmount(typeTotal.budget)} kr
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -259,12 +230,6 @@ export default function BudgetPage() {
                         <th className="px-6 py-3 text-right text-sm font-semibold text-zinc-900 dark:text-zinc-50">
                           Budget
                         </th>
-                        <th className="px-6 py-3 text-right text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                          Faktiskt
-                        </th>
-                        <th className="px-6 py-3 text-right text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                          Avvikelse
-                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-200 dark:divide-zinc-700">
@@ -275,7 +240,7 @@ export default function BudgetPage() {
                           <React.Fragment key={groupName}>
                             {/* Group Header Row */}
                             <tr className="bg-zinc-50 dark:bg-zinc-800">
-                              <td colSpan={4} className="px-6 py-2 text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                              <td colSpan={2} className="px-6 py-2 text-sm font-semibold text-zinc-900 dark:text-zinc-50">
                                 {groupName}
                               </td>
                             </tr>
@@ -297,17 +262,6 @@ export default function BudgetPage() {
                                 </td>
                                 <td className="px-6 py-4 text-right text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
                                   {formatSwedishAmount(comp.budgetAmount)} kr
-                                </td>
-                                <td className="px-6 py-4 text-right text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
-                                  {formatSwedishAmount(comp.actualAmount)} kr
-                                </td>
-                                <td className="px-6 py-4 text-right text-sm font-bold tabular-nums">
-                                  <span
-                                    className={getVarianceColor(comp.variance, comp.groupType)}
-                                  >
-                                    {comp.variance > 0 ? "+" : ""}
-                                    {formatSwedishAmount(comp.variance)} kr
-                                  </span>
                                 </td>
                               </tr>
                             ))}
