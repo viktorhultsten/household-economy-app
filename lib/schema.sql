@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS accounts (
   id SERIAL PRIMARY KEY,
   namn TEXT NOT NULL,
   group_id INTEGER NOT NULL,
+  exclude_from_budget INTEGER DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (group_id) REFERENCES groups(id)
 );

@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { AccountType, Account, BudgetComparison } from "../types";
 import {
-  getBudgetComparison,
+  getAllAccountsBudgetComparison,
   getAccounts,
   getBudgetsForAccount,
   setBudgetsForYear,
@@ -79,7 +79,7 @@ export default function BudgetPage() {
   async function loadData() {
     setLoading(true);
     const [comparisonData, accountsData] = await Promise.all([
-      getBudgetComparison(year, 12),
+      getAllAccountsBudgetComparison(year, 12),
       getAccounts(),
     ]);
     setComparisons(comparisonData);
@@ -199,9 +199,13 @@ export default function BudgetPage() {
 
         {/* Info banner */}
         <div className="mb-6 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 px-4 py-3">
-          <p className="text-sm text-blue-800 dark:text-blue-200">
-            Klicka på ett konto för att ställa in budget för alla 12 månader. Budget är oberoende av periodlås.
-          </p>
+          <div className="text-sm text-blue-800 dark:text-blue-200 space-y-1">
+            <p>Klicka på ett konto för att ställa in budget för alla 12 månader. Budget är oberoende av periodlås.</p>
+            <p className="text-xs">
+              <strong>OBS:</strong> För balansposter (Tillgång/Skuld) representerar budgeten den förväntade <em>förändringen</em> per månad,
+              inte det totala saldot. För resultatposter (Intäkt/Utgift) är budgeten summan av transaktioner för månaden.
+            </p>
+          </div>
         </div>
 
         {comparisons.length === 0 ? (

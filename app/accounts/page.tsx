@@ -46,6 +46,7 @@ export default function KontonPage() {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [editAccountName, setEditAccountName] = useState("");
   const [editAccountGroupId, setEditAccountGroupId] = useState(0);
+  const [editAccountExcludeFromBudget, setEditAccountExcludeFromBudget] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -144,6 +145,7 @@ export default function KontonPage() {
     setEditingAccount(account);
     setEditAccountName(account.namn);
     setEditAccountGroupId(account.groupId);
+    setEditAccountExcludeFromBudget(account.excludeFromBudget || false);
   }
 
   async function handleUpdateAccount() {
@@ -163,11 +165,13 @@ export default function KontonPage() {
       id: editingAccount.id,
       namn: editAccountName,
       groupId: editAccountGroupId,
+      excludeFromBudget: editAccountExcludeFromBudget,
     });
 
     setEditingAccount(null);
     setEditAccountName("");
     setEditAccountGroupId(0);
+    setEditAccountExcludeFromBudget(false);
     await loadData();
   }
 
@@ -374,6 +378,15 @@ export default function KontonPage() {
                                 </option>
                               ))}
                             </select>
+                            <label className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300 whitespace-nowrap">
+                              <input
+                                type="checkbox"
+                                checked={editAccountExcludeFromBudget}
+                                onChange={(e) => setEditAccountExcludeFromBudget(e.target.checked)}
+                                className="rounded border-zinc-300 dark:border-zinc-600"
+                              />
+                              <span className="text-xs">Uteslut från budget</span>
+                            </label>
                           </div>
                           <div className="flex items-center gap-2 ml-4">
                             <button
@@ -387,6 +400,7 @@ export default function KontonPage() {
                                 setEditingAccount(null);
                                 setEditAccountName("");
                                 setEditAccountGroupId(0);
+                                setEditAccountExcludeFromBudget(false);
                               }}
                               className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
                             >
@@ -399,6 +413,11 @@ export default function KontonPage() {
                           <div className="flex-1">
                             <p className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
                               {account.namn}
+                              {account.excludeFromBudget && (
+                                <span className="ml-2 text-xs text-zinc-500 dark:text-zinc-400 italic">
+                                  (exkluderad från budget)
+                                </span>
+                              )}
                             </p>
                           </div>
                           <div className="flex items-center gap-4">

@@ -10,6 +10,7 @@ export interface Account {
   id: number;
   namn: string;
   groupId: number;
+  excludeFromBudget?: boolean;
   group?: Group;
 }
 
@@ -168,4 +169,21 @@ export interface CustomResultViewWithDetails {
   accounts: Account[];
   groups: Group[];
   types: AccountType[];
+}
+
+// Account balance for a specific period
+export interface AccountBalance {
+  accountId: number;
+  accountName: string;
+  groupId: number;
+  groupName: string;
+  groupType: AccountType;
+  balance: number;
+}
+
+// Account balance with month-over-month change
+export interface AccountBalanceWithChange extends AccountBalance {
+  previousBalance: number;
+  changeAmount: number;
+  changePercent: number;
 }

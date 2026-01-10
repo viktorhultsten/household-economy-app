@@ -417,10 +417,11 @@ export async function getAccounts(): Promise<Account[]> {
     id: number;
     namn: string;
     group_id: number;
+    exclude_from_budget: number;
     group_namn: string;
     group_typ: string;
   }>(
-    `SELECT a.id, a.namn, a.group_id, g.namn as group_namn, g.typ as group_typ
+    `SELECT a.id, a.namn, a.group_id, a.exclude_from_budget, g.namn as group_namn, g.typ as group_typ
      FROM accounts a
      JOIN groups g ON a.group_id = g.id
      ORDER BY g.namn, a.namn`
@@ -430,6 +431,7 @@ export async function getAccounts(): Promise<Account[]> {
     id: row.id,
     namn: row.namn,
     groupId: row.group_id,
+    excludeFromBudget: row.exclude_from_budget === 1,
     group: {
       id: row.group_id,
       namn: row.group_namn,
@@ -450,11 +452,15 @@ export async function addAccount(
 export async function updateAccount(
   account: Omit<Account, "group">
 ): Promise<void> {
-  await query("UPDATE accounts SET namn = $1, group_id = $2 WHERE id = $3", [
-    account.namn,
-    account.groupId,
-    account.id,
-  ]);
+  await query(
+    "UPDATE accounts SET namn = $1, group_id = $2, exclude_from_budget = $3 WHERE id = $4",
+    [
+      account.namn,
+      account.groupId,
+      account.excludeFromBudget ? 1 : 0,
+      account.id,
+    ]
+  );
 }
 
 export async function deleteAccount(id: number): Promise<void> {
@@ -541,6 +547,126 @@ export async function getAccountBalances(
       groupName: row.group_name,
       groupType: accountType,
       balance: balance,
+    };
+  });
+}
+
+// Get account balances with month-over-month change
+export async function getAccountBalancesWithChange(
+  year: number,
+  month: number
+): Promise<{
+  accountId: number;
+  accountName: string;
+  groupId: number;
+  groupName: string;
+  groupType: AccountType;
+  balance: number;
+  previousBalance: number;
+  changeAmount: number;
+  changePercent: number;
+}[]> {
+  // Get current month balances
+  const currentBalances = await getAccountBalances(year, month);
+
+  // Calculate previous month
+  const previousMonth = month === 1 ? 12 : month - 1;
+  const previousYear = month === 1 ? year - 1 : year;
+
+  // Get previous month balances
+  const previousBalances = await getAccountBalances(previousYear, previousMonth);
+
+  // Create a map of previous balances for easy lookup
+  const previousBalanceMap = new Map(
+    previousBalances.map((b) => [b.accountId, b.balance])
+  );
+
+  // Combine current and previous balances
+  return currentBalances.map((current) => {
+    const previousBalance = previousBalanceMap.get(current.accountId) || 0;
+    const changeAmount = current.balance - previousBalance;
+    const changePercent = previousBalance !== 0
+      ? (changeAmount / Math.abs(previousBalance)) * 100
+      : current.balance !== 0 ? 100 : 0;
+
+    return {
+      ...current,
+      previousBalance,
+      changeAmount,
+      changePercent,
+    };
+  });
+}
+
+// Get account balances with change and budget comparison
+export async function getAccountBalancesWithChangeBudget(
+  year: number,
+  month: number
+): Promise<{
+  accountId: number;
+  accountName: string;
+  groupId: number;
+  groupName: string;
+  groupType: AccountType;
+  balance: number;
+  previousBalance: number;
+  changeAmount: number;
+  changePercent: number;
+  budgetAmount: number;
+  variance: number;
+  variancePercent: number;
+  hasBudget: boolean;
+}[]> {
+  // Get all accounts to check exclude_from_budget flag
+  const accounts = await getAccounts();
+  const excludedAccountIds = new Set(
+    accounts.filter(a => a.excludeFromBudget).map(a => a.id)
+  );
+
+  // Get balances with changes
+  const balancesWithChange = await getAccountBalancesWithChange(year, month);
+
+  // Filter out excluded accounts
+  const includedBalances = balancesWithChange.filter(
+    b => !excludedAccountIds.has(b.accountId)
+  );
+
+  // Get budgets for the current month
+  const budgets = await queryAll<{
+    account_id: number;
+    amount: number;
+  }>(
+    `
+    SELECT account_id, amount
+    FROM budgets
+    WHERE year = $1 AND month = $2
+  `,
+    [year, month]
+  );
+
+  // Create a map of budgets for easy lookup
+  const budgetMap = new Map(
+    budgets.map((b) => [b.account_id, Number(b.amount)])
+  );
+
+  // Combine balances with budgets for included accounts only
+  return includedBalances.map((balance) => {
+    const budgetAmount = budgetMap.get(balance.accountId) || 0;
+    const hasBudget = budgetMap.has(balance.accountId);
+
+    // For balance sheet accounts (Tillgång/Skuld):
+    // Budget represents expected CHANGE, so variance = actual change - budget change
+    const variance = balance.changeAmount - budgetAmount;
+    const variancePercent = budgetAmount !== 0
+      ? (variance / Math.abs(budgetAmount)) * 100
+      : 0;
+
+    return {
+      ...balance,
+      budgetAmount,
+      variance,
+      variancePercent,
+      hasBudget,
     };
   });
 }
@@ -1695,6 +1821,94 @@ export async function getBudgetComparison(
 
     const variancePercent = budgetAmount !== 0
       ? (variance / budgetAmount) * 100
+      : 0;
+
+    return {
+      accountId: balance.accountId,
+      accountName: balance.accountName,
+      groupId: balance.groupId,
+      groupName: balance.groupName,
+      groupType: balance.groupType,
+      budgetAmount,
+      actualAmount,
+      variance,
+      variancePercent,
+      hasBudget,
+    };
+  });
+
+  return comparisons;
+}
+
+// Get budget comparison for ALL account types (including balance sheet accounts)
+// Used for budget management page where users can set budgets for any account
+export async function getAllAccountsBudgetComparison(
+  year: number,
+  month: number
+): Promise<BudgetComparison[]> {
+  // Get all accounts to check exclude_from_budget flag
+  const accounts = await getAccounts();
+  const excludedAccountIds = new Set(
+    accounts.filter(a => a.excludeFromBudget).map(a => a.id)
+  );
+
+  // Get all accounts with their balances
+  const balances = await getAccountBalances(year, month);
+
+  // Filter out excluded accounts
+  const includedBalances = balances.filter(
+    b => !excludedAccountIds.has(b.accountId)
+  );
+
+  // Get balance changes for balance sheet accounts
+  const balancesWithChange = await getAccountBalancesWithChange(year, month);
+  const changeMap = new Map(
+    balancesWithChange.map((b) => [b.accountId, b.changeAmount])
+  );
+
+  // Get all budgets for this year/month
+  const budgetRows = await queryAll<{
+    account_id: number;
+    amount: number;
+  }>(
+    "SELECT account_id, amount FROM budgets WHERE year = $1 AND month = $2",
+    [year, month]
+  );
+
+  // Create a map of accountId -> budget amount
+  const budgetMap = new Map<number, number>();
+  budgetRows.forEach((row) => {
+    budgetMap.set(row.account_id, Number(row.amount));
+  });
+
+  // Build comparison results for included accounts only
+  const comparisons: BudgetComparison[] = includedBalances.map((balance) => {
+    const budgetAmount = budgetMap.get(balance.accountId) ?? 0;
+    const hasBudget = budgetMap.has(balance.accountId);
+
+    let actualAmount: number;
+    let variance: number;
+
+    // Different logic for balance sheet vs income statement accounts
+    if (balance.groupType === "Tillgång" || balance.groupType === "Skuld") {
+      // For balance sheet accounts: use CHANGE amount, not balance
+      actualAmount = changeMap.get(balance.accountId) ?? 0;
+      // Variance = actual change - budgeted change
+      variance = actualAmount - budgetAmount;
+    } else {
+      // For income statement accounts: use period balance
+      actualAmount = balance.balance;
+      // Calculate variance based on account type
+      if (balance.groupType === "Utgift") {
+        variance = budgetAmount - actualAmount; // positive = under budget
+      } else {
+        // Intäkt
+        variance = actualAmount - budgetAmount; // positive = over budget
+      }
+    }
+
+    const variancePercent = budgetAmount !== 0
+      ? (variance / Math.abs(budgetAmount)) * 100
       : 0;
 
     return {
