@@ -1893,8 +1893,18 @@ export async function getAllAccountsBudgetComparison(
     if (balance.groupType === "Tillgång" || balance.groupType === "Skuld") {
       // For balance sheet accounts: use CHANGE amount, not balance
       actualAmount = changeMap.get(balance.accountId) ?? 0;
-      // Variance = actual change - budgeted change
-      variance = actualAmount - budgetAmount;
+
+      if (balance.groupType === "Skuld") {
+        // For Skuld: reducing debt is good (negative numbers)
+        // If budget = -10000 (plan to reduce debt by 10000)
+        // and actual = -12000 (reduced debt by 12000)
+        // variance should be positive (budget - actual = -10000 - (-12000) = +2000)
+        variance = budgetAmount - actualAmount;
+      } else {
+        // For Tillgång: increasing assets is good
+        // variance = actual - budget
+        variance = actualAmount - budgetAmount;
+      }
     } else {
       // For income statement accounts: use period balance
       actualAmount = balance.balance;
