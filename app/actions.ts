@@ -1352,7 +1352,11 @@ export async function getBookingSuggestion(
   let bestMatch: { row: typeof candidateRows[0]; score: number } | null = null;
 
   for (const row of candidateRows) {
-    const ds = descriptionScore(row.bank_event_description);
+    // Score against both descriptions, take the better one
+    const ds = Math.max(
+      descriptionScore(row.bank_event_description),
+      descriptionScore(row.transaction_description)
+    );
     // Description is the primary gate — skip if no meaningful token overlap
     if (ds === 0) continue;
 
