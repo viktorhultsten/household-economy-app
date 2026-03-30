@@ -75,22 +75,14 @@ export default function TransactionForm({
   const [debetInputs, setDebetInputs] = useState<{ [key: number]: string }>({});
   const [kreditInputs, setKreditInputs] = useState<{ [key: number]: string }>({});
 
-  // Period shift state - initialize from transaction if editing
-  const [enablePeriodShift, setEnablePeriodShift] = useState(!!transaction?.periodShiftDate);
-  const [periodShiftDate, setPeriodShiftDate] = useState<Date | null>(
-    transaction?.periodShiftDate || null
-  );
-  const [periodShiftLockWarning, setPeriodShiftLockWarning] = useState("");
   const [suggestion, setSuggestion] = useState<BookingSuggestion | null>(null);
   const [suggestionLoaded, setSuggestionLoaded] = useState(false);
   const [suggestionDismissed, setSuggestionDismissed] = useState(false);
 
   useEffect(() => {
     async function loadData() {
-      // Use period shift date for recurring items if enabled, otherwise use the transaction date
-      const effectiveDate = enablePeriodShift && periodShiftDate ? periodShiftDate : date;
-      const year = effectiveDate.getFullYear();
-      const month = effectiveDate.getMonth() + 1;
+      const year = date.getFullYear();
+      const month = date.getMonth() + 1;
       const [accountsData, templatesData, recurringItemsData] = await Promise.all([
         getAccounts(),
         getBookingTemplates(),
@@ -107,7 +99,7 @@ export default function TransactionForm({
       }
     }
     loadData();
-  }, [date, enablePeriodShift, periodShiftDate, isEditing, transaction]);
+  }, [date, isEditing, transaction]);
 
   // Fetch booking suggestion when creating a new transaction from a bank event
   useEffect(() => {
@@ -136,27 +128,6 @@ export default function TransactionForm({
     }
     checkPeriodLock();
   }, [date]);
-
-  useEffect(() => {
-    async function checkPeriodShiftLock() {
-      if (!enablePeriodShift || !periodShiftDate) {
-        setPeriodShiftLockWarning("");
-        return;
-      }
-
-      const isLocked = await isPeriodLocked(periodShiftDate);
-      if (isLocked) {
-        const year = periodShiftDate.getFullYear();
-        const month = periodShiftDate.getMonth() + 1;
-        setPeriodShiftLockWarning(
-          `Periodförskjutningen kan inte sparas: Perioden ${year}-${String(month).padStart(2, "0")} är låst.`
-        );
-      } else {
-        setPeriodShiftLockWarning("");
-      }
-    }
-    checkPeriodShiftLock();
-  }, [enablePeriodShift, periodShiftDate]);
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -322,17 +293,6 @@ export default function TransactionForm({
       return;
     }
 
-    if (enablePeriodShift) {
-      if (!periodShiftDate) {
-        setError("Bokföringsdatum för periodförskjutning måste anges!");
-        return;
-      }
-      if (periodShiftLockWarning) {
-        setError("Periodförskjutningen kan inte sparas - målperioden är låst!");
-        return;
-      }
-    }
-
     setLoading(true);
 
     try {
@@ -362,7 +322,6 @@ export default function TransactionForm({
             id: 0, // Will be set by server
             transactionId: 0, // Will be set by server
           })),
-          periodShiftDate: enablePeriodShift ? periodShiftDate! : undefined,
         });
 
         // Link to recurring item if selected
@@ -430,7 +389,7 @@ export default function TransactionForm({
 
           {suggestionLoaded && !suggestionDismissed && !isEditing && !suggestion && (
             <div className="mb-4 rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 px-4 py-3 text-sm text-zinc-500 dark:text-zinc-400">
-              Inga tidigare bokföringar hittades för denna beskrivning.
+              Hittade inga konteringsförslag.
             </div>
           )}
 
@@ -454,11 +413,6 @@ export default function TransactionForm({
                     {suggestion.recurringItemName && (
                       <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs bg-purple-100 dark:bg-purple-800/50 text-purple-800 dark:text-purple-200">
                         Återkommande: {suggestion.recurringItemName}
-                      </span>
-                    )}
-                    {suggestion.hadPeriodShift && (
-                      <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs bg-amber-100 dark:bg-amber-800/50 text-amber-800 dark:text-amber-200">
-                        Periodförskjutning
                       </span>
                     )}
                   </div>
@@ -535,58 +489,6 @@ export default function TransactionForm({
             </div>
           </div>
 
-          {/* Period Shift Section */}
-          {transactionBankEvent && !isEditing && (
-            <div className="p-4 border border-zinc-200 dark:border-zinc-700 rounded-md bg-zinc-50 dark:bg-zinc-900">
-              <div className="flex items-center gap-3 mb-3">
-                <input
-                  type="checkbox"
-                  id="enable-period-shift"
-                  checked={enablePeriodShift}
-                  onChange={(e) => {
-                    setEnablePeriodShift(e.target.checked);
-                    if (!e.target.checked) {
-                      setPeriodShiftDate(null);
-                      setPeriodShiftLockWarning("");
-                    }
-                  }}
-                  className="rounded border-zinc-300 dark:border-zinc-600"
-                />
-                <label htmlFor="enable-period-shift" className="text-sm font-medium text-zinc-700 dark:text-zinc-300 cursor-pointer">
-                  Periodförskjutning (flytta till annan bokföringsperiod)
-                </label>
-              </div>
-
-              {enablePeriodShift && (
-                <>
-                  <p className="text-xs text-zinc-600 dark:text-zinc-400 mb-3">
-                    Skapar två separata transaktioner: en för bankhändelsen (idag) och en för rätt bokföringsperiod.
-                    Du behöver själv skapa konteringsposterna som kopplar dessa samman.
-                  </p>
-
-                  {periodShiftLockWarning && (
-                    <div className="mb-3 rounded-md bg-amber-50 dark:bg-amber-900/20 p-3 text-sm text-amber-800 dark:text-amber-200">
-                      ⚠️ {periodShiftLockWarning}
-                    </div>
-                  )}
-
-                  <div>
-                    <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
-                      Bokföringsdatum (rätt period)
-                    </label>
-                    <input
-                      type="date"
-                      value={periodShiftDate?.toISOString().split("T")[0] || ""}
-                      onChange={(e) => setPeriodShiftDate(e.target.value ? new Date(e.target.value) : null)}
-                      required={enablePeriodShift}
-                      lang="sv-SE"
-                      className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
-                    />
-                  </div>
-                </>
-              )}
-            </div>
-          )}
 
           <div>
             <div className="flex items-center justify-between mb-3">
@@ -811,11 +713,6 @@ export default function TransactionForm({
             <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
               Återkommande
             </h3>
-            {enablePeriodShift && periodShiftDate && (
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-                Visar för period: {periodShiftDate.toLocaleDateString("sv-SE", { year: "numeric", month: "long" })}
-              </p>
-            )}
           </div>
           {recurringItems.length === 0 ? (
             <p className="text-sm text-zinc-600 dark:text-zinc-400 text-center py-4">
@@ -830,7 +727,7 @@ export default function TransactionForm({
             </p>
           ) : (
             <div className="space-y-2">
-              {recurringItems.map((item) => (
+              {[...recurringItems].sort((a, b) => Number(a.isComplete) - Number(b.isComplete)).map((item) => (
                 <button
                   key={item.recurringItem.id}
                   type="button"
