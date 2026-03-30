@@ -1215,6 +1215,195 @@ export async function getTransaction(id: number): Promise<Transaction | null> {
   };
 }
 
+// Booking suggestion type
+export interface BookingSuggestion {
+  transactionId: number;
+  transactionDescription: string;
+  transactionDate: Date;
+  posts: Array<{
+    accountId: number;
+    accountName: string;
+    isDebet: boolean;
+  }>;
+  recurringItemId: number | null;
+  recurringItemName: string | null;
+  hadPeriodShift: boolean;
+  matchScore: number; // Higher = better match
+}
+
+// Get a booking suggestion based on a bank event's description, amount and date
+export async function getBookingSuggestion(
+  description: string,
+  amount: number,
+  date: Date
+): Promise<BookingSuggestion | null> {
+  if (!description || description.trim().length === 0) return null;
+
+  // Pull all booked bank events with their transaction, posts, and optional recurring link
+  const candidateRows = await queryAll<{
+    transaction_id: number;
+    transaction_description: string;
+    transaction_date: string;
+    bank_event_description: string;
+    bank_event_amount: number;
+    period_shift_date: string | null;
+    recurring_item_id: number | null;
+    recurring_item_name: string | null;
+  }>(
+    `SELECT
+       t.id                  AS transaction_id,
+       t.description         AS transaction_description,
+       t.date                AS transaction_date,
+       be.description        AS bank_event_description,
+       be.amount             AS bank_event_amount,
+       t.period_shift_date,
+       ri.id                 AS recurring_item_id,
+       ri.namn               AS recurring_item_name
+     FROM transactions t
+     JOIN bank_events be ON be.transaction_id = t.id
+     LEFT JOIN transaction_recurring_items tri ON tri.transaction_id = t.id
+     LEFT JOIN recurring_items ri ON ri.id = tri.recurring_item_id
+     WHERE t.original_transaction_id IS NULL
+     ORDER BY t.date DESC
+     LIMIT 1000`
+  );
+
+  if (candidateRows.length === 0) return null;
+
+  // --- Description scoring ---
+  // Tokenise into meaningful words (strip short noise tokens and pure city/country suffixes)
+  const NOISE = new Set(["se", "ab", "i", "och", "the", ""]);
+  function tokenise(s: string): string[] {
+    return s
+      .toLowerCase()
+      .replace(/[^a-zåäö0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length > 2 && !NOISE.has(w));
+  }
+
+  const queryTokens = tokenise(description);
+
+  function descriptionScore(beDesc: string): number {
+    const normalized = description.trim().toLowerCase();
+    const beNorm = beDesc.trim().toLowerCase();
+
+    // Exact match
+    if (beNorm === normalized) return 100;
+
+    const candidateTokens = tokenise(beDesc);
+    if (queryTokens.length === 0 || candidateTokens.length === 0) return 0;
+
+    // Count tokens in query that appear as a substring of any candidate token, and vice versa
+    let hits = 0;
+    for (const qt of queryTokens) {
+      if (candidateTokens.some((ct) => ct === qt)) {
+        hits += 2; // exact token match worth more
+      } else if (candidateTokens.some((ct) => ct.includes(qt) || qt.includes(ct))) {
+        hits += 1;
+      }
+    }
+
+    // Jaccard-style: hits relative to union of token counts
+    const union = queryTokens.length + candidateTokens.length - hits / 2;
+    const similarity = hits / (union * 2);
+
+    // Require at least one strong token overlap to avoid location-name false positives
+    const exactTokenHits = queryTokens.filter((qt) => candidateTokens.includes(qt)).length;
+    if (exactTokenHits === 0) return 0;
+
+    return Math.round(similarity * 70);
+  }
+
+  // --- Amount scoring (up to 20 pts) ---
+  // Same sign + within 10% of each other = full points; degrades with distance
+  function amountScore(beAmount: number): number {
+    if (Math.sign(beAmount) !== Math.sign(amount)) return 0;
+    const ratio = Math.abs(beAmount) / Math.abs(amount);
+    if (ratio > 2 || ratio < 0.5) return 0;
+    const diff = Math.abs(ratio - 1); // 0 = identical
+    return Math.round((1 - diff * 2) * 20);
+  }
+
+  // --- Day-of-month scoring (up to 10 pts) ---
+  // Uses circular distance so e.g. day 31 and day 1 are only 1 apart
+  function dayOfMonthScore(txnDate: string): number {
+    const txnDay = new Date(txnDate).getDate();
+    const queryDay = date.getDate();
+    const diff = Math.min(Math.abs(txnDay - queryDay), 31 - Math.abs(txnDay - queryDay));
+    if (diff === 0) return 10;
+    if (diff <= 2) return 7;
+    if (diff <= 5) return 4;
+    if (diff <= 10) return 1;
+    return 0;
+  }
+
+  // --- Recurring item bonus (5 pts) ---
+  // If the candidate has a recurring item linked, it's more likely to repeat
+  function recurringBonus(recurringItemId: number | null): number {
+    return recurringItemId !== null ? 5 : 0;
+  }
+
+  // --- Periodisation bonus (5 pts) ---
+  function periodShiftBonus(periodShiftDate: string | null): number {
+    return periodShiftDate !== null ? 5 : 0;
+  }
+
+  // Score all candidates
+  let bestMatch: { row: typeof candidateRows[0]; score: number } | null = null;
+
+  for (const row of candidateRows) {
+    const ds = descriptionScore(row.bank_event_description);
+    // Description is the primary gate — skip if no meaningful token overlap
+    if (ds === 0) continue;
+
+    const total =
+      ds +
+      amountScore(Number(row.bank_event_amount)) +
+      dayOfMonthScore(row.transaction_date) +
+      recurringBonus(row.recurring_item_id) +
+      periodShiftBonus(row.period_shift_date);
+
+    if (!bestMatch || total > bestMatch.score) {
+      bestMatch = { row, score: total };
+    }
+  }
+
+  // Minimum threshold: description component must be meaningful on its own
+  if (!bestMatch || bestMatch.score < 30) return null;
+
+  const { row, score } = bestMatch;
+
+  // Fetch posts for the winning transaction
+  const postRows = await queryAll<{
+    account_id: number;
+    account_name: string;
+    debet: number;
+    kredit: number;
+  }>(
+    `SELECT p.account_id, a.namn as account_name, p.debet, p.kredit
+     FROM posts p
+     JOIN accounts a ON a.id = p.account_id
+     WHERE p.transaction_id = $1
+     ORDER BY p.id`,
+    [row.transaction_id]
+  );
+
+  return {
+    transactionId: row.transaction_id,
+    transactionDescription: row.transaction_description,
+    transactionDate: new Date(row.transaction_date),
+    posts: postRows.map((p) => ({
+      accountId: p.account_id,
+      accountName: p.account_name,
+      isDebet: Number(p.debet) > 0,
+    })),
+    recurringItemId: row.recurring_item_id ?? null,
+    recurringItemName: row.recurring_item_name ?? null,
+    hadPeriodShift: !!row.period_shift_date,
+    matchScore: score,
+  };
+}
+
 // Update a transaction
 export async function updateTransaction(
   id: number,

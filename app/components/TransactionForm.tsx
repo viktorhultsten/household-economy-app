@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Account, BankEvent, Post, BookingTemplate, RecurringItemStatus, Transaction } from "../types";
-import { getAccounts, createTransaction, updateTransaction, isPeriodLocked, getBookingTemplates, createBookingTemplate, getRecurringItemsStatus, linkTransactionToRecurringItem, getRecurringItemForTransaction, updateTransactionRecurringItemLink } from "../actions";
+import { getAccounts, createTransaction, updateTransaction, isPeriodLocked, getBookingTemplates, createBookingTemplate, getRecurringItemsStatus, linkTransactionToRecurringItem, getRecurringItemForTransaction, updateTransactionRecurringItemLink, getBookingSuggestion, BookingSuggestion } from "../actions";
 import AccountSelectorModal from "./AccountSelectorModal";
 
 interface TransactionFormProps {
@@ -81,6 +81,9 @@ export default function TransactionForm({
     transaction?.periodShiftDate || null
   );
   const [periodShiftLockWarning, setPeriodShiftLockWarning] = useState("");
+  const [suggestion, setSuggestion] = useState<BookingSuggestion | null>(null);
+  const [suggestionLoaded, setSuggestionLoaded] = useState(false);
+  const [suggestionDismissed, setSuggestionDismissed] = useState(false);
 
   useEffect(() => {
     async function loadData() {
@@ -105,6 +108,18 @@ export default function TransactionForm({
     }
     loadData();
   }, [date, enablePeriodShift, periodShiftDate, isEditing, transaction]);
+
+  // Fetch booking suggestion when creating a new transaction from a bank event
+  useEffect(() => {
+    if (isEditing || !bankEvent) return;
+    setSuggestionDismissed(false);
+    setSuggestion(null);
+    setSuggestionLoaded(false);
+    getBookingSuggestion(bankEvent.description, bankEvent.amount, bankEvent.date).then((result) => {
+      setSuggestion(result);
+      setSuggestionLoaded(true);
+    });
+  }, [bankEvent, isEditing]);
 
   useEffect(() => {
     async function checkPeriodLock() {
@@ -222,6 +237,25 @@ export default function TransactionForm({
     });
 
     setPosts(newPosts);
+  };
+
+  const applySuggestion = () => {
+    if (!suggestion || !bankEvent) return;
+
+    const amount = Math.abs(bankEvent.amount);
+    const newPosts = suggestion.posts.map((p) => ({
+      accountId: p.accountId,
+      debet: p.isDebet ? amount : 0,
+      kredit: !p.isDebet ? amount : 0,
+      description: "",
+    }));
+    setPosts(newPosts);
+
+    if (suggestion.recurringItemId !== null) {
+      setSelectedRecurringItemId(suggestion.recurringItemId);
+    }
+
+    setSuggestionDismissed(true);
   };
 
   const saveAsTemplate = async () => {
@@ -391,6 +425,60 @@ export default function TransactionForm({
           {periodLockWarning && (
             <div className="mb-4 rounded-md bg-amber-50 dark:bg-amber-900/20 p-4 text-sm text-amber-800 dark:text-amber-200">
               ⚠️ {periodLockWarning}
+            </div>
+          )}
+
+          {suggestionLoaded && !suggestionDismissed && !isEditing && !suggestion && (
+            <div className="mb-4 rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 px-4 py-3 text-sm text-zinc-500 dark:text-zinc-400">
+              Inga tidigare bokföringar hittades för denna beskrivning.
+            </div>
+          )}
+
+          {suggestion && !suggestionDismissed && !isEditing && (
+            <div className="mb-4 rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-1">
+                    Förslag baserat på tidigare bokföring
+                  </p>
+                  <p className="text-xs text-blue-700 dark:text-blue-300 mb-2">
+                    Senast bokförd {suggestion.transactionDate.toLocaleDateString("sv-SE")} — {suggestion.transactionDescription}
+                  </p>
+                  <div className="flex flex-wrap gap-1 mb-2">
+                    {suggestion.posts.map((p, i) => (
+                      <span key={i} className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs bg-blue-100 dark:bg-blue-800/50 text-blue-800 dark:text-blue-200">
+                        <span className="font-medium">{p.isDebet ? "D" : "K"}</span>
+                        {p.accountName}
+                      </span>
+                    ))}
+                    {suggestion.recurringItemName && (
+                      <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs bg-purple-100 dark:bg-purple-800/50 text-purple-800 dark:text-purple-200">
+                        Återkommande: {suggestion.recurringItemName}
+                      </span>
+                    )}
+                    {suggestion.hadPeriodShift && (
+                      <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs bg-amber-100 dark:bg-amber-800/50 text-amber-800 dark:text-amber-200">
+                        Periodförskjutning
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={applySuggestion}
+                    className="text-xs font-semibold px-3 py-1.5 rounded-md bg-blue-700 text-white hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-500"
+                  >
+                    Använd förslag
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSuggestionDismissed(true)}
+                  className="text-blue-400 hover:text-blue-600 dark:hover:text-blue-300 shrink-0 text-lg leading-none"
+                  aria-label="Stäng förslag"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
           )}
 
