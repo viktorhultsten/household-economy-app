@@ -14,10 +14,10 @@ Omfattar bland annat:
 
 ## Acceptance criteria
 
-- [ ] Inga referenser till period-shift/bridge-begrepp kvarstår i typer, server actions eller UI
-- [ ] Döda kolumner tas bort via en migration; befintliga verifikat och konteringsrader är intakta
-- [ ] Appen bygger och lint passerar
-- [ ] TransactionList visar inte längre "Periodförskjuten"-etiketter
+- [x] Inga referenser till period-shift/bridge-begrepp kvarstår i typer, server actions eller UI
+- [x] Döda kolumner tas bort via en migration; befintliga verifikat och konteringsrader är intakta
+- [x] Appen bygger och lint passerar
+- [x] TransactionList visar inte längre "Periodförskjuten"-etiketter
 
 ## Blocked by
 

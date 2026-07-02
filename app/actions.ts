@@ -283,11 +283,6 @@ export async function createTransaction(
   // Check if period is locked for the main transaction
   await checkPeriodLock(transactionData.date);
 
-  // Check if period is locked for the shifted transaction
-  if (transactionData.periodShiftDate) {
-    await checkPeriodLock(transactionData.periodShiftDate);
-  }
-
   return await dbTransaction(async (client) => {
     // Create the main transaction (at bank event date)
     const result = await client.query<{ id: number }>(
@@ -315,36 +310,6 @@ export async function createTransaction(
         "UPDATE bank_events SET is_posted = 1, transaction_id = $1 WHERE id = $2",
         [transactionId, transactionData.bankEventId]
       );
-    }
-
-    // If period shift is enabled, create the second (shifted) transaction
-    if (transactionData.periodShiftDate) {
-      // Create the shifted transaction with the same posts
-      const shiftedResult = await client.query<{ id: number }>(
-        `INSERT INTO transactions
-         (date, description, original_transaction_id, period_shift_date)
-         VALUES ($1, $2, $3, $4) RETURNING id`,
-        [
-          transactionData.periodShiftDate.toISOString(),
-          `${transactionData.description} (periodförskjuten)`,
-          transactionId,
-          transactionData.periodShiftDate.toISOString(),
-        ]
-      );
-
-      const shiftedTransactionId = shiftedResult.rows[0].id;
-
-      // Copy the same posts to the shifted transaction
-      for (const post of transactionData.posts) {
-        await client.query(
-          "INSERT INTO posts (transaction_id, account_id, debet, kredit, description) VALUES ($1, $2, $3, $4, $5)",
-          [shiftedTransactionId, post.accountId, post.debet, post.kredit, post.description ?? null]
-        );
-      }
-
-      // Return the shifted transaction ID for recurring item linking
-      // The recurring item should be linked to the period-shifted transaction, not the original
-      return shiftedTransactionId;
     }
 
     return transactionId;
@@ -774,9 +739,6 @@ export async function getAllTransactions(): Promise<Transaction[]> {
     txn_date: string;
     txn_description: string;
     txn_bank_event_id: number | null;
-    txn_original_transaction_id: number | null;
-    txn_period_shift_date: string | null;
-    txn_bridge_account_id: number | null;
     // Post fields
     post_id: number;
     post_account_id: number;
@@ -802,9 +764,6 @@ export async function getAllTransactions(): Promise<Transaction[]> {
       t.date as txn_date,
       t.description as txn_description,
       t.bank_event_id as txn_bank_event_id,
-      t.original_transaction_id as txn_original_transaction_id,
-      t.period_shift_date as txn_period_shift_date,
-      t.bridge_account_id as txn_bridge_account_id,
       p.id as post_id,
       p.account_id as post_account_id,
       p.debet as post_debet,
@@ -850,9 +809,6 @@ export async function getAllTransactions(): Promise<Transaction[]> {
               importId: row.be_import_id ?? undefined,
             }
           : undefined,
-        originalTransactionId: row.txn_original_transaction_id ?? undefined,
-        periodShiftDate: row.txn_period_shift_date ? new Date(row.txn_period_shift_date) : undefined,
-        bridgeAccountId: row.txn_bridge_account_id ?? undefined,
         posts: [],
       });
     }
@@ -999,9 +955,6 @@ export async function getTransactionsPaginated(
     txn_date: string;
     txn_description: string;
     txn_bank_event_id: number | null;
-    txn_original_transaction_id: number | null;
-    txn_period_shift_date: string | null;
-    txn_bridge_account_id: number | null;
     post_id: number;
     post_account_id: number;
     post_debet: string;
@@ -1021,7 +974,7 @@ export async function getTransactionsPaginated(
   }>(
     `
     WITH paginated_transactions AS (
-      SELECT id, date, description, bank_event_id, original_transaction_id, period_shift_date, bridge_account_id
+      SELECT id, date, description, bank_event_id
       FROM transactions t
       ${whereClause}
       ${orderBy}
@@ -1032,9 +985,6 @@ export async function getTransactionsPaginated(
       t.date as txn_date,
       t.description as txn_description,
       t.bank_event_id as txn_bank_event_id,
-      t.original_transaction_id as txn_original_transaction_id,
-      t.period_shift_date as txn_period_shift_date,
-      t.bridge_account_id as txn_bridge_account_id,
       p.id as post_id,
       p.account_id as post_account_id,
       p.debet as post_debet,
@@ -1082,9 +1032,6 @@ export async function getTransactionsPaginated(
               importId: row.be_import_id ?? undefined,
             }
           : undefined,
-        originalTransactionId: row.txn_original_transaction_id ?? undefined,
-        periodShiftDate: row.txn_period_shift_date ? new Date(row.txn_period_shift_date) : undefined,
-        bridgeAccountId: row.txn_bridge_account_id ?? undefined,
         posts: [],
       });
     }
@@ -1227,7 +1174,6 @@ export interface BookingSuggestion {
   }>;
   recurringItemId: number | null;
   recurringItemName: string | null;
-  hadPeriodShift: boolean;
   matchScore: number; // Higher = better match
 }
 
@@ -1246,7 +1192,6 @@ export async function getBookingSuggestion(
     transaction_date: string;
     bank_event_description: string;
     bank_event_amount: number;
-    period_shift_date: string | null;
     recurring_item_id: number | null;
     recurring_item_name: string | null;
   }>(
@@ -1256,14 +1201,12 @@ export async function getBookingSuggestion(
        t.date                AS transaction_date,
        be.description        AS bank_event_description,
        be.amount             AS bank_event_amount,
-       t.period_shift_date,
        ri.id                 AS recurring_item_id,
        ri.namn               AS recurring_item_name
      FROM transactions t
      JOIN bank_events be ON be.transaction_id = t.id
      LEFT JOIN transaction_recurring_items tri ON tri.transaction_id = t.id
      LEFT JOIN recurring_items ri ON ri.id = tri.recurring_item_id
-     WHERE t.original_transaction_id IS NULL
      ORDER BY t.date DESC
      LIMIT 1000`
   );
@@ -1343,11 +1286,6 @@ export async function getBookingSuggestion(
     return recurringItemId !== null ? 5 : 0;
   }
 
-  // --- Periodisation bonus (5 pts) ---
-  function periodShiftBonus(periodShiftDate: string | null): number {
-    return periodShiftDate !== null ? 5 : 0;
-  }
-
   // Score all candidates
   let bestMatch: { row: typeof candidateRows[0]; score: number } | null = null;
 
@@ -1364,8 +1302,7 @@ export async function getBookingSuggestion(
       ds +
       amountScore(Number(row.bank_event_amount)) +
       dayOfMonthScore(row.transaction_date) +
-      recurringBonus(row.recurring_item_id) +
-      periodShiftBonus(row.period_shift_date);
+      recurringBonus(row.recurring_item_id);
 
     if (!bestMatch || total > bestMatch.score) {
       bestMatch = { row, score: total };
@@ -1403,7 +1340,6 @@ export async function getBookingSuggestion(
     })),
     recurringItemId: row.recurring_item_id ?? null,
     recurringItemName: row.recurring_item_name ?? null,
-    hadPeriodShift: !!row.period_shift_date,
     matchScore: score,
   };
 }

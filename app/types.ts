@@ -47,10 +47,6 @@ export interface Transaction {
   bankEventId?: number;
   bankEvent?: BankEvent; // Include full bank event for displaying original description
   posts: Post[];
-  originalTransactionId?: number; // If this is a period-shifted copy
-  periodShiftDate?: Date; // The accounting period this transaction belongs to
-  bridgeAccountId?: number; // Temporary account holding the money
-  linkedTransaction?: Transaction; // The linked period-shifted transaction
   recurringItems?: RecurringItem[]; // Associated recurring items
 }
 

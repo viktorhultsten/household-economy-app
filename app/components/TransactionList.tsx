@@ -133,11 +133,6 @@ const TransactionList = memo(function TransactionList({
                           <span className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
                             {transaction.description}
                           </span>
-                          {transaction.originalTransactionId && (
-                            <span className="px-2 py-0.5 text-xs font-medium rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
-                              Periodförskjuten
-                            </span>
-                          )}
                           {transaction.recurringItems && transaction.recurringItems.length > 0 && (
                             <span className="px-2 py-0.5 text-xs font-medium rounded bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300" title={transaction.recurringItems.map(ri => ri.namn).join(", ")}>
                               Återkommande
@@ -149,27 +144,17 @@ const TransactionList = memo(function TransactionList({
                             Från bankhändelse: {transaction.bankEvent.description}
                           </div>
                         )}
-                        {transaction.originalTransactionId && (
-                          <div className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-                            Periodförskjuten från transaktion #{transaction.originalTransactionId}
-                            {transaction.periodShiftDate && (
-                              <> till period {formatSwedishDate(transaction.periodShiftDate)}</>
-                            )}
-                          </div>
-                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => setSelectedTransaction(transaction)}
-                          disabled={!!transaction.originalTransactionId}
-                          className="rounded-md bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-900 hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-50 dark:hover:bg-zinc-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="rounded-md bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-900 hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-50 dark:hover:bg-zinc-600"
                         >
                           Redigera
                         </button>
                         <button
                           onClick={() => setDeleteConfirmId(transaction.id)}
-                          disabled={!!transaction.originalTransactionId}
-                          className="rounded-md bg-red-100 px-3 py-1.5 text-xs font-medium text-red-900 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-300 dark:hover:bg-red-900/50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="rounded-md bg-red-100 px-3 py-1.5 text-xs font-medium text-red-900 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-300 dark:hover:bg-red-900/50"
                         >
                           Ta bort
                         </button>
