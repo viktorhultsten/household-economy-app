@@ -9,10 +9,14 @@ Städa upp de tvärgående maintainability-bristerna som genomlysningen hittade,
 
 ## Acceptance criteria
 
-- [ ] Muterande server actions anropar `revalidatePath` för berörda vyer
-- [ ] Felhanteringen i server actions följer ett enhetligt mönster (tydliga, kategoriserade fel)
-- [ ] Ingen vy visar inaktuell data efter en mutation utan manuell refetch
-- [ ] Appen bygger och lint passerar
+- [x] Muterande server actions anropar `revalidatePath` för berörda vyer
+- [x] Felhanteringen i server actions följer ett enhetligt mönster (tydliga, kategoriserade fel)
+- [x] Ingen vy visar inaktuell data efter en mutation utan manuell refetch
+- [x] Appen bygger och lint passerar
+
+## Validation note
+
+`next build` passerar. Repository-wide `eslint` innehåller redan befintliga fel i flera UI-filer utanför denna issue; den ändrade filen (`app/actions.ts`) passerar lint.
 
 ## Blocked by
 

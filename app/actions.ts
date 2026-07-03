@@ -1,7 +1,44 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { queryAll, queryOne, query, transaction as dbTransaction } from "@/lib/db";
 import { BankEvent, Transaction, Post, Account, Group, Import, AccountType, PeriodLock, BookingTemplate, RecurringItem, RecurringItemStatus, Budget, BudgetComparison, CustomResultView, CustomResultViewWithDetails } from "./types";
+
+type ActionErrorCategory = "VALIDATION" | "NOT_FOUND" | "CONFLICT" | "LOCKED_PERIOD" | "DATABASE";
+
+const REVALIDATE_PATHS = [
+  "/",
+  "/imports",
+  "/transactions",
+  "/accounts",
+  "/budget",
+  "/periods",
+  "/recurring",
+  "/templates",
+  "/resultat",
+  "/balans",
+  "/easy",
+];
+
+function createActionError(category: ActionErrorCategory, message: string): Error {
+  return new Error(`[${category}] ${message}`);
+}
+
+function revalidateMutationViews(): void {
+  for (const path of REVALIDATE_PATHS) {
+    try {
+      revalidatePath(path);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message.includes("static generation store missing")
+      ) {
+        continue;
+      }
+      throw error;
+    }
+  }
+}
 
 // Imports (CSV import metadata)
 export async function getImports(): Promise<Import[]> {
@@ -92,7 +129,8 @@ export async function deleteImport(id: number): Promise<void> {
   // Check if any bank events have been posted (booked)
   const postedEvents = bankEvents.filter(e => e.is_posted === 1);
   if (postedEvents.length > 0) {
-    throw new Error(
+    throw createActionError(
+      "CONFLICT",
       `Kan inte ta bort import. ${postedEvents.length} ${postedEvents.length === 1 ? 'händelse' : 'händelser'} har bokförts. Du måste först ta bort ${postedEvents.length === 1 ? 'transaktionen' : 'transaktionerna'} manuellt.`
     );
   }
@@ -104,7 +142,8 @@ export async function deleteImport(id: number): Promise<void> {
     if (isLocked) {
       const year = eventDate.getFullYear();
       const month = eventDate.getMonth() + 1;
-      throw new Error(
+      throw createActionError(
+        "LOCKED_PERIOD",
         `Kan inte ta bort import. Perioden ${year}-${String(month).padStart(
           2,
           "0"
@@ -116,6 +155,7 @@ export async function deleteImport(id: number): Promise<void> {
   // Now delete the import (which will cascade delete bank_events)
   // This is safe because we've verified no events are posted
   await query("DELETE FROM imports WHERE id = $1", [id]);
+  revalidateMutationViews();
 }
 
 // Utility function to clean up orphaned bank event references
@@ -142,6 +182,7 @@ export async function cleanupOrphanedBankEvents(): Promise<number> {
       `,
       [orphanedEvents.map(e => e.id)]
     );
+    revalidateMutationViews();
   }
 
   return orphanedEvents.length;
@@ -206,10 +247,13 @@ export async function saveBankEvents(
       );
     }
   });
+
+  revalidateMutationViews();
 }
 
 export async function deleteBankEvent(id: number): Promise<void> {
   await query("DELETE FROM bank_events WHERE id = $1", [id]);
+  revalidateMutationViews();
 }
 
 // Transactions (accounting entries)
@@ -385,7 +429,7 @@ function assertBalancedVerifikat(posts: VerifikatPostInput[]): void {
   const totalKredit = posts.reduce((acc, post) => acc + post.kredit, 0);
 
   if (Math.abs(totalDebet - totalKredit) > 0.001) {
-    throw new Error("Debet och kredit måste vara lika");
+    throw createActionError("VALIDATION", "Debet och kredit måste vara lika");
   }
 }
 
@@ -405,12 +449,14 @@ export async function postVerifikat(
 
   if (command.mode === "create") {
     await dependencies.checkPeriodLockForDate(command.date);
-    return dependencies.persistCreate(command);
+    const transactionId = await dependencies.persistCreate(command);
+    revalidateMutationViews();
+    return transactionId;
   }
 
   const currentTxnDate = await dependencies.getTransactionDateById(command.id);
   if (!currentTxnDate) {
-    throw new Error("Transaktion hittades inte");
+    throw createActionError("NOT_FOUND", "Transaktion hittades inte");
   }
 
   await dependencies.checkPeriodLockForDate(currentTxnDate);
@@ -422,6 +468,7 @@ export async function postVerifikat(
   }
 
   await dependencies.persistUpdate(command);
+  revalidateMutationViews();
 }
 
 export async function deleteTransaction(id: number): Promise<void> {
@@ -432,7 +479,7 @@ export async function deleteTransaction(id: number): Promise<void> {
   );
 
   if (!txn) {
-    throw new Error("Transaktion hittades inte");
+    throw createActionError("NOT_FOUND", "Transaktion hittades inte");
   }
 
   // Check if period is locked
@@ -446,6 +493,7 @@ export async function deleteTransaction(id: number): Promise<void> {
 
   // Delete transaction (posts will cascade)
   await query("DELETE FROM transactions WHERE id = $1", [id]);
+  revalidateMutationViews();
 }
 
 // Group actions
@@ -469,6 +517,7 @@ export async function addGroup(group: Omit<Group, "id">): Promise<number> {
     [group.namn, group.typ]
   );
 
+  revalidateMutationViews();
   return result.rows[0].id;
 }
 
@@ -478,10 +527,12 @@ export async function updateGroup(group: Group): Promise<void> {
     group.typ,
     group.id,
   ]);
+  revalidateMutationViews();
 }
 
 export async function deleteGroup(id: number): Promise<void> {
   await query("DELETE FROM groups WHERE id = $1", [id]);
+  revalidateMutationViews();
 }
 
 // Account actions
@@ -524,6 +575,7 @@ export async function addAccount(
     account.namn,
     account.groupId,
   ]);
+  revalidateMutationViews();
 }
 
 export async function updateAccount(
@@ -532,20 +584,22 @@ export async function updateAccount(
 ): Promise<void> {
   const currentAccount = await dependencies.getAccountById(account.id);
   if (!currentAccount) {
-    throw new Error("Konto hittades inte");
+    throw createActionError("NOT_FOUND", "Konto hittades inte");
   }
 
   const isChangingGroup = currentAccount.groupId !== account.groupId;
   if (isChangingGroup) {
     const postCount = await dependencies.getPostCountByAccountId(account.id);
     if (postCount > 0) {
-      throw new Error(
+      throw createActionError(
+        "CONFLICT",
         "Kan inte byta grupp för konto som redan har konteringsrader"
       );
     }
   }
 
   await dependencies.persistUpdate(account);
+  revalidateMutationViews();
 }
 
 type UpdateAccountDependencies = {
@@ -592,6 +646,7 @@ const defaultUpdateAccountDependencies: UpdateAccountDependencies = {
 
 export async function deleteAccount(id: number): Promise<void> {
   await query("DELETE FROM accounts WHERE id = $1", [id]);
+  revalidateMutationViews();
 }
 
 // Balance calculation
@@ -1468,17 +1523,19 @@ export async function lockPeriod(year: number, month: number, lockedBy?: string)
   );
 
   if (existing) {
-    throw new Error(`Perioden ${year}-${String(month).padStart(2, "0")} är redan låst`);
+    throw createActionError("CONFLICT", `Perioden ${year}-${String(month).padStart(2, "0")} är redan låst`);
   }
 
   await query(
     "INSERT INTO period_locks (year, month, locked_by) VALUES ($1, $2, $3)",
     [year, month, lockedBy ?? null]
   );
+  revalidateMutationViews();
 }
 
 export async function unlockPeriod(year: number, month: number): Promise<void> {
   await query("DELETE FROM period_locks WHERE year = $1 AND month = $2", [year, month]);
+  revalidateMutationViews();
 }
 
 // Helper function to check if a transaction date is in a locked period
@@ -1487,7 +1544,8 @@ async function checkPeriodLock(date: Date): Promise<void> {
   if (isLocked) {
     const year = date.getFullYear();
     const month = date.getMonth() + 1;
-    throw new Error(
+    throw createActionError(
+      "LOCKED_PERIOD",
       `Kan inte ändra transaktion. Perioden ${year}-${String(month).padStart(2, "0")} är låst.`
     );
   }
@@ -1620,7 +1678,7 @@ export async function createBookingTemplate(
     description?: string;
   }>
 ): Promise<number> {
-  return await dbTransaction(async (client) => {
+  const templateId = await dbTransaction(async (client) => {
     const result = await client.query<{ id: number }>(
       "INSERT INTO booking_templates (namn) VALUES ($1) RETURNING id",
       [namn]
@@ -1638,10 +1696,14 @@ export async function createBookingTemplate(
 
     return templateId;
   });
+
+  revalidateMutationViews();
+  return templateId;
 }
 
 export async function deleteBookingTemplate(id: number): Promise<void> {
   await query("DELETE FROM booking_templates WHERE id = $1", [id]);
+  revalidateMutationViews();
 }
 
 export async function updateBookingTemplate(
@@ -1669,6 +1731,8 @@ export async function updateBookingTemplate(
       );
     }
   });
+
+  revalidateMutationViews();
 }
 
 // Recurring Items
@@ -1699,6 +1763,7 @@ export async function createRecurringItem(
     "INSERT INTO recurring_items (namn, expected_per_month, active_months) VALUES ($1, $2, $3) RETURNING id",
     [namn, expectedPerMonth, activeMonths]
   );
+  revalidateMutationViews();
   return result.rows[0].id;
 }
 
@@ -1712,10 +1777,12 @@ export async function updateRecurringItem(
     "UPDATE recurring_items SET namn = $1, expected_per_month = $2, active_months = $3 WHERE id = $4",
     [namn, expectedPerMonth, activeMonths, id]
   );
+  revalidateMutationViews();
 }
 
 export async function deleteRecurringItem(id: number): Promise<void> {
   await query("DELETE FROM recurring_items WHERE id = $1", [id]);
+  revalidateMutationViews();
 }
 
 export async function getRecurringItemsStatus(
@@ -1812,6 +1879,7 @@ export async function linkTransactionToRecurringItem(
     "INSERT INTO transaction_recurring_items (transaction_id, recurring_item_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
     [transactionId, recurringItemId]
   );
+  revalidateMutationViews();
 }
 
 export async function unlinkTransactionFromRecurringItem(
@@ -1822,6 +1890,7 @@ export async function unlinkTransactionFromRecurringItem(
     "DELETE FROM transaction_recurring_items WHERE transaction_id = $1 AND recurring_item_id = $2",
     [transactionId, recurringItemId]
   );
+  revalidateMutationViews();
 }
 
 export async function updateTransactionRecurringItemLink(
@@ -1841,6 +1910,8 @@ export async function updateTransactionRecurringItemLink(
       [transactionId, recurringItemId]
     );
   }
+
+  revalidateMutationViews();
 }
 
 // Get transaction count by month for each recurring item
@@ -1905,7 +1976,7 @@ export async function setBudgetsForYear(
   monthlyAmounts: number[] // Array of 12 numbers
 ): Promise<void> {
   if (monthlyAmounts.length !== 12) {
-    throw new Error("Must provide exactly 12 monthly amounts");
+    throw createActionError("VALIDATION", "Must provide exactly 12 monthly amounts");
   }
 
   await dbTransaction(async (client) => {
@@ -1922,6 +1993,8 @@ export async function setBudgetsForYear(
       );
     }
   });
+
+  revalidateMutationViews();
 }
 
 // Get budget vs actual comparison for a specific month
@@ -2426,6 +2499,7 @@ export async function deleteBudgetsForYear(
     "DELETE FROM budgets WHERE account_id = $1 AND year = $2",
     [accountId, year]
   );
+  revalidateMutationViews();
 }
 
 // Custom Result Views
@@ -2544,7 +2618,7 @@ export async function createCustomResultView(
   groupIds: number[],
   types: AccountType[]
 ): Promise<CustomResultView> {
-  return await dbTransaction(async (client) => {
+  const createdView = await dbTransaction(async (client) => {
     // Create the view
     const viewResult = await client.query<{
       id: number;
@@ -2558,7 +2632,7 @@ export async function createCustomResultView(
 
     const viewRow = viewResult.rows[0];
     if (!viewRow) {
-      throw new Error("Failed to create custom result view");
+      throw createActionError("DATABASE", "Failed to create custom result view");
     }
 
     // Insert selected accounts
@@ -2595,6 +2669,9 @@ export async function createCustomResultView(
       types,
     };
   });
+
+  revalidateMutationViews();
+  return createdView;
 }
 
 export async function updateCustomResultView(
@@ -2647,9 +2724,12 @@ export async function updateCustomResultView(
       );
     }
   });
+
+  revalidateMutationViews();
 }
 
 export async function deleteCustomResultView(id: number): Promise<void> {
   // CASCADE delete will automatically remove related records
   await query("DELETE FROM custom_result_views WHERE id = $1", [id]);
+  revalidateMutationViews();
 }
