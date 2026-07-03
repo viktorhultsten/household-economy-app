@@ -8,6 +8,13 @@
       "when": 1783068450509,
       "tag": "0000_silky_kronos",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1783400000000,
+      "tag": "0001_balance_invariant_trigger",
+      "breakpoints": true
     }
   ]
 }

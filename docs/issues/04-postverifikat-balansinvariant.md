@@ -8,10 +8,10 @@ Idag är balanskontrollen utspridd: UI:t validerar och `updateTransaction` valid
 
 ## Acceptance criteria
 
-- [ ] All skapande/ändring av verifikat sker via `postVerifikat`; inga server actions skriver till konteringsrader direkt
-- [ ] Ett obalanserat verifikat avvisas med ett tydligt fel oavsett väg in
-- [ ] En DB-nivå-garanti hindrar obalanserade verifikat som sista skyddsnät
-- [ ] Test som verifierar att både skapande och ändring avvisar obalanserade verifikat
+- [x] All skapande/ändring av verifikat sker via `postVerifikat`; inga server actions skriver till konteringsrader direkt
+- [x] Ett obalanserat verifikat avvisas med ett tydligt fel oavsett väg in
+- [x] En DB-nivå-garanti hindrar obalanserade verifikat som sista skyddsnät
+- [x] Test som verifierar att både skapande och ändring avvisar obalanserade verifikat
 
 ## Blocked by
 

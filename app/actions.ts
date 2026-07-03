@@ -280,40 +280,148 @@ export async function getTransactions(): Promise<Transaction[]> {
 export async function createTransaction(
   transactionData: Omit<Transaction, "id">
 ): Promise<number> {
-  // Check if period is locked for the main transaction
-  await checkPeriodLock(transactionData.date);
-
-  return await dbTransaction(async (client) => {
-    // Create the main transaction (at bank event date)
-    const result = await client.query<{ id: number }>(
-      "INSERT INTO transactions (date, description, bank_event_id) VALUES ($1, $2, $3) RETURNING id",
-      [
-        transactionData.date.toISOString(),
-        transactionData.description,
-        transactionData.bankEventId ?? null,
-      ]
-    );
-
-    const transactionId = result.rows[0].id;
-
-    // Insert posts for main transaction
-    for (const post of transactionData.posts) {
-      await client.query(
-        "INSERT INTO posts (transaction_id, account_id, debet, kredit, description) VALUES ($1, $2, $3, $4, $5)",
-        [transactionId, post.accountId, post.debet, post.kredit, post.description ?? null]
-      );
-    }
-
-    // If linked to bank event, mark it as posted
-    if (transactionData.bankEventId) {
-      await client.query(
-        "UPDATE bank_events SET is_posted = 1, transaction_id = $1 WHERE id = $2",
-        [transactionId, transactionData.bankEventId]
-      );
-    }
-
-    return transactionId;
+  return postVerifikat({
+    mode: "create",
+    date: transactionData.date,
+    description: transactionData.description,
+    bankEventId: transactionData.bankEventId,
+    posts: transactionData.posts,
   });
+}
+
+type VerifikatPostInput = {
+  accountId: number;
+  debet: number;
+  kredit: number;
+  description?: string;
+};
+
+type CreateVerifikatCommand = {
+  mode: "create";
+  date: Date;
+  description: string;
+  bankEventId?: number;
+  posts: VerifikatPostInput[];
+};
+
+type UpdateVerifikatCommand = {
+  mode: "update";
+  id: number;
+  date: Date;
+  description: string;
+  posts: VerifikatPostInput[];
+};
+
+type PostVerifikatCommand = CreateVerifikatCommand | UpdateVerifikatCommand;
+
+type PostVerifikatDependencies = {
+  checkPeriodLockForDate: (date: Date) => Promise<void>;
+  getTransactionDateById: (id: number) => Promise<Date | null>;
+  persistCreate: (command: CreateVerifikatCommand) => Promise<number>;
+  persistUpdate: (command: UpdateVerifikatCommand) => Promise<void>;
+};
+
+const defaultPostVerifikatDependencies: PostVerifikatDependencies = {
+  checkPeriodLockForDate: checkPeriodLock,
+  getTransactionDateById: async (id: number) => {
+    const currentTxn = await queryOne<{ date: string }>(
+      "SELECT date FROM transactions WHERE id = $1",
+      [id]
+    );
+    return currentTxn ? new Date(currentTxn.date) : null;
+  },
+  persistCreate: async (command: CreateVerifikatCommand) => {
+    return dbTransaction(async (client) => {
+      const result = await client.query<{ id: number }>(
+        "INSERT INTO transactions (date, description, bank_event_id) VALUES ($1, $2, $3) RETURNING id",
+        [
+          command.date.toISOString(),
+          command.description,
+          command.bankEventId ?? null,
+        ]
+      );
+
+      const transactionId = result.rows[0].id;
+
+      for (const post of command.posts) {
+        await client.query(
+          "INSERT INTO posts (transaction_id, account_id, debet, kredit, description) VALUES ($1, $2, $3, $4, $5)",
+          [transactionId, post.accountId, post.debet, post.kredit, post.description ?? null]
+        );
+      }
+
+      if (command.bankEventId) {
+        await client.query(
+          "UPDATE bank_events SET is_posted = 1, transaction_id = $1 WHERE id = $2",
+          [transactionId, command.bankEventId]
+        );
+      }
+
+      return transactionId;
+    });
+  },
+  persistUpdate: async (command: UpdateVerifikatCommand) => {
+    await dbTransaction(async (client) => {
+      await client.query("UPDATE transactions SET date = $1, description = $2 WHERE id = $3", [
+        command.date.toISOString(),
+        command.description,
+        command.id,
+      ]);
+
+      await client.query("DELETE FROM posts WHERE transaction_id = $1", [command.id]);
+
+      for (const post of command.posts) {
+        await client.query(
+          "INSERT INTO posts (transaction_id, account_id, debet, kredit, description) VALUES ($1, $2, $3, $4, $5)",
+          [command.id, post.accountId, post.debet, post.kredit, post.description ?? null]
+        );
+      }
+    });
+  },
+};
+
+function assertBalancedVerifikat(posts: VerifikatPostInput[]): void {
+  const totalDebet = posts.reduce((acc, post) => acc + post.debet, 0);
+  const totalKredit = posts.reduce((acc, post) => acc + post.kredit, 0);
+
+  if (Math.abs(totalDebet - totalKredit) > 0.001) {
+    throw new Error("Debet och kredit måste vara lika");
+  }
+}
+
+export async function postVerifikat(
+  command: CreateVerifikatCommand,
+  dependencies?: PostVerifikatDependencies
+): Promise<number>;
+export async function postVerifikat(
+  command: UpdateVerifikatCommand,
+  dependencies?: PostVerifikatDependencies
+): Promise<void>;
+export async function postVerifikat(
+  command: PostVerifikatCommand,
+  dependencies: PostVerifikatDependencies = defaultPostVerifikatDependencies
+): Promise<number | void> {
+  assertBalancedVerifikat(command.posts);
+
+  if (command.mode === "create") {
+    await dependencies.checkPeriodLockForDate(command.date);
+    return dependencies.persistCreate(command);
+  }
+
+  const currentTxnDate = await dependencies.getTransactionDateById(command.id);
+  if (!currentTxnDate) {
+    throw new Error("Transaktion hittades inte");
+  }
+
+  await dependencies.checkPeriodLockForDate(currentTxnDate);
+
+  const currentDateKey = currentTxnDate.toISOString().slice(0, 10);
+  const nextDateKey = command.date.toISOString().slice(0, 10);
+  if (nextDateKey !== currentDateKey) {
+    await dependencies.checkPeriodLockForDate(command.date);
+  }
+
+  await dependencies.persistUpdate(command);
 }
 
 export async function deleteTransaction(id: number): Promise<void> {
@@ -1258,49 +1366,12 @@ export async function updateTransaction(
     }>;
   }
 ): Promise<void> {
-  // Get current transaction date to check if original period is locked
-  const currentTxn = await queryOne<{ date: string }>(
-    "SELECT date FROM transactions WHERE id = $1",
-    [id]
-  );
-
-  if (!currentTxn) {
-    throw new Error("Transaktion hittades inte");
-  }
-
-  // Check if original period is locked
-  await checkPeriodLock(new Date(currentTxn.date));
-
-  // Check if new period is locked (if date is changing)
-  if (data.date.toISOString() !== currentTxn.date) {
-    await checkPeriodLock(data.date);
-  }
-
-  // Validate that debits and credits balance
-  const totalDebet = data.posts.reduce((acc, post) => acc + post.debet, 0);
-  const totalKredit = data.posts.reduce((acc, post) => acc + post.kredit, 0);
-  if (Math.abs(totalDebet - totalKredit) > 0.001) {
-    throw new Error("Debet och kredit måste vara lika");
-  }
-
-  await dbTransaction(async (client) => {
-    // Update transaction
-    await client.query("UPDATE transactions SET date = $1, description = $2 WHERE id = $3", [
-      data.date.toISOString(),
-      data.description,
-      id,
-    ]);
-
-    // Delete existing posts
-    await client.query("DELETE FROM posts WHERE transaction_id = $1", [id]);
-
-    // Insert new posts
-    for (const post of data.posts) {
-      await client.query(
-        "INSERT INTO posts (transaction_id, account_id, debet, kredit, description) VALUES ($1, $2, $3, $4, $5)",
-        [id, post.accountId, post.debet, post.kredit, post.description ?? null]
-      );
-    }
+  await postVerifikat({
+    mode: "update",
+    id,
+    date: data.date,
+    description: data.description,
+    posts: data.posts,
   });
 }
 
