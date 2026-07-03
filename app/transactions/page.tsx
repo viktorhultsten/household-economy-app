@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import Link from "next/link";
 import TransactionList from "../components/TransactionList";
 import TransactionForm from "../components/TransactionForm";
 import AccountSelectorModal from "../components/AccountSelectorModal";
@@ -14,10 +13,10 @@ export default function TransaktionerPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
 
-  // Pagination state
-  const [currentPage, setCurrentPage] = useState(1);
+  // List total (for header) and a token to force a window refresh after
+  // external mutations like creating a manual transaction.
   const [totalTransactions, setTotalTransactions] = useState(0);
-  const itemsPerPage = 50;
+  const [refreshToken, setRefreshToken] = useState(0);
 
   // Filter and sort state
   const [searchQuery, setSearchQuery] = useState("");
@@ -62,7 +61,6 @@ export default function TransaktionerPage() {
     setFilterAccountId(0);
     setFilterDateFrom("");
     setFilterDateTo("");
-    setCurrentPage(1);
   }
 
   const hasActiveFilters =
@@ -76,11 +74,8 @@ export default function TransaktionerPage() {
 
   async function handlePostSuccess() {
     setShowManualTransactionForm(false);
-    // Force reload by resetting page
-    setCurrentPage(1);
+    setRefreshToken((t) => t + 1);
   }
-
-  const totalPages = Math.ceil(totalTransactions / itemsPerPage);
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-900">
@@ -92,7 +87,6 @@ export default function TransaktionerPage() {
           <div className="flex items-center gap-4">
             <div className="text-sm text-zinc-600 dark:text-zinc-400">
               {totalTransactions} transaktioner totalt
-              {totalPages > 1 && ` (sida ${currentPage} av ${totalPages})`}
             </div>
             <button
               onClick={() => setShowManualTransactionForm(true)}
@@ -117,7 +111,6 @@ export default function TransaktionerPage() {
                 value={searchQuery}
                 onChange={(e) => {
                   updateSearchQuery(e.target.value);
-                  setCurrentPage(1);
                 }}
                 className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
               />
@@ -140,7 +133,6 @@ export default function TransaktionerPage() {
                     onClick={() => {
                       setSelectedAccount(null);
                       setFilterAccountId(0);
-                      setCurrentPage(1);
                     }}
                     className="px-3 py-2 text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
                   >
@@ -159,7 +151,6 @@ export default function TransaktionerPage() {
                 value={filterAccountType}
                 onChange={(e) => {
                   setFilterAccountType(e.target.value);
-                  setCurrentPage(1);
                 }}
                 className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
               >
@@ -204,7 +195,6 @@ export default function TransaktionerPage() {
                 value={filterDateFrom}
                 onChange={(e) => {
                   setFilterDateFrom(e.target.value);
-                  setCurrentPage(1);
                 }}
                 lang="sv-SE"
                 className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
@@ -221,7 +211,6 @@ export default function TransaktionerPage() {
                 value={filterDateTo}
                 onChange={(e) => {
                   setFilterDateTo(e.target.value);
-                  setCurrentPage(1);
                 }}
                 lang="sv-SE"
                 className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
@@ -251,35 +240,9 @@ export default function TransaktionerPage() {
           filterAccountId={filterAccountId}
           filterDateFrom={filterDateFrom}
           filterDateTo={filterDateTo}
-          currentPage={currentPage}
-          onPageChange={setCurrentPage}
+          refreshToken={refreshToken}
           onTotalChange={setTotalTransactions}
         />
-
-        {/* Pagination Controls */}
-        {totalPages > 1 && (
-          <div className="mt-4 rounded-lg bg-white shadow dark:bg-zinc-800 px-6 py-4 flex items-center justify-between">
-            <button
-              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-              disabled={currentPage === 1}
-              className="px-4 py-2 text-sm font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-            >
-              ← Föregående
-            </button>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-zinc-600 dark:text-zinc-400">
-                Sida {currentPage} av {totalPages}
-              </span>
-            </div>
-            <button
-              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages}
-              className="px-4 py-2 text-sm font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-            >
-              Nästa →
-            </button>
-          </div>
-        )}
       </main>
 
       {showManualTransactionForm && (
@@ -297,7 +260,6 @@ export default function TransaktionerPage() {
             const account = accounts.find(a => a.id === accountId);
             setSelectedAccount(account || null);
             setFilterAccountId(accountId);
-            setCurrentPage(1);
             setShowAccountSelector(false);
           }}
           onClose={() => setShowAccountSelector(false)}

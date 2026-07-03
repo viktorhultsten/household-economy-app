@@ -218,6 +218,50 @@ export async function getBankEvents(): Promise<BankEvent[]> {
   }));
 }
 
+export async function getUnpostedBankEventsPaginated(
+  limit: number = 25,
+  offset: number = 0
+): Promise<{ events: BankEvent[]; total: number }> {
+  const countResult = await queryOne<{ count: number }>(
+    "SELECT COUNT(*) as count FROM bank_events WHERE is_posted = 0"
+  );
+  const total = countResult?.count || 0;
+
+  const rows = await queryAll<{
+    id: number;
+    date: string;
+    description: string;
+    amount: number;
+    is_posted: number;
+    transaction_id: number | null;
+    import_id: number | null;
+    import_account_id: number | null;
+  }>(
+    `
+    SELECT be.*, i.account_id as import_account_id
+    FROM bank_events be
+    LEFT JOIN imports i ON be.import_id = i.id
+    WHERE be.is_posted = 0
+    ORDER BY be.date DESC, be.id DESC
+    LIMIT $1 OFFSET $2
+  `,
+    [limit, offset]
+  );
+
+  const events = rows.map((row) => ({
+    id: row.id,
+    date: new Date(row.date),
+    description: row.description,
+    amount: Number(row.amount),
+    isPosted: row.is_posted === 1,
+    transactionId: row.transaction_id ?? undefined,
+    importId: row.import_id ?? undefined,
+    import: row.import_account_id ? { accountId: row.import_account_id } as Import : undefined,
+  }));
+
+  return { events, total };
+}
+
 export async function saveBankEvents(
   events: Omit<BankEvent, "id" | "isPosted" | "transactionId" | "importId">[],
   filename: string,

@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useEffect, memo } from "react";
+import { useState, useEffect, useRef, useCallback, memo } from "react";
 import { Transaction } from "../types";
 import { getTransactionsPaginated, deleteTransaction } from "../actions";
 import TransactionForm from "./TransactionForm";
 import ConfirmModal from "./ConfirmModal";
+
+const BATCH_SIZE = 25;
 
 function formatSwedishDate(date: Date): string {
   return date.toLocaleDateString("sv-SE");
@@ -25,8 +27,7 @@ interface TransactionListProps {
   filterAccountId: number;
   filterDateFrom: string;
   filterDateTo: string;
-  currentPage: number;
-  onPageChange: (page: number) => void;
+  refreshToken: number;
   onTotalChange: (total: number) => void;
 }
 
@@ -38,27 +39,101 @@ const TransactionList = memo(function TransactionList({
   filterAccountId,
   filterDateFrom,
   filterDateTo,
-  currentPage,
-  onPageChange,
+  refreshToken,
   onTotalChange,
 }: TransactionListProps) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [total, setTotal] = useState(0);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
 
-  const itemsPerPage = 50;
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const loadingRef = useRef(false);
+  const firstReset = useRef(true);
+  const didMountRef = useRef(false);
 
+  const hasMore = transactions.length < total;
+
+  // Reset to the first batch and scroll to top whenever a filter/sort changes.
   useEffect(() => {
-    loadTransactions();
-  }, [currentPage, searchQuery, sortField, sortDirection, filterAccountType, filterAccountId, filterDateFrom, filterDateTo]);
+    let cancelled = false;
+    async function reset() {
+      setInitialLoading(true);
+      const { transactions: data, total: t } = await getTransactionsPaginated(
+        BATCH_SIZE,
+        0,
+        searchQuery,
+        sortField,
+        sortDirection,
+        filterAccountType,
+        filterAccountId,
+        filterDateFrom,
+        filterDateTo
+      );
+      if (cancelled) return;
+      setTransactions(data);
+      setTotal(t);
+      onTotalChange(t);
+      setInitialLoading(false);
+      if (!firstReset.current) {
+        window.scrollTo({ top: 0 });
+      }
+      firstReset.current = false;
+    }
+    reset();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery, sortField, sortDirection, filterAccountType, filterAccountId, filterDateFrom, filterDateTo]);
 
-  async function loadTransactions() {
-    setLoading(true);
-    const offset = (currentPage - 1) * itemsPerPage;
-    const { transactions: data, total } = await getTransactionsPaginated(
-      itemsPerPage,
-      offset,
+  const loadMore = useCallback(async () => {
+    if (loadingRef.current) return;
+    if (total > 0 && transactions.length >= total) return;
+    loadingRef.current = true;
+    setLoadingMore(true);
+    const { transactions: data, total: t } = await getTransactionsPaginated(
+      BATCH_SIZE,
+      transactions.length,
+      searchQuery,
+      sortField,
+      sortDirection,
+      filterAccountType,
+      filterAccountId,
+      filterDateFrom,
+      filterDateTo
+    );
+    setTransactions((prev) => [...prev, ...data]);
+    setTotal(t);
+    onTotalChange(t);
+    setLoadingMore(false);
+    loadingRef.current = false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transactions.length, total, searchQuery, sortField, sortDirection, filterAccountType, filterAccountId, filterDateFrom, filterDateTo]);
+
+  // Infinite scroll sentinel
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) loadMore();
+      },
+      { rootMargin: "200px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [loadMore]);
+
+  // Refetch the currently loaded window (offset 0) without moving scroll, so
+  // edits/deletes/new entries stay in sync while preserving position.
+  const refreshWindow = useCallback(async () => {
+    const windowSize = Math.max(BATCH_SIZE, transactions.length);
+    const { transactions: data, total: t } = await getTransactionsPaginated(
+      windowSize,
+      0,
       searchQuery,
       sortField,
       sortDirection,
@@ -68,26 +143,35 @@ const TransactionList = memo(function TransactionList({
       filterDateTo
     );
     setTransactions(data);
-    onTotalChange(total);
-    setLoading(false);
-  }
+    setTotal(t);
+    onTotalChange(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transactions.length, searchQuery, sortField, sortDirection, filterAccountType, filterAccountId, filterDateFrom, filterDateTo]);
+
+  // External refresh (e.g. after a manual "Ny transaktion"); skip first run.
+  useEffect(() => {
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return;
+    }
+    refreshWindow();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshToken]);
 
   async function handleDeleteConfirm() {
     if (deleteConfirmId === null) return;
 
     await deleteTransaction(deleteConfirmId);
-    await loadTransactions();
+    await refreshWindow();
     setDeleteConfirmId(null);
   }
 
   async function handleEditSuccess() {
-    await loadTransactions();
+    await refreshWindow();
     setSelectedTransaction(null);
   }
 
-  const totalTransactions = transactions.length;
-
-  if (loading) {
+  if (initialLoading) {
     return (
       <div className="rounded-lg bg-white shadow dark:bg-zinc-800 p-8 text-center">
         <p className="text-zinc-600 dark:text-zinc-400">Laddar...</p>
@@ -207,6 +291,14 @@ const TransactionList = memo(function TransactionList({
           </div>
         ))}
       </div>
+
+      {hasMore && (
+        <div ref={sentinelRef} className="py-6 text-center">
+          {loadingMore && (
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">Laddar…</p>
+          )}
+        </div>
+      )}
 
       {selectedTransaction && (
         <TransactionForm
