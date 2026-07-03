@@ -161,6 +161,13 @@ export default function KontonPage() {
       return;
     }
 
+    if (editingAccount.hasPosts && editAccountGroupId !== editingAccount.groupId) {
+      setAlertMessage(
+        "Kontot har konteringsrader och kan därför inte byta grupp eller kontotyp."
+      );
+      return;
+    }
+
     await updateAccount({
       id: editingAccount.id,
       namn: editAccountName,
@@ -361,6 +368,7 @@ export default function KontonPage() {
                             <select
                               value={editAccountGroupId}
                               onChange={(e) => setEditAccountGroupId(parseInt(e.target.value))}
+                              disabled={editingAccount.hasPosts}
                               className="w-48 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
                             >
                               <option value={0}>Välj grupp...</option>
@@ -370,6 +378,11 @@ export default function KontonPage() {
                                 </option>
                               ))}
                             </select>
+                            {editingAccount.hasPosts && (
+                              <p className="max-w-xs text-xs text-amber-700 dark:text-amber-300">
+                                Grupp kan inte ändras eftersom kontot redan har konteringsrader.
+                              </p>
+                            )}
                             <label className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300 whitespace-nowrap">
                               <input
                                 type="checkbox"

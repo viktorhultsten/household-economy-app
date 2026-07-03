@@ -11,6 +11,7 @@ export interface Account {
   namn: string;
   groupId: number;
   excludeFromBudget?: boolean;
+  hasPosts?: boolean;
   group?: Group;
 }
 

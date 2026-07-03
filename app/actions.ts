@@ -491,10 +491,13 @@ export async function getAccounts(): Promise<Account[]> {
     namn: string;
     group_id: number;
     exclude_from_budget: number;
+    has_posts: number;
     group_namn: string;
     group_typ: string;
   }>(
-    `SELECT a.id, a.namn, a.group_id, a.exclude_from_budget, g.namn as group_namn, g.typ as group_typ
+    `SELECT a.id, a.namn, a.group_id, a.exclude_from_budget,
+            CASE WHEN EXISTS (SELECT 1 FROM posts p WHERE p.account_id = a.id) THEN 1 ELSE 0 END as has_posts,
+            g.namn as group_namn, g.typ as group_typ
      FROM accounts a
      JOIN groups g ON a.group_id = g.id
      ORDER BY g.namn, a.namn`
@@ -505,6 +508,7 @@ export async function getAccounts(): Promise<Account[]> {
     namn: row.namn,
     groupId: row.group_id,
     excludeFromBudget: row.exclude_from_budget === 1,
+    hasPosts: row.has_posts === 1,
     group: {
       id: row.group_id,
       namn: row.group_namn,
@@ -523,18 +527,68 @@ export async function addAccount(
 }
 
 export async function updateAccount(
-  account: Omit<Account, "group">
+  account: Omit<Account, "group">,
+  dependencies: UpdateAccountDependencies = defaultUpdateAccountDependencies
 ): Promise<void> {
-  await query(
-    "UPDATE accounts SET namn = $1, group_id = $2, exclude_from_budget = $3 WHERE id = $4",
-    [
-      account.namn,
-      account.groupId,
-      account.excludeFromBudget ? 1 : 0,
-      account.id,
-    ]
-  );
+  const currentAccount = await dependencies.getAccountById(account.id);
+  if (!currentAccount) {
+    throw new Error("Konto hittades inte");
+  }
+
+  const isChangingGroup = currentAccount.groupId !== account.groupId;
+  if (isChangingGroup) {
+    const postCount = await dependencies.getPostCountByAccountId(account.id);
+    if (postCount > 0) {
+      throw new Error(
+        "Kan inte byta grupp för konto som redan har konteringsrader"
+      );
+    }
+  }
+
+  await dependencies.persistUpdate(account);
 }
+
+type UpdateAccountDependencies = {
+  getAccountById: (id: number) => Promise<{ id: number; groupId: number } | null>;
+  getPostCountByAccountId: (accountId: number) => Promise<number>;
+  persistUpdate: (account: Omit<Account, "group">) => Promise<void>;
+};
+
+const defaultUpdateAccountDependencies: UpdateAccountDependencies = {
+  getAccountById: async (id: number) => {
+    const row = await queryOne<{ id: number; group_id: number }>(
+      "SELECT id, group_id FROM accounts WHERE id = $1",
+      [id]
+    );
+
+    if (!row) {
+      return null;
+    }
+
+    return {
+      id: row.id,
+      groupId: row.group_id,
+    };
+  },
+  getPostCountByAccountId: async (accountId: number) => {
+    const row = await queryOne<{ count: string }>(
+      "SELECT COUNT(*)::text as count FROM posts WHERE account_id = $1",
+      [accountId]
+    );
+    return Number(row?.count ?? 0);
+  },
+  persistUpdate: async (account: Omit<Account, "group">) => {
+    await query(
+      "UPDATE accounts SET namn = $1, group_id = $2, exclude_from_budget = $3 WHERE id = $4",
+      [
+        account.namn,
+        account.groupId,
+        account.excludeFromBudget ? 1 : 0,
+        account.id,
+      ]
+    );
+  },
+};
 
 export async function deleteAccount(id: number): Promise<void> {
   await query("DELETE FROM accounts WHERE id = $1", [id]);
