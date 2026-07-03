@@ -1,0 +1,22 @@
+{
+  // Run the Next.js app in dev or prod mode from the Run and Debug panel.
+  // - Dev uses .env.development (economy_dev, seeded).
+  // - Prod builds and serves using .env (economy).
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "dev",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "prod",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run start:prod",
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}

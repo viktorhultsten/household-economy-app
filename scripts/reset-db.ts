@@ -1,9 +1,18 @@
 import { Pool } from 'pg';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as dotenv from 'dotenv';
+
+// Load DATABASE_URL from the project-root .env file.
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
+
+if (!process.env.DATABASE_URL) {
+  console.error('Error: DATABASE_URL is not set. Copy .env.local.example to .env and fill it in.');
+  process.exit(1);
+}
 
 const pool = new Pool({
-  connectionString: 'postgres://postgres:postgres@192.168.1.5:5432/economy',
+  connectionString: process.env.DATABASE_URL,
 });
 
 async function resetDatabase() {
