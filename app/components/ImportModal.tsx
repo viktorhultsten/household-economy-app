@@ -3,9 +3,14 @@
 import { ChangeEvent, useState, useEffect } from "react";
 import { Account } from "../types";
 import { getAccounts } from "../actions";
+import { parseSwedishCSV, ParseSwedishCSVResult } from "../utils/csvParser";
 
 interface ImportModalProps {
-  onImport: (content: string, filename: string, accountId?: number) => void;
+  onImport: (
+    events: ParseSwedishCSVResult["events"],
+    filename: string,
+    accountId?: number
+  ) => Promise<void> | void;
   onClose: () => void;
 }
 
@@ -14,6 +19,10 @@ export default function ImportModal({ onImport, onClose }: ImportModalProps) {
   const [selectedAccountId, setSelectedAccountId] = useState<number>(0);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [previewResult, setPreviewResult] = useState<ParseSwedishCSVResult | null>(
+    null
+  );
+  const [fileReadError, setFileReadError] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadAccounts() {
@@ -41,27 +50,49 @@ export default function ImportModal({ onImport, onClose }: ImportModalProps) {
     const file = event.target.files?.[0];
     if (file) {
       setSelectedFile(file);
+      setPreviewResult(null);
+      setFileReadError(null);
     }
   };
 
-  const handleImport = () => {
+  const handleParsePreview = () => {
     if (!selectedFile) return;
 
     setIsImporting(true);
+    setFileReadError(null);
     const reader = new FileReader();
 
     reader.onload = (e) => {
       const content = e.target?.result as string;
-      onImport(content, selectedFile.name, selectedAccountId || undefined);
+      const parsed = parseSwedishCSV(content);
+      setPreviewResult(parsed);
       setIsImporting(false);
     };
 
     reader.onerror = () => {
       setIsImporting(false);
-      alert("Fel vid läsning av fil");
+      setFileReadError("Fel vid läsning av fil");
     };
 
     reader.readAsText(selectedFile, "UTF-8");
+  };
+
+  const handleConfirmImport = async () => {
+    if (!selectedFile || !previewResult) return;
+
+    setIsImporting(true);
+    setFileReadError(null);
+
+    try {
+      await onImport(
+        previewResult.events,
+        selectedFile.name,
+        selectedAccountId || undefined
+      );
+    } catch {
+      setFileReadError("Kunde inte importera filen");
+      setIsImporting(false);
+    }
   };
 
   return (
@@ -140,6 +171,41 @@ export default function ImportModal({ onImport, onClose }: ImportModalProps) {
               </p>
             )}
           </div>
+
+          {previewResult && (
+            <div className="rounded-md border border-zinc-200 dark:border-zinc-700 p-4 space-y-3">
+              <div>
+                <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                  Förhandsgranskning av import
+                </p>
+                <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                  {previewResult.events.length} giltiga händelser kommer importeras.
+                </p>
+                {previewResult.skippedRows.length > 0 && (
+                  <p className="text-sm text-amber-700 dark:text-amber-400">
+                    {previewResult.skippedRows.length} rad
+                    {previewResult.skippedRows.length === 1 ? "" : "er"} skippas.
+                  </p>
+                )}
+              </div>
+
+              {previewResult.skippedRows.length > 0 && (
+                <div className="max-h-48 overflow-y-auto rounded-md bg-amber-50 dark:bg-amber-950/30 p-3 border border-amber-200 dark:border-amber-900">
+                  <ul className="space-y-2 text-xs text-amber-900 dark:text-amber-200">
+                    {previewResult.skippedRows.map((row) => (
+                      <li key={`${row.lineNumber}-${row.reason}`}>
+                        Rad {row.lineNumber}: {row.reason}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {fileReadError && (
+            <p className="text-sm text-red-600 dark:text-red-400">{fileReadError}</p>
+          )}
         </div>
 
         <div className="p-6 border-t border-zinc-200 dark:border-zinc-700 flex justify-end gap-3">
@@ -151,11 +217,17 @@ export default function ImportModal({ onImport, onClose }: ImportModalProps) {
             Avbryt
           </button>
           <button
-            onClick={handleImport}
+            onClick={previewResult ? handleConfirmImport : handleParsePreview}
             disabled={!selectedFile || isImporting}
             className="px-4 py-2 text-sm font-semibold rounded-md bg-zinc-900 text-zinc-50 hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isImporting ? "Importerar..." : "Importera"}
+            {isImporting
+              ? previewResult
+                ? "Importerar..."
+                : "Läser fil..."
+              : previewResult
+                ? "Bekräfta import"
+                : "Förhandsgranska"}
           </button>
         </div>
       </div>

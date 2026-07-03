@@ -5,7 +5,6 @@ import Link from "next/link";
 import { Import, BankEvent } from "../types";
 import { getImports, getImportWithEvents, deleteImport, saveBankEvents } from "../actions";
 import ImportModal from "../components/ImportModal";
-import { parseSwedishCSV } from "../utils/csvParser";
 import ConfirmModal from "../components/ConfirmModal";
 
 function formatSwedishDate(date: Date): string {
@@ -53,9 +52,11 @@ export default function ImporterPage() {
     setLoading(false);
   }
 
-  async function handleImport(content: string, filename: string, accountId?: number) {
-    const parsedEvents = parseSwedishCSV(content);
-
+  async function handleImport(
+    parsedEvents: Omit<BankEvent, "id" | "isPosted" | "transactionId">[],
+    filename: string,
+    accountId?: number
+  ) {
     // Save to database
     await saveBankEvents(parsedEvents, filename, accountId);
 
