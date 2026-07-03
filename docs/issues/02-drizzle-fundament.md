@@ -12,11 +12,11 @@ Schemat ska vara den enda källan till sanning; `drizzle-kit`-migrationer genere
 
 ## Acceptance criteria
 
-- [ ] Drizzle och `drizzle-kit` är installerade och konfigurerade mot `DATABASE_URL`
-- [ ] Hela nuvarande schemat är definierat i TypeScript med `date`-kolumner för datum och `numeric` för belopp
-- [ ] En initial `drizzle-kit`-migration är genererad och kan appliceras mot en tom databas
-- [ ] Runtime-körningen av `schema.sql` i `lib/db.ts` är borttagen
-- [ ] Schemat är granskat och godkänt av människa innan #03 påbörjas
+- [x] Drizzle och `drizzle-kit` är installerade och konfigurerade mot `DATABASE_URL`
+- [x] Hela nuvarande schemat är definierat i TypeScript med `date`-kolumner för datum och `numeric` för belopp
+- [x] En initial `drizzle-kit`-migration är genererad och kan appliceras mot en tom databas
+- [x] Runtime-körningen av `schema.sql` i `lib/db.ts` är borttagen
+- [x] Schemat är granskat och godkänt av människa innan #03 påbörjas
 
 ## Blocked by
 

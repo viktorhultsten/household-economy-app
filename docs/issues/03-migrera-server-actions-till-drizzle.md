@@ -8,11 +8,11 @@ Finkalibrerade aggregeringar (resultat- och balansräkning) får fortsatt använ
 
 ## Acceptance criteria
 
-- [ ] Alla server actions läser/skriver via Drizzle
-- [ ] `getAllTransactions` och `getTransactionsPaginated` delar gemensam query- och mapping-logik (ingen copy-paste)
-- [ ] Resultat- och balansräkning ger samma värden som före migreringen (inkl. korrekta månadsgränser utan tidszonsberoende)
-- [ ] Mapparna `migrations/` och `lib/migrations/` samt tillhörande ad-hoc-skript är borttagna
-- [ ] Appen bygger, lint passerar, och samtliga vyer fungerar
+- [x] Alla server actions läser/skriver via Drizzle
+- [x] `getAllTransactions` och `getTransactionsPaginated` delar gemensam query- och mapping-logik (ingen copy-paste)
+- [x] Resultat- och balansräkning ger samma värden som före migreringen (inkl. korrekta månadsgränser utan tidszonsberoende)
+- [x] Mapparna `migrations/` och `lib/migrations/` samt tillhörande ad-hoc-skript är borttagna
+- [x] Appen bygger, lint passerar, och samtliga vyer fungerar
 
 ## Blocked by
 

@@ -1,7 +1,7 @@
 "use server";
 
 import { queryAll, queryOne, query, transaction as dbTransaction } from "@/lib/db";
-import { BankEvent, Transaction, Post, Account, Group, Import, AccountType, PeriodLock, BookingTemplate, TemplateRow, RecurringItem, RecurringItemStatus, Budget, BudgetComparison, CustomResultView, CustomResultViewWithDetails } from "./types";
+import { BankEvent, Transaction, Post, Account, Group, Import, AccountType, PeriodLock, BookingTemplate, RecurringItem, RecurringItemStatus, Budget, BudgetComparison, CustomResultView, CustomResultViewWithDetails } from "./types";
 
 // Imports (CSV import metadata)
 export async function getImports(): Promise<Import[]> {
@@ -725,70 +725,54 @@ async function fetchRecurringItemsForTransactions(transactionIds: number[]): Pro
   return recurringMap;
 }
 
-export async function getAllTransactions(): Promise<Transaction[]> {
-  // Get total count for pagination info
-  const countResult = await queryOne<{ count: number }>(
-    "SELECT COUNT(*) as count FROM transactions"
-  );
-  const totalCount = countResult?.count || 0;
+type TransactionJoinRow = {
+  txn_id: number;
+  txn_date: string;
+  txn_description: string;
+  txn_bank_event_id: number | null;
+  post_id: number;
+  post_account_id: number;
+  post_debet: string;
+  post_kredit: string;
+  post_description: string | null;
+  account_name: string;
+  group_id: number;
+  group_name: string;
+  group_type: string;
+  be_id: number | null;
+  be_date: string | null;
+  be_description: string | null;
+  be_amount: string | null;
+  be_is_posted: number | null;
+  be_transaction_id: number | null;
+  be_import_id: number | null;
+};
 
-  // Optimized query using JOINs instead of N+1 queries
-  const rows = await queryAll<{
-    // Transaction fields
-    txn_id: number;
-    txn_date: string;
-    txn_description: string;
-    txn_bank_event_id: number | null;
-    // Post fields
-    post_id: number;
-    post_account_id: number;
-    post_debet: string;
-    post_kredit: string;
-    post_description: string | null;
-    // Account fields
-    account_name: string;
-    group_id: number;
-    group_name: string;
-    group_type: string;
-    // Bank event fields (nullable)
-    be_id: number | null;
-    be_date: string | null;
-    be_description: string | null;
-    be_amount: string | null;
-    be_is_posted: number | null;
-    be_transaction_id: number | null;
-    be_import_id: number | null;
-  }>(`
-    SELECT
-      t.id as txn_id,
-      t.date as txn_date,
-      t.description as txn_description,
-      t.bank_event_id as txn_bank_event_id,
-      p.id as post_id,
-      p.account_id as post_account_id,
-      p.debet as post_debet,
-      p.kredit as post_kredit,
-      p.description as post_description,
-      a.namn as account_name,
-      g.id as group_id,
-      g.namn as group_name,
-      g.typ as group_type,
-      be.id as be_id,
-      be.date as be_date,
-      be.description as be_description,
-      be.amount as be_amount,
-      be.is_posted as be_is_posted,
-      be.transaction_id as be_transaction_id,
-      be.import_id as be_import_id
-    FROM transactions t
-    JOIN posts p ON p.transaction_id = t.id
-    JOIN accounts a ON a.id = p.account_id
-    JOIN groups g ON g.id = a.group_id
-    LEFT JOIN bank_events be ON be.id = t.bank_event_id
-    ORDER BY t.date DESC, t.id DESC, p.id ASC
-  `);
+const TRANSACTION_LIST_SELECT = `
+  SELECT
+    t.id as txn_id,
+    t.date as txn_date,
+    t.description as txn_description,
+    t.bank_event_id as txn_bank_event_id,
+    p.id as post_id,
+    p.account_id as post_account_id,
+    p.debet as post_debet,
+    p.kredit as post_kredit,
+    p.description as post_description,
+    a.namn as account_name,
+    g.id as group_id,
+    g.namn as group_name,
+    g.typ as group_type,
+    be.id as be_id,
+    be.date as be_date,
+    be.description as be_description,
+    be.amount as be_amount,
+    be.is_posted as be_is_posted,
+    be.transaction_id as be_transaction_id,
+    be.import_id as be_import_id
+`;
 
-  // Group rows by transaction
+async function mapTransactionsFromJoinRows(rows: TransactionJoinRow[]): Promise<Transaction[]> {
   const transactionsMap = new Map<number, Transaction>();
 
   for (const row of rows) {
@@ -834,11 +818,9 @@ export async function getAllTransactions(): Promise<Transaction[]> {
     });
   }
 
-  // Fetch recurring items for all transactions
   const transactionIds = Array.from(transactionsMap.keys());
   const recurringMap = await fetchRecurringItemsForTransactions(transactionIds);
 
-  // Add recurring items to transactions
   for (const [txnId, transaction] of transactionsMap) {
     const recurringItems = recurringMap.get(txnId);
     if (recurringItems && recurringItems.length > 0) {
@@ -847,6 +829,20 @@ export async function getAllTransactions(): Promise<Transaction[]> {
   }
 
   return Array.from(transactionsMap.values());
+}
+
+export async function getAllTransactions(): Promise<Transaction[]> {
+  const rows = await queryAll<TransactionJoinRow>(`
+    ${TRANSACTION_LIST_SELECT}
+    FROM transactions t
+    JOIN posts p ON p.transaction_id = t.id
+    JOIN accounts a ON a.id = p.account_id
+    JOIN groups g ON g.id = a.group_id
+    LEFT JOIN bank_events be ON be.id = t.bank_event_id
+    ORDER BY t.date DESC, t.id DESC, p.id ASC
+  `);
+
+  return mapTransactionsFromJoinRows(rows);
 }
 
 export async function getTransactionsPaginated(
@@ -862,7 +858,7 @@ export async function getTransactionsPaginated(
 ): Promise<{ transactions: Transaction[]; total: number }> {
   // Build WHERE clauses for filtering
   const whereClauses: string[] = [];
-  const params: any[] = [];
+  const params: unknown[] = [];
   let paramIndex = 1;
 
   // Search filter
@@ -950,28 +946,7 @@ export async function getTransactionsPaginated(
   params.push(offset);
   const offsetParam = paramIndex++;
 
-  const rows = await queryAll<{
-    txn_id: number;
-    txn_date: string;
-    txn_description: string;
-    txn_bank_event_id: number | null;
-    post_id: number;
-    post_account_id: number;
-    post_debet: string;
-    post_kredit: string;
-    post_description: string | null;
-    account_name: string;
-    group_id: number;
-    group_name: string;
-    group_type: string;
-    be_id: number | null;
-    be_date: string | null;
-    be_description: string | null;
-    be_amount: string | null;
-    be_is_posted: number | null;
-    be_transaction_id: number | null;
-    be_import_id: number | null;
-  }>(
+  const rows = await queryAll<TransactionJoinRow>(
     `
     WITH paginated_transactions AS (
       SELECT id, date, description, bank_event_id
@@ -980,27 +955,7 @@ export async function getTransactionsPaginated(
       ${orderBy}
       LIMIT $${limitParam} OFFSET $${offsetParam}
     )
-    SELECT
-      t.id as txn_id,
-      t.date as txn_date,
-      t.description as txn_description,
-      t.bank_event_id as txn_bank_event_id,
-      p.id as post_id,
-      p.account_id as post_account_id,
-      p.debet as post_debet,
-      p.kredit as post_kredit,
-      p.description as post_description,
-      a.namn as account_name,
-      g.id as group_id,
-      g.namn as group_name,
-      g.typ as group_type,
-      be.id as be_id,
-      be.date as be_date,
-      be.description as be_description,
-      be.amount as be_amount,
-      be.is_posted as be_is_posted,
-      be.transaction_id as be_transaction_id,
-      be.import_id as be_import_id
+    ${TRANSACTION_LIST_SELECT}
     FROM paginated_transactions t
     JOIN posts p ON p.transaction_id = t.id
     JOIN accounts a ON a.id = p.account_id
@@ -1011,66 +966,10 @@ export async function getTransactionsPaginated(
     params
   );
 
-  // Group rows by transaction
-  const transactionsMap = new Map<number, Transaction>();
-
-  for (const row of rows) {
-    if (!transactionsMap.has(row.txn_id)) {
-      transactionsMap.set(row.txn_id, {
-        id: row.txn_id,
-        date: new Date(row.txn_date),
-        description: row.txn_description,
-        bankEventId: row.txn_bank_event_id ?? undefined,
-        bankEvent: row.be_id
-          ? {
-              id: row.be_id,
-              date: new Date(row.be_date!),
-              description: row.be_description!,
-              amount: Number(row.be_amount),
-              isPosted: row.be_is_posted === 1,
-              transactionId: row.be_transaction_id ?? undefined,
-              importId: row.be_import_id ?? undefined,
-            }
-          : undefined,
-        posts: [],
-      });
-    }
-
-    const transaction = transactionsMap.get(row.txn_id)!;
-    transaction.posts.push({
-      id: row.post_id,
-      transactionId: row.txn_id,
-      accountId: row.post_account_id,
-      debet: Number(row.post_debet),
-      kredit: Number(row.post_kredit),
-      description: row.post_description ?? undefined,
-      account: {
-        id: row.post_account_id,
-        namn: row.account_name,
-        groupId: row.group_id,
-        group: {
-          id: row.group_id,
-          namn: row.group_name,
-          typ: row.group_type as AccountType,
-        },
-      },
-    });
-  }
-
-  // Fetch recurring items for all transactions
-  const transactionIds = Array.from(transactionsMap.keys());
-  const recurringMap = await fetchRecurringItemsForTransactions(transactionIds);
-
-  // Add recurring items to transactions
-  for (const [txnId, transaction] of transactionsMap) {
-    const recurringItems = recurringMap.get(txnId);
-    if (recurringItems && recurringItems.length > 0) {
-      transaction.recurringItems = recurringItems;
-    }
-  }
+  const transactions = await mapTransactionsFromJoinRows(rows);
 
   return {
-    transactions: Array.from(transactionsMap.values()),
+    transactions,
     total,
   };
 }
