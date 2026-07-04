@@ -29,12 +29,21 @@ function serializeFormState(
   });
 }
 
+interface BulkNavProps {
+  currentIndex: number;
+  total: number;
+  isSaved: boolean;
+  onNavigate: (direction: -1 | 1) => void;
+  onSaved: (verifikatId: number) => Promise<void>;
+}
+
 interface VerifikatFormProps {
   bankEvent?: BankEvent;
   verifikat?: Verifikat; // If provided, we're editing
   onClose: () => void;
   onSuccess: () => void;
   onFlagChange?: (updated: BankEvent) => void;
+  bulkNav?: BulkNavProps;
 }
 
 export default function VerifikatForm({
@@ -43,6 +52,7 @@ export default function VerifikatForm({
   onClose,
   onSuccess,
   onFlagChange,
+  bulkNav,
 }: VerifikatFormProps) {
   const isEditing = !!verifikat;
   const verifikatBankEvent = verifikat?.bankEvent || bankEvent;
@@ -113,6 +123,8 @@ export default function VerifikatForm({
   const [flagComment, setFlagComment] = useState(bankEvent?.flagComment ?? "");
   const [flagLoading, setFlagLoading] = useState(false);
   const isFlagged = bankEvent?.flagged ?? false;
+
+  const [pendingNavDirection, setPendingNavDirection] = useState<-1 | 1 | null>(null);
 
   // Store raw input strings for debit/credit fields to allow typing commas
   const [debetInputs, setDebetInputs] = useState<{ [key: number]: string }>({});
@@ -239,6 +251,15 @@ export default function VerifikatForm({
       setShowCloseConfirm(true);
     } else {
       onClose();
+    }
+  };
+
+  const attemptNavigate = (direction: -1 | 1) => {
+    if (isDirty) {
+      setPendingNavDirection(direction);
+      setShowCloseConfirm(true);
+    } else {
+      bulkNav?.onNavigate(direction);
     }
   };
 
@@ -473,6 +494,16 @@ export default function VerifikatForm({
 
         // Update recurring item link
         await updateVerifikatRecurringItemLink(verifikat!.id, selectedRecurringItemId);
+
+        if (bulkNav) {
+          // Bulk mode: stay open, clear dirty state
+          onSuccess();
+          setBaseline(serializeFormState(date, description, posts, selectedRecurringItemId));
+          setLoading(false);
+        } else {
+          onSuccess();
+          onClose();
+        }
       } else {
         // Create new verifikat
         const verifikatId = await createVerifikat({
@@ -490,10 +521,15 @@ export default function VerifikatForm({
         if (selectedRecurringItemId) {
           await linkVerifikatToRecurringItem(verifikatId, selectedRecurringItemId);
         }
-      }
 
-      onSuccess();
-      onClose();
+        if (bulkNav) {
+          // Bulk mode: notify parent; parent will remount form in saved/edit state
+          await bulkNav.onSaved(verifikatId);
+        } else {
+          onSuccess();
+          onClose();
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ett fel uppstod");
       setLoading(false);
@@ -507,8 +543,16 @@ export default function VerifikatForm({
         <div className="flex-1 flex flex-col overflow-hidden">
         <div className="sticky top-0 bg-white dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 px-6 py-4 shrink-0">
           <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">
+            <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50 flex items-center gap-2">
               {isEditing ? "Redigera verifikat" : verifikatBankEvent ? "Bokför verifikat" : "Nytt verifikat"}
+              {bulkNav?.isSaved && (
+                <span className="inline-flex items-center gap-1 text-sm font-normal text-green-600 dark:text-green-400">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  Bokförd
+                </span>
+              )}
             </h2>
             <button
               onClick={attemptClose}
@@ -859,14 +903,41 @@ export default function VerifikatForm({
           )}
 
           <div className="flex gap-3 justify-between">
-            <button
-              type="button"
-              onClick={() => setShowSaveTemplate(!showSaveTemplate)}
-              className="px-4 py-2 text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
-              disabled={loading}
-            >
-              {showSaveTemplate ? "Dölj" : "Spara som mall"}
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setShowSaveTemplate(!showSaveTemplate)}
+                className="px-4 py-2 text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
+                disabled={loading}
+              >
+                {showSaveTemplate ? "Dölj" : "Spara som mall"}
+              </button>
+              {bulkNav && (
+                <div className="flex items-center gap-1.5 text-sm text-zinc-600 dark:text-zinc-400">
+                  <button
+                    type="button"
+                    onClick={() => attemptNavigate(-1)}
+                    disabled={bulkNav.currentIndex === 0 || loading}
+                    className="px-2 py-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed text-lg leading-none"
+                    aria-label="Föregående händelse"
+                  >
+                    ‹
+                  </button>
+                  <span className="tabular-nums select-none">
+                    {bulkNav.currentIndex + 1} av {bulkNav.total}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => attemptNavigate(1)}
+                    disabled={bulkNav.currentIndex === bulkNav.total - 1 || loading}
+                    className="px-2 py-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed text-lg leading-none"
+                    aria-label="Nästa händelse"
+                  >
+                    ›
+                  </button>
+                </div>
+              )}
+            </div>
             <div className="flex gap-3">
               {bankEvent && (
                 <button
@@ -1126,15 +1197,28 @@ export default function VerifikatForm({
       {showCloseConfirm && (
         <ConfirmModal
           title="Kasta osparade ändringar?"
-          message="Du har ändringar som inte sparats. Vill du stänga utan att spara?"
-          confirmText="Stäng utan att spara"
+          message={
+            pendingNavDirection !== null
+              ? "Du har osparade ändringar. Vill du bläddra vidare utan att spara?"
+              : "Du har ändringar som inte sparats. Vill du stänga utan att spara?"
+          }
+          confirmText={pendingNavDirection !== null ? "Bläddra vidare" : "Stäng utan att spara"}
           cancelText="Fortsätt redigera"
           variant="warning"
           onConfirm={() => {
             setShowCloseConfirm(false);
-            onClose();
+            if (pendingNavDirection !== null) {
+              const dir = pendingNavDirection;
+              setPendingNavDirection(null);
+              bulkNav?.onNavigate(dir);
+            } else {
+              onClose();
+            }
           }}
-          onCancel={() => setShowCloseConfirm(false)}
+          onCancel={() => {
+            setShowCloseConfirm(false);
+            setPendingNavDirection(null);
+          }}
         />
       )}
     </div>

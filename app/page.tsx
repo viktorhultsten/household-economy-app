@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { BankEvent } from "./types";
 import VerifikatForm from "./components/VerifikatForm";
+import BulkBokforingVy from "./components/BulkBokforingVy";
 import { getUnpostedBankEventsPaginated, flagBankEvent, unflagBankEvent } from "./actions";
 
 const BATCH_SIZE = 25;
@@ -26,6 +27,8 @@ export default function Home() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<BankEvent | null>(null);
   const [showManualVerifikatForm, setShowManualVerifikatForm] = useState(false);
+  const [showBulkVy, setShowBulkVy] = useState(false);
+  const [bulkQueue, setBulkQueue] = useState<BankEvent[]>([]);
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const loadingRef = useRef(false);
@@ -88,6 +91,21 @@ export default function Home() {
     setEvents((prev) => prev.map((e) => (e.id === updatedEvent.id ? updatedEvent : e)));
   }, []);
 
+  const handleBulkOpen = useCallback(() => {
+    const n = Math.min(total, BATCH_SIZE);
+    setBulkQueue(events.slice(0, n));
+    setShowBulkVy(true);
+  }, [total, events]);
+
+  const handleBulkClose = useCallback(async () => {
+    setShowBulkVy(false);
+    setBulkQueue([]);
+    const windowSize = Math.max(BATCH_SIZE, events.length);
+    const { events: data, total: t } = await getUnpostedBankEventsPaginated(windowSize, 0);
+    setEvents(data);
+    setTotal(t);
+  }, [events.length]);
+
   if (initialLoading) {
     return (
       <div className="min-h-screen bg-zinc-50 dark:bg-zinc-900 flex items-center justify-center">
@@ -103,12 +121,22 @@ export default function Home() {
           <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">
             Bankhändelser
           </h1>
-          <button
-            onClick={() => setShowManualVerifikatForm(true)}
-            className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-zinc-50 hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
-          >
-            Nytt verifikat
-          </button>
+          <div className="flex items-center gap-3">
+            {total > 0 && (
+              <button
+                onClick={handleBulkOpen}
+                className="rounded-md bg-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-50 hover:bg-zinc-600 dark:bg-zinc-200 dark:text-zinc-900 dark:hover:bg-zinc-300"
+              >
+                Bokför {Math.min(total, BATCH_SIZE)} bankhändelser
+              </button>
+            )}
+            <button
+              onClick={() => setShowManualVerifikatForm(true)}
+              className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-zinc-50 hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+            >
+              Nytt verifikat
+            </button>
+          </div>
         </div>
 
         {total === 0 ? (
@@ -214,6 +242,13 @@ export default function Home() {
         <VerifikatForm
           onClose={() => setShowManualVerifikatForm(false)}
           onSuccess={handlePostSuccess}
+        />
+      )}
+
+      {showBulkVy && (
+        <BulkBokforingVy
+          queue={bulkQueue}
+          onClose={handleBulkClose}
         />
       )}
     </div>

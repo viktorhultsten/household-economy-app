@@ -1,6 +1,6 @@
 # 14 — Bulkbokföring: navigeringsskal
 
-Status: Att göra
+Status: Klar
 
 ## What to build
 
@@ -12,12 +12,12 @@ Varje händelse kan bokföras till ett verifikat inifrån vyn. **Bokförda händ
 
 ## Acceptance criteria
 
-- [ ] "Bokför N bankhändelser"-knapp med dynamisk N ≤ 25, dold vid 0
-- [ ] Öppnar helskärmsvy över en fast kö av de N översta händelserna (nyast först)
-- [ ] "x av N"-status och ‹ ›-pilar längst ner till vänster intill spara-knappen
-- [ ] Verifikat kan skapas per händelse; bokförda händelser stannar kvar i kön
-- [ ] Återbesök av bokförd händelse visar verifikatet redigerbart med "Spara verifikat" och sparad-indikator
-- [ ] Bekräftelsedialog vid bläddring bort från osparade ändringar; ändringar kastas vid fortsatt
+- [x] "Bokför N bankhändelser"-knapp med dynamisk N ≤ 25, dold vid 0
+- [x] Öppnar helskärmsvy över en fast kö av de N översta händelserna (nyast först)
+- [x] "x av N"-status och ‹ ›-pilar längst ner till vänster intill spara-knappen
+- [x] Verifikat kan skapas per händelse; bokförda händelser stannar kvar i kön
+- [x] Återbesök av bokförd händelse visar verifikatet redigerbart med "Spara verifikat" och sparad-indikator
+- [x] Bekräftelsedialog vid bläddring bort från osparade ändringar; ändringar kastas vid fortsatt
 
 ## Blocked by
 
