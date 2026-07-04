@@ -1,9 +1,32 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Account, BankEvent, Post, BookingTemplate, RecurringItemStatus, Transaction } from "../types";
 import { getAccounts, createTransaction, updateTransaction, isPeriodLocked, getBookingTemplates, createBookingTemplate, getRecurringItemsStatus, linkTransactionToRecurringItem, getRecurringItemForTransaction, updateTransactionRecurringItemLink, getBookingSuggestion, BookingSuggestion } from "../actions";
 import AccountSelectorModal from "./AccountSelectorModal";
+import ConfirmModal from "./ConfirmModal";
+
+type PostInput = Omit<Post, "id" | "transactionId">;
+
+// Serialize the editable state so we can detect unsaved changes (dirty state)
+function serializeFormState(
+  date: Date,
+  description: string,
+  posts: PostInput[],
+  recurringItemId: number | null
+) {
+  return JSON.stringify({
+    date: date.toISOString().slice(0, 10),
+    description,
+    posts: posts.map((p) => ({
+      accountId: p.accountId,
+      debet: p.debet,
+      kredit: p.kredit,
+      description: p.description || "",
+    })),
+    recurringItemId,
+  });
+}
 
 interface TransactionFormProps {
   bankEvent?: BankEvent;
@@ -23,14 +46,12 @@ export default function TransactionForm({
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [templates, setTemplates] = useState<BookingTemplate[]>([]);
   const [recurringItems, setRecurringItems] = useState<RecurringItemStatus[]>([]);
+  const [recurringLoaded, setRecurringLoaded] = useState(false);
   const [selectedRecurringItemId, setSelectedRecurringItemId] = useState<number | null>(null);
-  const [date, setDate] = useState(
-    transaction?.date || bankEvent?.date || new Date()
-  );
-  const [description, setDescription] = useState(
-    transaction?.description || bankEvent?.description || ""
-  );
-  const [posts, setPosts] = useState<Omit<Post, "id" | "transactionId">[]>(() => {
+
+  const initialDate = transaction?.date || bankEvent?.date || new Date();
+  const initialDescription = transaction?.description || bankEvent?.description || "";
+  const initialPosts = useMemo<PostInput[]>(() => {
     // If editing, use existing posts
     if (transaction) {
       return transaction.posts.map((post) => ({
@@ -63,7 +84,18 @@ export default function TransactionForm({
         description: "",
       },
     ];
-  });
+  }, [bankEvent, transaction]);
+
+  const [date, setDate] = useState(initialDate);
+  const [description, setDescription] = useState(initialDescription);
+  const [posts, setPosts] = useState<PostInput[]>(initialPosts);
+  // Baseline snapshot for dirty detection; updated once async edit data loads
+  const [baseline, setBaseline] = useState(() =>
+    serializeFormState(initialDate, initialDescription, initialPosts, null)
+  );
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [periodLockWarning, setPeriodLockWarning] = useState("");
@@ -91,11 +123,16 @@ export default function TransactionForm({
       setAccounts(accountsData);
       setTemplates(templatesData);
       setRecurringItems(recurringItemsData);
+      setRecurringLoaded(true);
 
       // If editing, load the existing recurring item link
       if (isEditing && transaction) {
         const existingRecurringItemId = await getRecurringItemForTransaction(transaction.id);
         setSelectedRecurringItemId(existingRecurringItemId);
+        // Re-baseline so a pre-existing recurring link isn't counted as an unsaved change
+        setBaseline(
+          serializeFormState(initialDate, initialDescription, initialPosts, existingRecurringItemId)
+        );
       }
     }
     loadData();
@@ -129,21 +166,86 @@ export default function TransactionForm({
     checkPeriodLock();
   }, [date]);
 
+  // Lock background scroll while the full-screen view is open
   useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, []);
+
+  // Trap Tab focus within the view so the background page can't be reached
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const handleTab = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const focusable = container.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
       }
     };
-
-    document.addEventListener("keydown", handleEscape);
-    return () => document.removeEventListener("keydown", handleEscape);
-  }, [onClose]);
+    container.addEventListener("keydown", handleTab);
+    return () => container.removeEventListener("keydown", handleTab);
+  }, []);
 
   const totalDebet = posts.reduce((sum, post) => sum + post.debet, 0);
   const totalKredit = posts.reduce((sum, post) => sum + post.kredit, 0);
   const difference = totalDebet - totalKredit;
   const isBalanced = Math.abs(difference) < 0.01; // Allow small floating point errors
+
+  // When booking from a bank event, the balanced total must equal the bank
+  // event's amount (UI-only check, see docs/adr/0005). Prevents e.g. booking a
+  // 500 kr purchase as 120 kr.
+  const bankEventAmount = transactionBankEvent
+    ? Math.abs(transactionBankEvent.amount)
+    : null;
+  const amountMatchesBankEvent =
+    bankEventAmount === null || Math.abs(totalDebet - bankEventAmount) < 0.01;
+
+  // Every row that carries an amount must have an account selected.
+  const allAmountRowsHaveAccount = posts.every(
+    (post) => (post.debet === 0 && post.kredit === 0) || post.accountId !== 0
+  );
+
+  const isDirty =
+    serializeFormState(date, description, posts, selectedRecurringItemId) !== baseline;
+
+  const attemptClose = () => {
+    if (isDirty) {
+      setShowCloseConfirm(true);
+    } else {
+      onClose();
+    }
+  };
+
+  // Cmd/Ctrl+Enter saves; Escape asks before closing when there are changes
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      // Let nested modals own their own keys
+      if (showCloseConfirm || showAccountSelector !== null) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        attemptClose();
+      } else if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        formRef.current?.requestSubmit();
+      }
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showCloseConfirm, showAccountSelector, isDirty, onClose]);
 
   const updatePost = (
     index: number,
@@ -288,6 +390,19 @@ export default function TransactionForm({
       return;
     }
 
+    if (bankEventAmount !== null && !amountMatchesBankEvent) {
+      setError(
+        `Summan (${totalDebet.toLocaleString("sv-SE", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })} kr) måste stämma med bankhändelsens belopp (${bankEventAmount.toLocaleString("sv-SE", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })} kr)!`
+      );
+      return;
+    }
+
     if (posts.some((p) => p.accountId === 0)) {
       setError("Alla poster måste ha ett konto!");
       return;
@@ -339,8 +454,8 @@ export default function TransactionForm({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white dark:bg-zinc-800 rounded-lg shadow-xl max-w-7xl w-full max-h-[90vh] flex overflow-hidden">
+    <div ref={containerRef} className="fixed inset-0 z-50 flex bg-white dark:bg-zinc-900">
+      <div className="w-full flex overflow-hidden">
         {/* Main Form */}
         <div className="flex-1 flex flex-col overflow-hidden">
         <div className="sticky top-0 bg-white dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 px-6 py-4 shrink-0">
@@ -349,7 +464,7 @@ export default function TransactionForm({
               {isEditing ? "Redigera transaktion" : transactionBankEvent ? "Bokför transaktion" : "Ny transaktion"}
             </h2>
             <button
-              onClick={onClose}
+              onClick={attemptClose}
               className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
             >
               ✕
@@ -374,7 +489,8 @@ export default function TransactionForm({
           )}
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto flex-1">
+        <form ref={formRef} onSubmit={handleSubmit} className="flex flex-1 flex-col overflow-hidden">
+          <div className="p-6 space-y-6 overflow-y-auto flex-1">
           {error && (
             <div className="mb-4 rounded-md bg-red-50 dark:bg-red-900/20 p-4 text-sm text-red-800 dark:text-red-200">
               {error}
@@ -387,52 +503,64 @@ export default function TransactionForm({
             </div>
           )}
 
-          {suggestionLoaded && !suggestionDismissed && !isEditing && !suggestion && (
-            <div className="mb-4 rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 px-4 py-3 text-sm text-zinc-500 dark:text-zinc-400">
-              Hittade inga konteringsförslag.
-            </div>
-          )}
-
-          {suggestion && !suggestionDismissed && !isEditing && (
-            <div className="mb-4 rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20 p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-1">
-                    Förslag baserat på tidigare bokföring
-                  </p>
-                  <p className="text-xs text-blue-700 dark:text-blue-300 mb-2">
-                    Senast bokförd {suggestion.transactionDate.toLocaleDateString("sv-SE")} — {suggestion.transactionDescription}
-                  </p>
-                  <div className="flex flex-wrap gap-1 mb-2">
-                    {suggestion.posts.map((p, i) => (
-                      <span key={i} className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs bg-blue-100 dark:bg-blue-800/50 text-blue-800 dark:text-blue-200">
-                        <span className="font-medium">{p.isDebet ? "D" : "K"}</span>
-                        {p.accountName}
-                      </span>
-                    ))}
-                    {suggestion.recurringItemName && (
-                      <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs bg-purple-100 dark:bg-purple-800/50 text-purple-800 dark:text-purple-200">
-                        Återkommande: {suggestion.recurringItemName}
-                      </span>
-                    )}
+          {/* Konteringsförslag — reserved-height slot so nothing jumps while loading */}
+          {!isEditing && bankEvent && !suggestionDismissed && (
+            <div className="mb-4 min-h-[7rem]">
+              {!suggestionLoaded ? (
+                <div className="h-28 rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 p-4 animate-pulse">
+                  <div className="mb-3 h-3 w-48 rounded bg-zinc-200 dark:bg-zinc-700" />
+                  <div className="mb-3 h-3 w-64 rounded bg-zinc-200 dark:bg-zinc-700" />
+                  <div className="flex gap-1">
+                    <div className="h-5 w-24 rounded bg-zinc-200 dark:bg-zinc-700" />
+                    <div className="h-5 w-24 rounded bg-zinc-200 dark:bg-zinc-700" />
                   </div>
-                  <button
-                    type="button"
-                    onClick={applySuggestion}
-                    className="text-xs font-semibold px-3 py-1.5 rounded-md bg-blue-700 text-white hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-500"
-                  >
-                    Använd förslag
-                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setSuggestionDismissed(true)}
-                  className="text-blue-400 hover:text-blue-600 dark:hover:text-blue-300 shrink-0 text-lg leading-none"
-                  aria-label="Stäng förslag"
-                >
-                  ✕
-                </button>
-              </div>
+              ) : !suggestion ? (
+                <div className="rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 px-4 py-3 text-sm text-zinc-500 dark:text-zinc-400">
+                  Hittade inga konteringsförslag.
+                </div>
+              ) : (
+                <div className="rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-1">
+                        Förslag baserat på tidigare bokföring
+                      </p>
+                      <p className="text-xs text-blue-700 dark:text-blue-300 mb-2">
+                        Senast bokförd {suggestion.transactionDate.toLocaleDateString("sv-SE")} — {suggestion.transactionDescription}
+                      </p>
+                      <div className="flex flex-wrap gap-1 mb-2">
+                        {suggestion.posts.map((p, i) => (
+                          <span key={i} className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs bg-blue-100 dark:bg-blue-800/50 text-blue-800 dark:text-blue-200">
+                            <span className="font-medium">{p.isDebet ? "D" : "K"}</span>
+                            {p.accountName}
+                          </span>
+                        ))}
+                        {suggestion.recurringItemName && (
+                          <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs bg-purple-100 dark:bg-purple-800/50 text-purple-800 dark:text-purple-200">
+                            Återkommande: {suggestion.recurringItemName}
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={applySuggestion}
+                        className="text-xs font-semibold px-3 py-1.5 rounded-md bg-blue-700 text-white hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-500"
+                      >
+                        Använd förslag
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSuggestionDismissed(true)}
+                      className="text-blue-400 hover:text-blue-600 dark:hover:text-blue-300 shrink-0 text-lg leading-none"
+                      aria-label="Stäng förslag"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -641,10 +769,25 @@ export default function TransactionForm({
                     })} kr`}
               </span>
             </div>
+
+            {bankEventAmount !== null && isBalanced && !amountMatchesBankEvent && (
+              <div className="mt-2 rounded-md bg-red-50 dark:bg-red-900/20 px-3 py-2 text-sm text-red-800 dark:text-red-200">
+                Summan ({totalDebet.toLocaleString("sv-SE", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })} kr) stämmer inte med bankhändelsens belopp ({bankEventAmount.toLocaleString("sv-SE", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })} kr).
+              </div>
+            )}
+          </div>
           </div>
 
+          {/* Sammanfattningssektion — alltid längst ner */}
+          <div className="shrink-0 border-t border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-6 py-4 space-y-4">
           {showSaveTemplate && (
-            <div className="mb-4 p-4 border border-zinc-200 dark:border-zinc-700 rounded-md bg-zinc-50 dark:bg-zinc-900">
+            <div className="p-4 border border-zinc-200 dark:border-zinc-700 rounded-md bg-zinc-50 dark:bg-zinc-900">
               <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
                 Mallnamn
               </label>
@@ -677,7 +820,7 @@ export default function TransactionForm({
             </div>
           )}
 
-          <div className="flex gap-3 justify-between pt-4 border-t border-zinc-200 dark:border-zinc-700">
+          <div className="flex gap-3 justify-between">
             <button
               type="button"
               onClick={() => setShowSaveTemplate(!showSaveTemplate)}
@@ -689,7 +832,7 @@ export default function TransactionForm({
             <div className="flex gap-3">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={attemptClose}
                 className="px-4 py-2 text-sm font-medium text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-50"
                 disabled={loading}
               >
@@ -697,12 +840,13 @@ export default function TransactionForm({
               </button>
               <button
                 type="submit"
-                disabled={!isBalanced || loading || !!periodLockWarning}
+                disabled={!isBalanced || loading || !!periodLockWarning || !amountMatchesBankEvent || !allAmountRowsHaveAccount}
                 className="px-4 py-2 text-sm font-semibold rounded-md bg-zinc-900 text-zinc-50 hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
               >
                 {loading ? "Sparar..." : isEditing ? "Uppdatera" : "Spara transaktion"}
               </button>
             </div>
+          </div>
           </div>
         </form>
         </div>
@@ -714,7 +858,19 @@ export default function TransactionForm({
               Återkommande
             </h3>
           </div>
-          {recurringItems.length === 0 ? (
+          {!recurringLoaded ? (
+            <div className="space-y-2">
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className="h-20 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 p-3 animate-pulse"
+                >
+                  <div className="mb-3 h-4 w-32 rounded bg-zinc-200 dark:bg-zinc-700" />
+                  <div className="h-3 w-full rounded bg-zinc-200 dark:bg-zinc-700" />
+                </div>
+              ))}
+            </div>
+          ) : recurringItems.length === 0 ? (
             <p className="text-sm text-zinc-600 dark:text-zinc-400 text-center py-4">
               Inga återkommande transaktioner för denna månad.{" "}
               <span className="block mt-2 text-xs">
@@ -790,6 +946,21 @@ export default function TransactionForm({
             setShowAccountSelector(null);
           }}
           onClose={() => setShowAccountSelector(null)}
+        />
+      )}
+
+      {showCloseConfirm && (
+        <ConfirmModal
+          title="Kasta osparade ändringar?"
+          message="Du har ändringar som inte sparats. Vill du stänga utan att spara?"
+          confirmText="Stäng utan att spara"
+          cancelText="Fortsätt redigera"
+          variant="warning"
+          onConfirm={() => {
+            setShowCloseConfirm(false);
+            onClose();
+          }}
+          onCancel={() => setShowCloseConfirm(false)}
         />
       )}
     </div>

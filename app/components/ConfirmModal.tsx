@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 interface ConfirmModalProps {
   title: string;
@@ -21,15 +21,47 @@ export default function ConfirmModal({
   onCancel,
   variant = "danger",
 }: ConfirmModalProps) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const confirmRef = useRef<HTMLButtonElement>(null);
+
   useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
+    // Fokusera avbryt-knappen som standard (säkraste valet).
+    cancelRef.current?.focus();
+
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        e.preventDefault();
         onCancel();
+        return;
+      }
+
+      const buttons = [cancelRef.current, confirmRef.current].filter(
+        (b): b is HTMLButtonElement => b !== null
+      );
+      if (buttons.length === 0) return;
+
+      const active = document.activeElement as HTMLElement | null;
+      const currentIndex = buttons.findIndex((b) => b === active);
+
+      // Piltangenter och Tab flyttar fokus mellan knapparna utan att röra bakgrunden.
+      if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const next = currentIndex <= 0 ? buttons.length - 1 : currentIndex - 1;
+        buttons[next].focus();
+      } else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+        e.preventDefault();
+        const next = currentIndex === buttons.length - 1 ? 0 : currentIndex + 1;
+        buttons[next].focus();
+      } else if (e.key === "Tab") {
+        e.preventDefault();
+        const delta = e.shiftKey ? -1 : 1;
+        const next = (currentIndex + delta + buttons.length) % buttons.length;
+        buttons[next].focus();
       }
     };
 
-    document.addEventListener("keydown", handleEscape);
-    return () => document.removeEventListener("keydown", handleEscape);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
   }, [onCancel]);
   const variantStyles = {
     danger: {
@@ -83,14 +115,16 @@ export default function ConfirmModal({
 
         <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 rounded-b-lg">
           <button
+            ref={cancelRef}
             onClick={onCancel}
-            className="rounded-md px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-200 dark:text-zinc-50 dark:hover:bg-zinc-700"
+            className="rounded-md px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-200 dark:text-zinc-50 dark:hover:bg-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:ring-offset-2 dark:focus:ring-offset-zinc-900"
           >
             {cancelText}
           </button>
           <button
+            ref={confirmRef}
             onClick={onConfirm}
-            className={`rounded-md px-4 py-2 text-sm font-semibold ${styles.button}`}
+            className={`rounded-md px-4 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-zinc-900 ${styles.button}`}
           >
             {confirmText}
           </button>

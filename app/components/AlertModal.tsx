@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 interface AlertModalProps {
   title?: string;
@@ -15,15 +15,32 @@ export default function AlertModal({
   onClose,
   variant = "info",
 }: AlertModalProps) {
+  const okRef = useRef<HTMLButtonElement>(null);
+
   useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
+    okRef.current?.focus();
+
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        e.preventDefault();
         onClose();
+        return;
+      }
+      // Håll fokus på knappen så bakgrunden inte rör sig med piltangenter/Tab.
+      if (
+        e.key === "Tab" ||
+        e.key === "ArrowLeft" ||
+        e.key === "ArrowRight" ||
+        e.key === "ArrowUp" ||
+        e.key === "ArrowDown"
+      ) {
+        e.preventDefault();
+        okRef.current?.focus();
       }
     };
 
-    document.addEventListener("keydown", handleEscape);
-    return () => document.removeEventListener("keydown", handleEscape);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
   const variantStyles = {
@@ -89,8 +106,9 @@ export default function AlertModal({
 
         <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 rounded-b-lg">
           <button
+            ref={okRef}
             onClick={onClose}
-            className={`rounded-md px-4 py-2 text-sm font-semibold ${styles.button}`}
+            className={`rounded-md px-4 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-zinc-900 ${styles.button}`}
           >
             OK
           </button>
