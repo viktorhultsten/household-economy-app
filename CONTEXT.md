@@ -37,6 +37,13 @@ Mängden obokförda bankhändelser (`is_posted = 0`) som väntar på att bokför
 Att skapa ett verifikat från en bankhändelse (eller manuellt) och markera bankhändelsen som bokförd. Uppdelning på flera kategorier görs med flera konteringsrader i samma verifikat, inte flera verifikat.
 _Avoid_: Kontera (används synonymt men "bokföra" är kanoniskt)
 
+**Konteringsmönster**:
+En återkommande konteringsstruktur — vilka motkonton som används och på vilken sida (debet/kredit) — härledd ur tidigare verifikat. Identifieras av sin struktur, inte av något belopp; samma mönster gäller oavsett om beloppet är nytt eller varierar.
+
+**Konteringsförslag**:
+Ett föreslaget konteringsmönster för en obokförd bankhändelse, rankat efter hur sannolikt det är. Rankningen väger in bankhändelsens belopp mot varje mönsters historiska belopp, så att t.ex. ett splittat mönster kan föreslås framför ett enklare när beloppet talar för det. Presenteras med de historiska verifikat som stödjer mönstret. Flera förslag kan visas samtidigt när underlaget är tvetydigt.
+_Avoid_: Förslag (ensamt, tvetydigt)
+
 ### Planering och uppföljning
 
 **Återkommande händelse**:

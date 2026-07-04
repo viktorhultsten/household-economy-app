@@ -1,0 +1,7 @@
+# Konteringsförslag byggs på lokal heuristik, inte embeddings/LLM
+
+Konteringsförslag härleds ur tidigare verifikat med **lokal, deterministisk heuristik**: bankhändelsers beskrivningar normaliseras och tokeniseras, matchande historik grupperas till konteringsmönster (motkonto + sida), och mönstren rankas med bankhändelsens belopp som primär särskiljare. Ingen extern embeddings-tjänst och ingen språkmodell anropas — varken vid indexering eller när förslag beräknas i formuläret.
+
+Detta är ett medvetet val trots att embeddings vore semantiskt starkare (synonyma butiksnamn, omskrivningar, stavfel som heuristiken inte når). Skälet är att appen enligt [ADR-0001](0001-single-user-local-no-auth.md) körs lokalt av en enda användare. Ett embeddings-/LLM-beroende skulle införa nätverksberoende, API-nycklar och kostnad, latens i formulärets varma väg, och trasig offline-drift — allt i utbyte mot en matchningskvalitet som de flesta privatekonomi-beskrivningar (ICA, SL, Swish med mottagarnamn) inte kräver. Grupperingen till mönster gör dessutom att tvetydig text löses genom att visa flera rankade förslag i stället för att gissa, vilket minskar behovet av semantisk finess.
+
+En framtida utvecklare som ser handrullad tokenisering och undrar "varför inte bara embeddings?" bör veta att det var ett aktivt val, inte en förbiseende. Om ett verkligt semantiskt gap uppstår är den tänkta vägen att lägga till **förberäknade, cachade embeddings per distinkt beskrivning** — inte ett LLM-anrop i den varma vägen. En sådan förändring omprövas via en ny ADR.
