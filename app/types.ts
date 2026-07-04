@@ -35,6 +35,8 @@ export interface BankEvent {
   description: string;
   amount: number;
   isPosted: boolean;
+  flagged?: boolean;
+  flagComment?: string;
   verifikatId?: number;
   importId?: number;
   import?: Import; // Include import data to access default account

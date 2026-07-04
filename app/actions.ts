@@ -95,6 +95,8 @@ export async function getImportWithEvents(importId: number): Promise<{
     description: string;
     amount: number;
     is_posted: number;
+    flagged: boolean;
+    flag_comment: string | null;
     transaction_id: number | null;
     import_id: number;
   }>("SELECT * FROM bank_events WHERE import_id = $1 ORDER BY date ASC", [importId]);
@@ -114,6 +116,8 @@ export async function getImportWithEvents(importId: number): Promise<{
       description: row.description,
       amount: Number(row.amount),
       isPosted: row.is_posted === 1,
+      flagged: row.flagged ?? false,
+      flagComment: row.flag_comment ?? undefined,
       verifikatId: row.transaction_id ?? undefined,
       importId: row.import_id,
     })),
@@ -197,6 +201,8 @@ export async function getBankEvents(): Promise<BankEvent[]> {
     description: string;
     amount: number;
     is_posted: number;
+    flagged: boolean;
+    flag_comment: string | null;
     transaction_id: number | null;
     import_id: number | null;
     import_account_id: number | null;
@@ -213,6 +219,8 @@ export async function getBankEvents(): Promise<BankEvent[]> {
     description: row.description,
     amount: Number(row.amount),
     isPosted: row.is_posted === 1,
+    flagged: row.flagged ?? false,
+    flagComment: row.flag_comment ?? undefined,
     verifikatId: row.transaction_id ?? undefined,
     importId: row.import_id ?? undefined,
     import: row.import_account_id ? { accountId: row.import_account_id } as Import : undefined,
@@ -234,6 +242,8 @@ export async function getUnpostedBankEventsPaginated(
     description: string;
     amount: number;
     is_posted: number;
+    flagged: boolean;
+    flag_comment: string | null;
     transaction_id: number | null;
     import_id: number | null;
     import_account_id: number | null;
@@ -255,12 +265,38 @@ export async function getUnpostedBankEventsPaginated(
     description: row.description,
     amount: Number(row.amount),
     isPosted: row.is_posted === 1,
+    flagged: row.flagged ?? false,
+    flagComment: row.flag_comment ?? undefined,
     verifikatId: row.transaction_id ?? undefined,
     importId: row.import_id ?? undefined,
     import: row.import_account_id ? { accountId: row.import_account_id } as Import : undefined,
   }));
 
   return { events, total };
+}
+
+export async function flagBankEvent(
+  id: number,
+  comment: string,
+  deps: { persistFlag?: (id: number, comment: string | null) => Promise<void> } = {}
+): Promise<void> {
+  const normalised = comment.trim() || null;
+  const persist = deps.persistFlag ?? ((eventId, c) =>
+    query("UPDATE bank_events SET flagged = true, flag_comment = $1 WHERE id = $2", [c, eventId])
+  );
+  await persist(id, normalised);
+  revalidateMutationViews();
+}
+
+export async function unflagBankEvent(
+  id: number,
+  deps: { persistUnflag?: (id: number) => Promise<void> } = {}
+): Promise<void> {
+  const persist = deps.persistUnflag ?? ((eventId) =>
+    query("UPDATE bank_events SET flagged = false, flag_comment = NULL WHERE id = $1", [eventId])
+  );
+  await persist(id);
+  revalidateMutationViews();
 }
 
 export async function saveBankEvents(
@@ -441,7 +477,7 @@ const defaultPostVerifikatDependencies: PostVerifikatDependencies = {
 
       if (command.bankEventId) {
         await client.query(
-          "UPDATE bank_events SET is_posted = 1, transaction_id = $1 WHERE id = $2",
+          "UPDATE bank_events SET is_posted = 1, transaction_id = $1, flagged = false, flag_comment = NULL WHERE id = $2",
           [transactionId, command.bankEventId]
         );
       }
@@ -1006,6 +1042,8 @@ type TransactionJoinRow = {
   be_description: string | null;
   be_amount: string | null;
   be_is_posted: number | null;
+  be_flagged: boolean | null;
+  be_flag_comment: string | null;
   be_transaction_id: number | null;
   be_import_id: number | null;
 };
@@ -1030,6 +1068,8 @@ const TRANSACTION_LIST_SELECT = `
     be.description as be_description,
     be.amount as be_amount,
     be.is_posted as be_is_posted,
+    be.flagged as be_flagged,
+    be.flag_comment as be_flag_comment,
     be.transaction_id as be_transaction_id,
     be.import_id as be_import_id
 `;
@@ -1051,6 +1091,8 @@ async function mapVerifikatFromJoinRows(rows: TransactionJoinRow[]): Promise<Ver
               description: row.be_description!,
               amount: Number(row.be_amount),
               isPosted: row.be_is_posted === 1,
+              flagged: row.be_flagged ?? false,
+              flagComment: row.be_flag_comment ?? undefined,
               verifikatId: row.be_transaction_id ?? undefined,
               importId: row.be_import_id ?? undefined,
             }

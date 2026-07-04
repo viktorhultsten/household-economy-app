@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Account, BankEvent, Post, BookingTemplate, RecurringItemStatus, Verifikat } from "../types";
-import { getAccounts, createVerifikat, updateVerifikat, isPeriodLocked, getBookingTemplates, createBookingTemplate, getRecurringItemsStatus, linkVerifikatToRecurringItem, getRecurringItemForVerifikat, updateVerifikatRecurringItemLink, getKonteringsforslag, KonteringsforslagMonster } from "../actions";
+import { getAccounts, createVerifikat, updateVerifikat, isPeriodLocked, getBookingTemplates, createBookingTemplate, getRecurringItemsStatus, linkVerifikatToRecurringItem, getRecurringItemForVerifikat, updateVerifikatRecurringItemLink, getKonteringsforslag, KonteringsforslagMonster, flagBankEvent, unflagBankEvent } from "../actions";
 import AccountSelectorModal from "./AccountSelectorModal";
 import ConfirmModal from "./ConfirmModal";
 import KonteringsforslagCard from "./KonteringsforslagCard";
@@ -34,6 +34,7 @@ interface VerifikatFormProps {
   verifikat?: Verifikat; // If provided, we're editing
   onClose: () => void;
   onSuccess: () => void;
+  onFlagChange?: (updated: BankEvent) => void;
 }
 
 export default function VerifikatForm({
@@ -41,6 +42,7 @@ export default function VerifikatForm({
   verifikat,
   onClose,
   onSuccess,
+  onFlagChange,
 }: VerifikatFormProps) {
   const isEditing = !!verifikat;
   const verifikatBankEvent = verifikat?.bankEvent || bankEvent;
@@ -104,6 +106,13 @@ export default function VerifikatForm({
   const [showSaveTemplate, setShowSaveTemplate] = useState(false);
   const [templateName, setTemplateName] = useState("");
   const [showAccountSelector, setShowAccountSelector] = useState<number | null>(null);
+
+  // Flag state (only relevant when bankEvent is provided)
+  const [showFlagInput, setShowFlagInput] = useState(false);
+  const [showUnflagConfirm, setShowUnflagConfirm] = useState(false);
+  const [flagComment, setFlagComment] = useState(bankEvent?.flagComment ?? "");
+  const [flagLoading, setFlagLoading] = useState(false);
+  const isFlagged = bankEvent?.flagged ?? false;
 
   // Store raw input strings for debit/credit fields to allow typing commas
   const [debetInputs, setDebetInputs] = useState<{ [key: number]: string }>({});
@@ -237,7 +246,7 @@ export default function VerifikatForm({
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       // Let nested modals own their own keys
-      if (showCloseConfirm || showAccountSelector !== null) return;
+      if (showCloseConfirm || showAccountSelector !== null || showFlagInput || showUnflagConfirm) return;
       if (e.key === "Escape") {
         e.preventDefault();
         attemptClose();
@@ -385,6 +394,37 @@ export default function VerifikatForm({
   const removePost = (index: number) => {
     if (posts.length > 2) {
       setPosts(posts.filter((_, i) => i !== index));
+    }
+  };
+
+  const handleFlag = async () => {
+    if (!bankEvent) return;
+    setFlagLoading(true);
+    try {
+      await flagBankEvent(bankEvent.id, flagComment);
+      const updated: BankEvent = { ...bankEvent, flagged: true, flagComment: flagComment.trim() || undefined };
+      onFlagChange?.(updated);
+      setShowFlagInput(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Kunde inte flagga händelsen");
+    } finally {
+      setFlagLoading(false);
+    }
+  };
+
+  const handleUnflag = async () => {
+    if (!bankEvent) return;
+    setFlagLoading(true);
+    try {
+      await unflagBankEvent(bankEvent.id);
+      const updated: BankEvent = { ...bankEvent, flagged: false, flagComment: undefined };
+      onFlagChange?.(updated);
+      setFlagComment("");
+      setShowFlagInput(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Kunde inte avflagga händelsen");
+    } finally {
+      setFlagLoading(false);
     }
   };
 
@@ -828,6 +868,32 @@ export default function VerifikatForm({
               {showSaveTemplate ? "Dölj" : "Spara som mall"}
             </button>
             <div className="flex gap-3">
+              {bankEvent && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isFlagged) {
+                      setShowUnflagConfirm(true);
+                    } else {
+                      setShowFlagInput((v) => !v);
+                    }
+                  }}
+                  disabled={flagLoading || loading}
+                  className={`inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-md border transition-colors disabled:opacity-50 ${
+                    isFlagged
+                      ? "border-amber-400 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-500 dark:bg-amber-900/20 dark:text-amber-300 dark:hover:bg-amber-900/40"
+                      : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600"
+                  }`}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill={isFlagged ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/>
+                    <line x1="4" y1="22" x2="4" y2="15"/>
+                  </svg>
+                  {isFlagged
+                    ? <span className="max-w-[16rem] truncate">{bankEvent.flagComment || "Flaggad"}</span>
+                    : "Flagga"}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={attemptClose}
@@ -978,6 +1044,83 @@ export default function VerifikatForm({
           }}
           onClose={() => setShowAccountSelector(null)}
         />
+      )}
+
+      {showUnflagConfirm && bankEvent && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-md rounded-lg bg-white dark:bg-zinc-800 shadow-xl p-6">
+            <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-50 mb-1">
+              Avflagga bankhändelse
+            </h3>
+            {bankEvent.flagComment && (
+              <p className="text-sm text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 rounded-md px-3 py-2 mb-4">
+                {bankEvent.flagComment}
+              </p>
+            )}
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowUnflagConfirm(false)}
+                className="px-4 py-2 text-sm font-medium text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-50"
+              >
+                Avbryt
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowUnflagConfirm(false); handleUnflag(); }}
+                disabled={flagLoading}
+                className="px-4 py-2 text-sm font-semibold rounded-md border border-amber-400 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-500 dark:bg-amber-900/20 dark:text-amber-300 dark:hover:bg-amber-900/40 disabled:opacity-50"
+              >
+                Avflagga
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showFlagInput && bankEvent && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-md rounded-lg bg-white dark:bg-zinc-800 shadow-xl p-6">
+            <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-50 mb-1">
+              Flagga bankhändelse
+            </h3>
+            <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-4">
+              Varför är händelsen inte redo att bokföras?
+            </p>
+            <textarea
+              value={flagComment}
+              onChange={(e) => setFlagComment(e.target.value)}
+              placeholder="T.ex. saknar underlag, behöver utredas..."
+              rows={3}
+              className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 px-3 py-2 text-sm text-zinc-900 dark:bg-zinc-700 dark:text-zinc-50 resize-none mb-4"
+              onKeyDown={(e) => {
+                if (e.key === "Escape") { e.preventDefault(); setShowFlagInput(false); }
+              }}
+              autoFocus
+            />
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowFlagInput(false)}
+                className="px-4 py-2 text-sm font-medium text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-50"
+              >
+                Avbryt
+              </button>
+              <button
+                type="button"
+                onClick={handleFlag}
+                disabled={flagLoading}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold rounded-md bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/>
+                  <line x1="4" y1="22" x2="4" y2="15"/>
+                </svg>
+                {flagLoading ? "Sparar..." : "Flagga"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {showCloseConfirm && (

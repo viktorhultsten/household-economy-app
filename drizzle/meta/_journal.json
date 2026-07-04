@@ -15,6 +15,13 @@
       "when": 1783400000000,
       "tag": "0001_balance_invariant_trigger",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783500000000,
+      "tag": "0002_flagged_bank_events",
+      "breakpoints": true
     }
   ]
 }

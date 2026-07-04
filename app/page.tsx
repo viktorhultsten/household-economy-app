@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { BankEvent } from "./types";
 import VerifikatForm from "./components/VerifikatForm";
-import { getUnpostedBankEventsPaginated } from "./actions";
+import { getUnpostedBankEventsPaginated, flagBankEvent, unflagBankEvent } from "./actions";
 
 const BATCH_SIZE = 25;
 
@@ -83,6 +83,11 @@ export default function Home() {
     setTotal(t);
   }, [events.length]);
 
+  const handleFlagChange = useCallback(async (updatedEvent: BankEvent) => {
+    setSelectedEvent(updatedEvent);
+    setEvents((prev) => prev.map((e) => (e.id === updatedEvent.id ? updatedEvent : e)));
+  }, []);
+
   if (initialLoading) {
     return (
       <div className="min-h-screen bg-zinc-50 dark:bg-zinc-900 flex items-center justify-center">
@@ -150,7 +155,20 @@ export default function Home() {
                         {formatSwedishDate(event.date)}
                       </td>
                       <td className="px-6 py-4 text-sm text-zinc-900 dark:text-zinc-50">
-                        {event.description}
+                        <div>
+                          {event.description}
+                          {event.flagged && (
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-amber-500">
+                                <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/>
+                                <line x1="4" y1="22" x2="4" y2="15"/>
+                              </svg>
+                              <span className="text-xs text-amber-600 dark:text-amber-400">
+                                {event.flagComment || "Flaggad"}
+                              </span>
+                            </div>
+                          )}
+                        </div>
                       </td>
                       <td
                         className={`whitespace-nowrap px-6 py-4 text-right text-sm font-medium tabular-nums ${
@@ -188,6 +206,7 @@ export default function Home() {
           bankEvent={selectedEvent}
           onClose={() => setSelectedEvent(null)}
           onSuccess={handlePostSuccess}
+          onFlagChange={handleFlagChange}
         />
       )}
 

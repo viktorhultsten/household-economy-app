@@ -1,6 +1,6 @@
 # 13 — Flagga bankhändelse med kommentar
 
-Status: Att göra
+Status: Klar
 
 ## What to build
 
@@ -12,12 +12,12 @@ En flaggad bankhändelse visar en **flaggikon på sin rad** i bankhändelselista
 
 ## Acceptance criteria
 
-- [ ] Migration lägger till `flagged` och `flag_comment` på `bank_events` (körs via prod-runbooken)
-- [ ] Server-actions kan sätta flagga + kommentar och avflagga
-- [ ] "Flagga"-knapp med inline-kommentarfält i bokföringsvyn; växlar till "Avflagga" när flaggad
-- [ ] Flaggikon visas på bankhändelsens rad, med kommentaren som tooltip
-- [ ] Att skapa ett verifikat för en flaggad händelse rensar flaggan
-- [ ] Test som täcker flagga, avflagga och att bokföring rensar flaggan
+- [x] Migration lägger till `flagged` och `flag_comment` på `bank_events` (körs via prod-runbooken)
+- [x] Server-actions kan sätta flagga + kommentar och avflagga
+- [x] "Flagga"-knapp med inline-kommentarfält i bokföringsvyn; växlar till "Avflagga" när flaggad
+- [x] Flaggikon visas på bankhändelsens rad, med kommentaren som tooltip
+- [x] Att skapa ett verifikat för en flaggad händelse rensar flaggan
+- [x] Test som täcker flagga, avflagga och att bokföring rensar flaggan
 
 ## Blocked by
 

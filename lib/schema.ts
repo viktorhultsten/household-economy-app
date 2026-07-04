@@ -64,6 +64,8 @@ export const bankEvents = pgTable("bank_events", {
   description: text("description").notNull(),
   amount: numeric("amount", { precision: 15, scale: 2 }).notNull(),
   isPosted: integer("is_posted").notNull().default(0),
+  flagged: boolean("flagged").notNull().default(false),
+  flagComment: text("flag_comment"),
   verifikatId: integer("transaction_id").references((): AnyPgColumn => verifikat.id),
   importId: integer("import_id").references(() => imports.id, {
     onDelete: "cascade",
