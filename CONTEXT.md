@@ -12,6 +12,10 @@ _Avoid_: Transaktion, Transaction
 En rå bankrörelse importerad från CSV. Ligger på "att göra-listan" tills den bokförts till ett verifikat.
 _Avoid_: Transaktion, Bank transaction
 
+**Flaggad bankhändelse**:
+En bankhändelse markerad som ännu inte redo att bokföras (t.ex. saknar underlag eller behöver utredas), med en fritextkommentar som förklarar varför. Oberoende av bokföring — att bokföra händelsen löser upp flaggan.
+_Avoid_: Markerad, Pausad
+
 **Konteringsrad**:
 En enskild debet- eller kredit-rad i ett verifikat, knuten till ett konto.
 _Avoid_: Post (tvetydigt)
@@ -36,6 +40,9 @@ Mängden obokförda bankhändelser (`is_posted = 0`) som väntar på att bokför
 **Bokföra**:
 Att skapa ett verifikat från en bankhändelse (eller manuellt) och markera bankhändelsen som bokförd. Uppdelning på flera kategorier görs med flera konteringsrader i samma verifikat, inte flera verifikat.
 _Avoid_: Kontera (används synonymt men "bokföra" är kanoniskt)
+
+**Bulkbokföring**:
+Att bokföra en följd bankhändelser (upp till 25 åt gången, i att göra-listans ordning) utan att lämna bokföringsvyn. Händelserna bläddras fram och tillbaka; varje kan bokföras, hoppas över eller flaggas.
 
 **Konteringsmönster**:
 En återkommande konteringsstruktur — vilka motkonton som används och på vilken sida (debet/kredit) — härledd ur tidigare verifikat. Identifieras av sin struktur, inte av något belopp; samma mönster gäller oavsett om beloppet är nytt eller varierar.
