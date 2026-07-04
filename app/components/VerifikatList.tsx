@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, memo } from "react";
-import { Transaction } from "../types";
-import { getTransactionsPaginated, deleteTransaction } from "../actions";
-import TransactionForm from "./TransactionForm";
+import { Verifikat } from "../types";
+import { getVerifikatPaginated, deleteVerifikat } from "../actions";
+import VerifikatForm from "./VerifikatForm";
 import ConfirmModal from "./ConfirmModal";
 
 const BATCH_SIZE = 25;
@@ -19,7 +19,7 @@ function formatSwedishAmount(amount: number): string {
   });
 }
 
-interface TransactionListProps {
+interface VerifikatListProps {
   searchQuery: string;
   sortField: "date" | "description" | "accounts";
   sortDirection: "asc" | "desc";
@@ -31,7 +31,7 @@ interface TransactionListProps {
   onTotalChange: (total: number) => void;
 }
 
-const TransactionList = memo(function TransactionList({
+const VerifikatList = memo(function VerifikatList({
   searchQuery,
   sortField,
   sortDirection,
@@ -41,12 +41,12 @@ const TransactionList = memo(function TransactionList({
   filterDateTo,
   refreshToken,
   onTotalChange,
-}: TransactionListProps) {
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+}: VerifikatListProps) {
+  const [verifikat, setVerifikat] = useState<Verifikat[]>([]);
   const [total, setTotal] = useState(0);
   const [initialLoading, setInitialLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+  const [selectedVerifikat, setSelectedVerifikat] = useState<Verifikat | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
@@ -54,14 +54,14 @@ const TransactionList = memo(function TransactionList({
   const firstReset = useRef(true);
   const didMountRef = useRef(false);
 
-  const hasMore = transactions.length < total;
+  const hasMore = verifikat.length < total;
 
   // Reset to the first batch and scroll to top whenever a filter/sort changes.
   useEffect(() => {
     let cancelled = false;
     async function reset() {
       setInitialLoading(true);
-      const { transactions: data, total: t } = await getTransactionsPaginated(
+      const { verifikat: data, total: t } = await getVerifikatPaginated(
         BATCH_SIZE,
         0,
         searchQuery,
@@ -73,7 +73,7 @@ const TransactionList = memo(function TransactionList({
         filterDateTo
       );
       if (cancelled) return;
-      setTransactions(data);
+      setVerifikat(data);
       setTotal(t);
       onTotalChange(t);
       setInitialLoading(false);
@@ -91,12 +91,12 @@ const TransactionList = memo(function TransactionList({
 
   const loadMore = useCallback(async () => {
     if (loadingRef.current) return;
-    if (total > 0 && transactions.length >= total) return;
+    if (total > 0 && verifikat.length >= total) return;
     loadingRef.current = true;
     setLoadingMore(true);
-    const { transactions: data, total: t } = await getTransactionsPaginated(
+    const { verifikat: data, total: t } = await getVerifikatPaginated(
       BATCH_SIZE,
-      transactions.length,
+      verifikat.length,
       searchQuery,
       sortField,
       sortDirection,
@@ -105,13 +105,13 @@ const TransactionList = memo(function TransactionList({
       filterDateFrom,
       filterDateTo
     );
-    setTransactions((prev) => [...prev, ...data]);
+    setVerifikat((prev) => [...prev, ...data]);
     setTotal(t);
     onTotalChange(t);
     setLoadingMore(false);
     loadingRef.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transactions.length, total, searchQuery, sortField, sortDirection, filterAccountType, filterAccountId, filterDateFrom, filterDateTo]);
+  }, [verifikat.length, total, searchQuery, sortField, sortDirection, filterAccountType, filterAccountId, filterDateFrom, filterDateTo]);
 
   // Infinite scroll sentinel
   useEffect(() => {
@@ -130,8 +130,8 @@ const TransactionList = memo(function TransactionList({
   // Refetch the currently loaded window (offset 0) without moving scroll, so
   // edits/deletes/new entries stay in sync while preserving position.
   const refreshWindow = useCallback(async () => {
-    const windowSize = Math.max(BATCH_SIZE, transactions.length);
-    const { transactions: data, total: t } = await getTransactionsPaginated(
+    const windowSize = Math.max(BATCH_SIZE, verifikat.length);
+    const { verifikat: data, total: t } = await getVerifikatPaginated(
       windowSize,
       0,
       searchQuery,
@@ -142,11 +142,11 @@ const TransactionList = memo(function TransactionList({
       filterDateFrom,
       filterDateTo
     );
-    setTransactions(data);
+    setVerifikat(data);
     setTotal(t);
     onTotalChange(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transactions.length, searchQuery, sortField, sortDirection, filterAccountType, filterAccountId, filterDateFrom, filterDateTo]);
+  }, [verifikat.length, searchQuery, sortField, sortDirection, filterAccountType, filterAccountId, filterDateFrom, filterDateTo]);
 
   // External refresh (e.g. after a manual "Ny transaktion"); skip first run.
   useEffect(() => {
@@ -161,14 +161,14 @@ const TransactionList = memo(function TransactionList({
   async function handleDeleteConfirm() {
     if (deleteConfirmId === null) return;
 
-    await deleteTransaction(deleteConfirmId);
+    await deleteVerifikat(deleteConfirmId);
     await refreshWindow();
     setDeleteConfirmId(null);
   }
 
   async function handleEditSuccess() {
     await refreshWindow();
-    setSelectedTransaction(null);
+    setSelectedVerifikat(null);
   }
 
   if (initialLoading) {
@@ -179,11 +179,11 @@ const TransactionList = memo(function TransactionList({
     );
   }
 
-  if (transactions.length === 0) {
+  if (verifikat.length === 0) {
     return (
       <div className="rounded-lg bg-white shadow dark:bg-zinc-800 p-8 text-center">
         <p className="text-zinc-600 dark:text-zinc-400">
-          Inga transaktioner ännu.
+          Inga verifikat ännu.
         </p>
       </div>
     );
@@ -192,9 +192,9 @@ const TransactionList = memo(function TransactionList({
   return (
     <>
       <div className="space-y-4">
-        {transactions.map((transaction) => (
+        {verifikat.map((v) => (
           <div
-            key={transaction.id}
+            key={v.id}
             className="rounded-lg bg-white shadow dark:bg-zinc-800 overflow-hidden"
           >
             {/* Posts Table with Header */}
@@ -212,32 +212,32 @@ const TransactionList = memo(function TransactionList({
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-1">
                           <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                            {formatSwedishDate(transaction.date)}
+                            {formatSwedishDate(v.date)}
                           </span>
                           <span className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
-                            {transaction.description}
+                            {v.description}
                           </span>
-                          {transaction.recurringItems && transaction.recurringItems.length > 0 && (
-                            <span className="px-2 py-0.5 text-xs font-medium rounded bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300" title={transaction.recurringItems.map(ri => ri.namn).join(", ")}>
+                          {v.recurringItems && v.recurringItems.length > 0 && (
+                            <span className="px-2 py-0.5 text-xs font-medium rounded bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300" title={v.recurringItems.map(ri => ri.namn).join(", ")}>
                               Återkommande
                             </span>
                           )}
                         </div>
-                        {transaction.bankEvent && (
+                        {v.bankEvent && (
                           <div className="text-xs text-zinc-600 dark:text-zinc-400">
-                            Från bankhändelse: {transaction.bankEvent.description}
+                            Från bankhändelse: {v.bankEvent.description}
                           </div>
                         )}
                       </div>
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => setSelectedTransaction(transaction)}
+                          onClick={() => setSelectedVerifikat(v)}
                           className="rounded-md bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-900 hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-50 dark:hover:bg-zinc-600"
                         >
                           Redigera
                         </button>
                         <button
-                          onClick={() => setDeleteConfirmId(transaction.id)}
+                          onClick={() => setDeleteConfirmId(v.id)}
                           className="rounded-md bg-red-100 px-3 py-1.5 text-xs font-medium text-red-900 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-300 dark:hover:bg-red-900/50"
                         >
                           Ta bort
@@ -262,7 +262,7 @@ const TransactionList = memo(function TransactionList({
                 </tr>
               </thead>
               <tbody>
-                {transaction.posts.map((post, idx) => (
+                {v.posts.map((post, idx) => (
                   <tr
                     key={post.id}
                     className={idx % 2 === 0 ? "bg-white dark:bg-zinc-800" : "bg-zinc-50 dark:bg-zinc-900/30"}
@@ -300,18 +300,18 @@ const TransactionList = memo(function TransactionList({
         </div>
       )}
 
-      {selectedTransaction && (
-        <TransactionForm
-          transaction={selectedTransaction}
-          onClose={() => setSelectedTransaction(null)}
+      {selectedVerifikat && (
+        <VerifikatForm
+          verifikat={selectedVerifikat}
+          onClose={() => setSelectedVerifikat(null)}
           onSuccess={handleEditSuccess}
         />
       )}
 
       {deleteConfirmId !== null && (
         <ConfirmModal
-          title="Ta bort transaktion"
-          message="Är du säker på att du vill ta bort denna transaktion? Detta går inte att ångra."
+          title="Ta bort verifikat"
+          message="Är du säker på att du vill ta bort detta verifikat? Detta går inte att ångra."
           onConfirm={handleDeleteConfirm}
           onCancel={() => setDeleteConfirmId(null)}
         />
@@ -320,4 +320,4 @@ const TransactionList = memo(function TransactionList({
   );
 });
 
-export default TransactionList;
+export default VerifikatList;

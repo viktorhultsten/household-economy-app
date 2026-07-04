@@ -85,7 +85,7 @@ export default function RecurringItemsSidebar() {
       <div className="p-4">
         {statuses.length === 0 ? (
           <p className="text-sm text-zinc-600 dark:text-zinc-400 text-center py-4">
-            Inga återkommande transaktioner för denna period
+            Inga återkommande händelser för denna period
           </p>
         ) : (
           <div className="space-y-3">

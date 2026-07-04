@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Account, BankEvent, Post, BookingTemplate, RecurringItemStatus, Transaction } from "../types";
-import { getAccounts, createTransaction, updateTransaction, isPeriodLocked, getBookingTemplates, createBookingTemplate, getRecurringItemsStatus, linkTransactionToRecurringItem, getRecurringItemForTransaction, updateTransactionRecurringItemLink, getKonteringsforslag, KonteringsforslagMonster } from "../actions";
+import { Account, BankEvent, Post, BookingTemplate, RecurringItemStatus, Verifikat } from "../types";
+import { getAccounts, createVerifikat, updateVerifikat, isPeriodLocked, getBookingTemplates, createBookingTemplate, getRecurringItemsStatus, linkVerifikatToRecurringItem, getRecurringItemForVerifikat, updateVerifikatRecurringItemLink, getKonteringsforslag, KonteringsforslagMonster } from "../actions";
 import AccountSelectorModal from "./AccountSelectorModal";
 import ConfirmModal from "./ConfirmModal";
 import KonteringsforslagCard from "./KonteringsforslagCard";
 
-type PostInput = Omit<Post, "id" | "transactionId">;
+type PostInput = Omit<Post, "id" | "verifikatId">;
 
 // Serialize the editable state so we can detect unsaved changes (dirty state)
 function serializeFormState(
@@ -29,33 +29,33 @@ function serializeFormState(
   });
 }
 
-interface TransactionFormProps {
+interface VerifikatFormProps {
   bankEvent?: BankEvent;
-  transaction?: Transaction; // If provided, we're editing
+  verifikat?: Verifikat; // If provided, we're editing
   onClose: () => void;
   onSuccess: () => void;
 }
 
-export default function TransactionForm({
+export default function VerifikatForm({
   bankEvent,
-  transaction,
+  verifikat,
   onClose,
   onSuccess,
-}: TransactionFormProps) {
-  const isEditing = !!transaction;
-  const transactionBankEvent = transaction?.bankEvent || bankEvent;
+}: VerifikatFormProps) {
+  const isEditing = !!verifikat;
+  const verifikatBankEvent = verifikat?.bankEvent || bankEvent;
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [templates, setTemplates] = useState<BookingTemplate[]>([]);
   const [recurringItems, setRecurringItems] = useState<RecurringItemStatus[]>([]);
   const [recurringLoaded, setRecurringLoaded] = useState(false);
   const [selectedRecurringItemId, setSelectedRecurringItemId] = useState<number | null>(null);
 
-  const initialDate = transaction?.date || bankEvent?.date || new Date();
-  const initialDescription = transaction?.description || bankEvent?.description || "";
+  const initialDate = verifikat?.date || bankEvent?.date || new Date();
+  const initialDescription = verifikat?.description || bankEvent?.description || "";
   const initialPosts = useMemo<PostInput[]>(() => {
     // If editing, use existing posts
-    if (transaction) {
-      return transaction.posts.map((post) => ({
+    if (verifikat) {
+      return verifikat.posts.map((post) => ({
         accountId: post.accountId,
         debet: Number(post.debet) || 0,
         kredit: Number(post.kredit) || 0,
@@ -85,7 +85,7 @@ export default function TransactionForm({
         description: "",
       },
     ];
-  }, [bankEvent, transaction]);
+  }, [bankEvent, verifikat]);
 
   const [date, setDate] = useState(initialDate);
   const [description, setDescription] = useState(initialDescription);
@@ -128,8 +128,8 @@ export default function TransactionForm({
       setRecurringLoaded(true);
 
       // If editing, load the existing recurring item link
-      if (isEditing && transaction) {
-        const existingRecurringItemId = await getRecurringItemForTransaction(transaction.id);
+      if (isEditing && verifikat) {
+        const existingRecurringItemId = await getRecurringItemForVerifikat(verifikat.id);
         setSelectedRecurringItemId(existingRecurringItemId);
         // Re-baseline so a pre-existing recurring link isn't counted as an unsaved change
         setBaseline(
@@ -138,7 +138,7 @@ export default function TransactionForm({
       }
     }
     loadData();
-  }, [date, isEditing, transaction]);
+  }, [date, isEditing, verifikat]);
 
   // Fetch konteringsförslag when creating a new transaction from a bank event
   useEffect(() => {
@@ -161,7 +161,7 @@ export default function TransactionForm({
         const year = date.getFullYear();
         const month = date.getMonth() + 1;
         setPeriodLockWarning(
-          `Perioden ${year}-${String(month).padStart(2, "0")} är låst. Du kan inte spara transaktioner i denna period.`
+          `Perioden ${year}-${String(month).padStart(2, "0")} är låst. Du kan inte spara verifikat i denna period.`
         );
       } else {
         setPeriodLockWarning("");
@@ -211,8 +211,8 @@ export default function TransactionForm({
   // When booking from a bank event, the balanced total must equal the bank
   // event's amount (UI-only check, see docs/adr/0005). Prevents e.g. booking a
   // 500 kr purchase as 120 kr.
-  const bankEventAmount = transactionBankEvent
-    ? Math.abs(transactionBankEvent.amount)
+  const bankEventAmount = verifikatBankEvent
+    ? Math.abs(verifikatBankEvent.amount)
     : null;
   const amountMatchesBankEvent =
     bankEventAmount === null || Math.abs(totalDebet - bankEventAmount) < 0.01;
@@ -253,7 +253,7 @@ export default function TransactionForm({
 
   const updatePost = (
     index: number,
-    field: keyof Omit<Post, "id" | "transactionId">,
+    field: keyof Omit<Post, "id" | "verifikatId">,
     value: number | string
   ) => {
     const newPosts = [...posts];
@@ -298,17 +298,17 @@ export default function TransactionForm({
           debet: row.isDebet ? amount : 0,
           kredit: !row.isDebet ? amount : 0,
           description: row.description || "",
-          transactionId: 0,
+          verifikatId: 0,
         };
       } else {
-        // For manual transactions, just set up the structure with 0s
+        // For manual verifikat, just set up the structure with 0s
         // User will fill in amounts, but at least accounts are set
         return {
           accountId: row.accountId,
           debet: 0,
           kredit: 0,
           description: row.description || "",
-          transactionId: 0,
+          verifikatId: 0,
         };
       }
     });
@@ -419,8 +419,8 @@ export default function TransactionForm({
 
     try {
       if (isEditing) {
-        // Update existing transaction
-        await updateTransaction(transaction!.id, {
+        // Update existing verifikat
+        await updateVerifikat(verifikat!.id, {
           date,
           description,
           posts: posts.map((p) => ({
@@ -432,23 +432,23 @@ export default function TransactionForm({
         });
 
         // Update recurring item link
-        await updateTransactionRecurringItemLink(transaction!.id, selectedRecurringItemId);
+        await updateVerifikatRecurringItemLink(verifikat!.id, selectedRecurringItemId);
       } else {
-        // Create new transaction
-        const transactionId = await createTransaction({
+        // Create new verifikat
+        const verifikatId = await createVerifikat({
           date,
           description,
           bankEventId: bankEvent?.id,
           posts: posts.map((p) => ({
             ...p,
             id: 0, // Will be set by server
-            transactionId: 0, // Will be set by server
+            verifikatId: 0, // Will be set by server
           })),
         });
 
         // Link to recurring item if selected
         if (selectedRecurringItemId) {
-          await linkTransactionToRecurringItem(transactionId, selectedRecurringItemId);
+          await linkVerifikatToRecurringItem(verifikatId, selectedRecurringItemId);
         }
       }
 
@@ -468,7 +468,7 @@ export default function TransactionForm({
         <div className="sticky top-0 bg-white dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 px-6 py-4 shrink-0">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">
-              {isEditing ? "Redigera transaktion" : transactionBankEvent ? "Bokför transaktion" : "Ny transaktion"}
+              {isEditing ? "Redigera verifikat" : verifikatBankEvent ? "Bokför verifikat" : "Nytt verifikat"}
             </h2>
             <button
               onClick={attemptClose}
@@ -477,16 +477,16 @@ export default function TransactionForm({
               ✕
             </button>
           </div>
-          {transactionBankEvent && (
+          {verifikatBankEvent && (
             <div className="mt-2 p-3 bg-zinc-50 dark:bg-zinc-900 rounded-md border border-zinc-200 dark:border-zinc-700">
               <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1">
                 Bankhändelse:
               </div>
               <div className="text-sm text-zinc-900 dark:text-zinc-50 font-medium">
-                {transactionBankEvent.description}
+                {verifikatBankEvent.description}
               </div>
               <div className="text-sm text-zinc-600 dark:text-zinc-400 mt-1">
-                {transactionBankEvent.amount.toLocaleString("sv-SE", {
+                {verifikatBankEvent.amount.toLocaleString("sv-SE", {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
                 })}{" "}
@@ -596,7 +596,7 @@ export default function TransactionForm({
             </div>
             <div>
               <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
-                Transaktionsbeskrivning
+                Verifikatbeskrivning
               </label>
               <input
                 type="text"
@@ -841,7 +841,7 @@ export default function TransactionForm({
                 disabled={!isBalanced || loading || !!periodLockWarning || !amountMatchesBankEvent || !allAmountRowsHaveAccount}
                 className="px-4 py-2 text-sm font-semibold rounded-md bg-zinc-900 text-zinc-50 hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
               >
-                {loading ? "Sparar..." : isEditing ? "Uppdatera" : "Spara transaktion"}
+                {loading ? "Sparar..." : isEditing ? "Spara verifikat" : "Skapa verifikat"}
               </button>
             </div>
           </div>
@@ -870,7 +870,7 @@ export default function TransactionForm({
             </div>
           ) : recurringItems.length === 0 ? (
             <p className="text-sm text-zinc-600 dark:text-zinc-400 text-center py-4">
-              Inga återkommande transaktioner för denna månad.{" "}
+              Inga återkommande händelser för denna månad.{" "}
               <span className="block mt-2 text-xs">
                 Skapa återkommande poster på{" "}
                 <a href="/recurring" className="underline hover:text-zinc-900 dark:hover:text-zinc-50">
@@ -942,7 +942,7 @@ export default function TransactionForm({
                       </div>
                       {item.recentUsages.map((usage) => (
                         <div
-                          key={usage.transactionId}
+                          key={usage.verifikatId}
                           className="flex items-baseline justify-between gap-2 text-xs text-zinc-600 dark:text-zinc-400"
                         >
                           <span className="tabular-nums shrink-0 text-zinc-500 dark:text-zinc-500">

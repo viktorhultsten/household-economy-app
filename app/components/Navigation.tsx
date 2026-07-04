@@ -8,7 +8,7 @@ export default function Navigation() {
 
   const navItems = [
     { href: "/", label: "Bankhändelser" },
-    { href: "/transactions", label: "Transaktioner" },
+    { href: "/verifikat", label: "Verifikat" },
     { href: "/resultat", label: "Resultat" },
     { href: "/balans", label: "Balans" },
     { href: "/budget", label: "Budget" },

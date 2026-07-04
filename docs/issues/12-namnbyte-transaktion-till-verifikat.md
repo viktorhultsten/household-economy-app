@@ -1,6 +1,6 @@
 # 12 — Namnbyte transaktion → verifikat (kod, rutter, UI)
 
-Status: Att göra
+Status: Klar
 
 ## What to build
 
@@ -12,12 +12,12 @@ Primärknappen när ett nytt verifikat skapas ska stå **"Skapa verifikat"**; vi
 
 ## Acceptance criteria
 
-- [ ] TypeScript-typer, komponenter och server-actions byter namn från transaction till verifikat
-- [ ] Rutten `/transactions` byter till `/verifikat` och navigationen pekar rätt
-- [ ] All synlig text säger "verifikat" i stället för "transaktion"
-- [ ] Primärknapp säger "Skapa verifikat" vid nytt och "Spara verifikat" vid redigering
-- [ ] Fysiska DB-tabell- och kolumnnamn är oförändrade (ingen migration)
-- [ ] Befintliga tester passerar efter namnbytet (uppdaterade importer/namn)
+- [x] TypeScript-typer, komponenter och server-actions byter namn från transaction till verifikat
+- [x] Rutten `/transactions` byter till `/verifikat` och navigationen pekar rätt
+- [x] All synlig text säger "verifikat" i stället för "transaktion"
+- [x] Primärknapp säger "Skapa verifikat" vid nytt och "Spara verifikat" vid redigering
+- [x] Fysiska DB-tabell- och kolumnnamn är oförändrade (ingen migration)
+- [x] Befintliga tester passerar efter namnbytet (uppdaterade importer/namn)
 
 ## Blocked by
 

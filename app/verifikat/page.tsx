@@ -1,21 +1,21 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import TransactionList from "../components/TransactionList";
-import TransactionForm from "../components/TransactionForm";
+import VerifikatList from "../components/VerifikatList";
+import VerifikatForm from "../components/VerifikatForm";
 import AccountSelectorModal from "../components/AccountSelectorModal";
 import { Account } from "../types";
 import { getAccounts } from "../actions";
 
-export default function TransaktionerPage() {
-  const [showManualTransactionForm, setShowManualTransactionForm] = useState(false);
+export default function VerifikatPage() {
+  const [showManualVerifikatForm, setShowManualVerifikatForm] = useState(false);
   const [showAccountSelector, setShowAccountSelector] = useState(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
 
   // List total (for header) and a token to force a window refresh after
   // external mutations like creating a manual transaction.
-  const [totalTransactions, setTotalTransactions] = useState(0);
+  const [totalVerifikat, setTotalVerifikat] = useState(0);
   const [refreshToken, setRefreshToken] = useState(0);
 
   // Filter and sort state
@@ -73,7 +73,7 @@ export default function TransaktionerPage() {
     filterDateTo !== "";
 
   async function handlePostSuccess() {
-    setShowManualTransactionForm(false);
+    setShowManualVerifikatForm(false);
     setRefreshToken((t) => t + 1);
   }
 
@@ -82,17 +82,17 @@ export default function TransaktionerPage() {
       <main className="mx-auto max-w-6xl px-4 py-8">
         <div className="mb-8 flex items-center justify-between">
           <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">
-            Transaktioner
+            Verifikat
           </h1>
           <div className="flex items-center gap-4">
             <div className="text-sm text-zinc-600 dark:text-zinc-400">
-              {totalTransactions} transaktioner totalt
+              {totalVerifikat} verifikat totalt
             </div>
             <button
-              onClick={() => setShowManualTransactionForm(true)}
+              onClick={() => setShowManualVerifikatForm(true)}
               className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-zinc-50 hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
             >
-              Ny transaktion
+              Nytt verifikat
             </button>
           </div>
         </div>
@@ -231,8 +231,8 @@ export default function TransaktionerPage() {
           </div>
         </div>
 
-        {/* Transaction List - Memoized Component */}
-        <TransactionList
+        {/* Verifikat List - Memoized Component */}
+        <VerifikatList
           searchQuery={debouncedSearchQuery}
           sortField={sortField}
           sortDirection={sortDirection}
@@ -241,13 +241,13 @@ export default function TransaktionerPage() {
           filterDateFrom={filterDateFrom}
           filterDateTo={filterDateTo}
           refreshToken={refreshToken}
-          onTotalChange={setTotalTransactions}
+          onTotalChange={setTotalVerifikat}
         />
       </main>
 
-      {showManualTransactionForm && (
-        <TransactionForm
-          onClose={() => setShowManualTransactionForm(false)}
+      {showManualVerifikatForm && (
+        <VerifikatForm
+          onClose={() => setShowManualVerifikatForm(false)}
           onSuccess={handlePostSuccess}
         />
       )}

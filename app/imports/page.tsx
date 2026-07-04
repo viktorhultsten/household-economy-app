@@ -53,7 +53,7 @@ export default function ImporterPage() {
   }
 
   async function handleImport(
-    parsedEvents: Omit<BankEvent, "id" | "isPosted" | "transactionId">[],
+    parsedEvents: Omit<BankEvent, "id" | "isPosted" | "verifikatId">[],
     filename: string,
     accountId?: number
   ) {

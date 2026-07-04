@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { AccountType, Transaction } from "../types";
-import { getAccountBalancesWithChangeBudget, getAccountTransactionsForPeriod, getTransaction } from "../actions";
-import TransactionForm from "../components/TransactionForm";
+import { AccountType, Verifikat } from "../types";
+import { getAccountBalancesWithChangeBudget, getAccountTransactionsForPeriod, getVerifikat } from "../actions";
+import VerifikatForm from "../components/VerifikatForm";
 
 interface AccountBalance {
   accountId: number;
@@ -22,8 +22,8 @@ interface AccountBalance {
   hasBudget: boolean;
 }
 
-interface AccountTransaction {
-  transactionId: number;
+interface AccountVerifikatEntry {
+  verifikatId: number;
   date: Date;
   description: string;
   postDebet: number;
@@ -88,9 +88,9 @@ export default function BalansPage() {
   const [balances, setBalances] = useState<AccountBalance[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedAccountId, setExpandedAccountId] = useState<number | null>(null);
-  const [transactions, setTransactions] = useState<AccountTransaction[]>([]);
+  const [transactions, setTransactions] = useState<AccountVerifikatEntry[]>([]);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
-  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+  const [selectedVerifikat, setSelectedVerifikat] = useState<Verifikat | null>(null);
 
   useEffect(() => {
     loadBalances();
@@ -121,15 +121,15 @@ export default function BalansPage() {
     setLoadingTransactions(false);
   }
 
-  async function handleTransactionClick(transactionId: number) {
-    const txn = await getTransaction(transactionId);
-    if (txn) {
-      setSelectedTransaction(txn);
+  async function handleVerifikatClick(verifikatId: number) {
+    const v = await getVerifikat(verifikatId);
+    if (v) {
+      setSelectedVerifikat(v);
     }
   }
 
   async function handleEditSuccess() {
-    setSelectedTransaction(null);
+    setSelectedVerifikat(null);
     await loadBalances();
     // Reload transactions if an account is expanded
     if (expandedAccountId !== null) {
@@ -388,23 +388,23 @@ export default function BalansPage() {
                                   )}
                                 </button>
 
-                                {/* Transaction details */}
+                                {/* Verifikat details */}
                                 {expandedAccountId === account.accountId && (
                                   <div className="mt-2 ml-4 border-l-2 border-zinc-200 dark:border-zinc-700 pl-4">
                                     {loadingTransactions ? (
                                       <p className="text-xs text-zinc-500 dark:text-zinc-400 py-2">
-                                        Laddar transaktioner...
+                                        Laddar verifikat...
                                       </p>
                                     ) : transactions.length === 0 ? (
                                       <p className="text-xs text-zinc-500 dark:text-zinc-400 py-2">
-                                        Inga transaktioner denna månad
+                                        Inga verifikat denna månad
                                       </p>
                                     ) : (
                                       <div className="space-y-2 py-2">
                                         {transactions.map((txn) => (
                                           <button
-                                            key={txn.transactionId}
-                                            onClick={() => handleTransactionClick(txn.transactionId)}
+                                            key={txn.verifikatId}
+                                            onClick={() => handleVerifikatClick(txn.verifikatId)}
                                             className="w-full text-left text-xs border-b border-zinc-100 dark:border-zinc-800 pb-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded px-2 -mx-2 transition-colors"
                                           >
                                             <div className="flex items-start justify-between gap-2">
@@ -454,10 +454,10 @@ export default function BalansPage() {
         )}
       </main>
 
-      {selectedTransaction && (
-        <TransactionForm
-          transaction={selectedTransaction}
-          onClose={() => setSelectedTransaction(null)}
+      {selectedVerifikat && (
+        <VerifikatForm
+          verifikat={selectedVerifikat}
+          onClose={() => setSelectedVerifikat(null)}
           onSuccess={handleEditSuccess}
         />
       )}

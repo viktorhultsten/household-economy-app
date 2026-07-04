@@ -430,7 +430,7 @@ export default function UpprepningarPage() {
                                       ? 'bg-zinc-100 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300'
                                       : 'bg-transparent text-zinc-300 dark:text-zinc-700'
                                   }`}
-                                  title={isActive ? `${month.label}: ${count}/${expected} transaktioner` : month.label}
+                                  title={isActive ? `${month.label}: ${count}/${expected} verifikat` : month.label}
                                 >
                                   <span className="text-[10px] leading-none">{month.label}</span>
                                   <span className="flex items-center gap-0.5 min-h-[4px]">

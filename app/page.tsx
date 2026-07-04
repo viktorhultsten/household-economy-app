@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { BankEvent } from "./types";
-import TransactionForm from "./components/TransactionForm";
+import VerifikatForm from "./components/VerifikatForm";
 import { getUnpostedBankEventsPaginated } from "./actions";
 
 const BATCH_SIZE = 25;
@@ -25,7 +25,7 @@ export default function Home() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<BankEvent | null>(null);
-  const [showManualTransactionForm, setShowManualTransactionForm] = useState(false);
+  const [showManualVerifikatForm, setShowManualVerifikatForm] = useState(false);
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const loadingRef = useRef(false);
@@ -76,7 +76,7 @@ export default function Home() {
   // window (offset 0) so the change shows without teleporting scroll to top.
   const handlePostSuccess = useCallback(async () => {
     setSelectedEvent(null);
-    setShowManualTransactionForm(false);
+    setShowManualVerifikatForm(false);
     const windowSize = Math.max(BATCH_SIZE, events.length);
     const { events: data, total: t } = await getUnpostedBankEventsPaginated(windowSize, 0);
     setEvents(data);
@@ -99,10 +99,10 @@ export default function Home() {
             Bankhändelser
           </h1>
           <button
-            onClick={() => setShowManualTransactionForm(true)}
+            onClick={() => setShowManualVerifikatForm(true)}
             className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-zinc-50 hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
           >
-            Ny transaktion
+            Nytt verifikat
           </button>
         </div>
 
@@ -184,16 +184,16 @@ export default function Home() {
       </main>
 
       {selectedEvent && (
-        <TransactionForm
+        <VerifikatForm
           bankEvent={selectedEvent}
           onClose={() => setSelectedEvent(null)}
           onSuccess={handlePostSuccess}
         />
       )}
 
-      {showManualTransactionForm && (
-        <TransactionForm
-          onClose={() => setShowManualTransactionForm(false)}
+      {showManualVerifikatForm && (
+        <VerifikatForm
+          onClose={() => setShowManualVerifikatForm(false)}
           onSuccess={handlePostSuccess}
         />
       )}

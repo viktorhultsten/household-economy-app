@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { queryAll, queryOne, query, transaction as dbTransaction } from "@/lib/db";
-import { BankEvent, Transaction, Post, Account, Group, Import, AccountType, PeriodLock, BookingTemplate, RecurringItem, RecurringItemStatus, Budget, BudgetComparison, CustomResultView, CustomResultViewWithDetails } from "./types";
+import { BankEvent, Verifikat, Post, Account, Group, Import, AccountType, PeriodLock, BookingTemplate, RecurringItem, RecurringItemStatus, Budget, BudgetComparison, CustomResultView, CustomResultViewWithDetails } from "./types";
 import { buildMonsterNyckel, distributeAmount, rankMonster, beloppsScore, scoreBeskrivning } from "./lib/konteringsforslagUtils";
 
 type ActionErrorCategory = "VALIDATION" | "NOT_FOUND" | "CONFLICT" | "LOCKED_PERIOD" | "DATABASE";
@@ -10,7 +10,7 @@ type ActionErrorCategory = "VALIDATION" | "NOT_FOUND" | "CONFLICT" | "LOCKED_PER
 const REVALIDATE_PATHS = [
   "/",
   "/imports",
-  "/transactions",
+  "/verifikat",
   "/accounts",
   "/budget",
   "/periods",
@@ -114,7 +114,7 @@ export async function getImportWithEvents(importId: number): Promise<{
       description: row.description,
       amount: Number(row.amount),
       isPosted: row.is_posted === 1,
-      transactionId: row.transaction_id ?? undefined,
+      verifikatId: row.transaction_id ?? undefined,
       importId: row.import_id,
     })),
   };
@@ -132,7 +132,7 @@ export async function deleteImport(id: number): Promise<void> {
   if (postedEvents.length > 0) {
     throw createActionError(
       "CONFLICT",
-      `Kan inte ta bort import. ${postedEvents.length} ${postedEvents.length === 1 ? 'händelse' : 'händelser'} har bokförts. Du måste först ta bort ${postedEvents.length === 1 ? 'transaktionen' : 'transaktionerna'} manuellt.`
+      `Kan inte ta bort import. ${postedEvents.length} ${postedEvents.length === 1 ? 'händelse' : 'händelser'} har bokförts. Du måste först ta bort ${postedEvents.length === 1 ? 'verifikatet' : 'verifikaten'} manuellt.`
     );
   }
 
@@ -213,7 +213,7 @@ export async function getBankEvents(): Promise<BankEvent[]> {
     description: row.description,
     amount: Number(row.amount),
     isPosted: row.is_posted === 1,
-    transactionId: row.transaction_id ?? undefined,
+    verifikatId: row.transaction_id ?? undefined,
     importId: row.import_id ?? undefined,
     import: row.import_account_id ? { accountId: row.import_account_id } as Import : undefined,
   }));
@@ -255,7 +255,7 @@ export async function getUnpostedBankEventsPaginated(
     description: row.description,
     amount: Number(row.amount),
     isPosted: row.is_posted === 1,
-    transactionId: row.transaction_id ?? undefined,
+    verifikatId: row.transaction_id ?? undefined,
     importId: row.import_id ?? undefined,
     import: row.import_account_id ? { accountId: row.import_account_id } as Import : undefined,
   }));
@@ -264,7 +264,7 @@ export async function getUnpostedBankEventsPaginated(
 }
 
 export async function saveBankEvents(
-  events: Omit<BankEvent, "id" | "isPosted" | "transactionId" | "importId">[],
+  events: Omit<BankEvent, "id" | "isPosted" | "verifikatId" | "importId">[],
   filename: string,
   accountId?: number
 ): Promise<void> {
@@ -301,8 +301,8 @@ export async function deleteBankEvent(id: number): Promise<void> {
   revalidateMutationViews();
 }
 
-// Transactions (accounting entries)
-export async function getTransactions(): Promise<Transaction[]> {
+// Verifikat (accounting entries)
+export async function getVerifikatLista(): Promise<Verifikat[]> {
   const transactions = await queryAll<{
     id: number;
     date: string;
@@ -310,7 +310,7 @@ export async function getTransactions(): Promise<Transaction[]> {
     bank_event_id: number | null;
   }>("SELECT * FROM transactions ORDER BY date DESC");
 
-  const result: Transaction[] = [];
+  const result: Verifikat[] = [];
 
   for (const txn of transactions) {
     const posts = await queryAll<{
@@ -344,7 +344,7 @@ export async function getTransactions(): Promise<Transaction[]> {
       bankEventId: txn.bank_event_id ?? undefined,
       posts: posts.map((p) => ({
         id: p.id,
-        transactionId: p.transaction_id,
+        verifikatId: p.transaction_id,
         accountId: p.account_id,
         debet: Number(p.debet),
         kredit: Number(p.kredit),
@@ -366,15 +366,15 @@ export async function getTransactions(): Promise<Transaction[]> {
   return result;
 }
 
-export async function createTransaction(
-  transactionData: Omit<Transaction, "id">
+export async function createVerifikat(
+  verifikatData: Omit<Verifikat, "id">
 ): Promise<number> {
   return postVerifikat({
     mode: "create",
-    date: transactionData.date,
-    description: transactionData.description,
-    bankEventId: transactionData.bankEventId,
-    posts: transactionData.posts,
+    date: verifikatData.date,
+    description: verifikatData.description,
+    bankEventId: verifikatData.bankEventId,
+    posts: verifikatData.posts,
   });
 }
 
@@ -501,7 +501,7 @@ export async function postVerifikat(
 
   const currentTxnDate = await dependencies.getTransactionDateById(command.id);
   if (!currentTxnDate) {
-    throw createActionError("NOT_FOUND", "Transaktion hittades inte");
+    throw createActionError("NOT_FOUND", "Verifikat hittades inte");
   }
 
   await dependencies.checkPeriodLockForDate(currentTxnDate);
@@ -516,15 +516,15 @@ export async function postVerifikat(
   revalidateMutationViews();
 }
 
-export async function deleteTransaction(id: number): Promise<void> {
-  // Get transaction date to check lock
+export async function deleteVerifikat(id: number): Promise<void> {
+  // Get verifikat date to check lock
   const txn = await queryOne<{ date: string }>(
     "SELECT date FROM transactions WHERE id = $1",
     [id]
   );
 
   if (!txn) {
-    throw createActionError("NOT_FOUND", "Transaktion hittades inte");
+    throw createActionError("NOT_FOUND", "Verifikat hittades inte");
   }
 
   // Check if period is locked
@@ -898,13 +898,13 @@ export async function getAccountBalancesWithChangeBudget(
   });
 }
 
-// Get transactions for a specific account in a specific period
+// Get verifikat for a specific account in a specific period
 export async function getAccountTransactionsForPeriod(
   accountId: number,
   year: number,
   month: number
 ): Promise<{
-  transactionId: number;
+  verifikatId: number;
   date: Date;
   description: string;
   postDebet: number;
@@ -941,7 +941,7 @@ export async function getAccountTransactionsForPeriod(
   );
 
   return rows.map((row) => ({
-    transactionId: row.transaction_id,
+    verifikatId: row.transaction_id,
     date: new Date(row.date),
     description: row.description,
     postDebet: Number(row.post_debet),
@@ -1034,12 +1034,12 @@ const TRANSACTION_LIST_SELECT = `
     be.import_id as be_import_id
 `;
 
-async function mapTransactionsFromJoinRows(rows: TransactionJoinRow[]): Promise<Transaction[]> {
-  const transactionsMap = new Map<number, Transaction>();
+async function mapVerifikatFromJoinRows(rows: TransactionJoinRow[]): Promise<Verifikat[]> {
+  const verifikatMap = new Map<number, Verifikat>();
 
   for (const row of rows) {
-    if (!transactionsMap.has(row.txn_id)) {
-      transactionsMap.set(row.txn_id, {
+    if (!verifikatMap.has(row.txn_id)) {
+      verifikatMap.set(row.txn_id, {
         id: row.txn_id,
         date: new Date(row.txn_date),
         description: row.txn_description,
@@ -1051,7 +1051,7 @@ async function mapTransactionsFromJoinRows(rows: TransactionJoinRow[]): Promise<
               description: row.be_description!,
               amount: Number(row.be_amount),
               isPosted: row.be_is_posted === 1,
-              transactionId: row.be_transaction_id ?? undefined,
+              verifikatId: row.be_transaction_id ?? undefined,
               importId: row.be_import_id ?? undefined,
             }
           : undefined,
@@ -1059,10 +1059,10 @@ async function mapTransactionsFromJoinRows(rows: TransactionJoinRow[]): Promise<
       });
     }
 
-    const transaction = transactionsMap.get(row.txn_id)!;
-    transaction.posts.push({
+    const verifikat = verifikatMap.get(row.txn_id)!;
+    verifikat.posts.push({
       id: row.post_id,
-      transactionId: row.txn_id,
+      verifikatId: row.txn_id,
       accountId: row.post_account_id,
       debet: Number(row.post_debet),
       kredit: Number(row.post_kredit),
@@ -1080,20 +1080,20 @@ async function mapTransactionsFromJoinRows(rows: TransactionJoinRow[]): Promise<
     });
   }
 
-  const transactionIds = Array.from(transactionsMap.keys());
-  const recurringMap = await fetchRecurringItemsForTransactions(transactionIds);
+  const verifikatIds = Array.from(verifikatMap.keys());
+  const recurringMap = await fetchRecurringItemsForTransactions(verifikatIds);
 
-  for (const [txnId, transaction] of transactionsMap) {
+  for (const [txnId, verifikat] of verifikatMap) {
     const recurringItems = recurringMap.get(txnId);
     if (recurringItems && recurringItems.length > 0) {
-      transaction.recurringItems = recurringItems;
+      verifikat.recurringItems = recurringItems;
     }
   }
 
-  return Array.from(transactionsMap.values());
+  return Array.from(verifikatMap.values());
 }
 
-export async function getAllTransactions(): Promise<Transaction[]> {
+export async function getAllVerifikat(): Promise<Verifikat[]> {
   const rows = await queryAll<TransactionJoinRow>(`
     ${TRANSACTION_LIST_SELECT}
     FROM transactions t
@@ -1104,10 +1104,10 @@ export async function getAllTransactions(): Promise<Transaction[]> {
     ORDER BY t.date DESC, t.id DESC, p.id ASC
   `);
 
-  return mapTransactionsFromJoinRows(rows);
+  return mapVerifikatFromJoinRows(rows);
 }
 
-export async function getTransactionsPaginated(
+export async function getVerifikatPaginated(
   limit: number = 50,
   offset: number = 0,
   searchQuery?: string,
@@ -1117,7 +1117,7 @@ export async function getTransactionsPaginated(
   filterAccountId?: number,
   filterDateFrom?: string,
   filterDateTo?: string
-): Promise<{ transactions: Transaction[]; total: number }> {
+): Promise<{ verifikat: Verifikat[]; total: number }> {
   // Build WHERE clauses for filtering
   const whereClauses: string[] = [];
   const params: unknown[] = [];
@@ -1228,16 +1228,16 @@ export async function getTransactionsPaginated(
     params
   );
 
-  const transactions = await mapTransactionsFromJoinRows(rows);
+  const verifikat = await mapVerifikatFromJoinRows(rows);
 
   return {
-    transactions,
+    verifikat,
     total,
   };
 }
 
-// Get a single transaction with full details
-export async function getTransaction(id: number): Promise<Transaction | null> {
+// Get a single verifikat with full details
+export async function getVerifikat(id: number): Promise<Verifikat | null> {
   const txnRow = await queryOne<{
     id: number;
     date: string;
@@ -1273,7 +1273,7 @@ export async function getTransaction(id: number): Promise<Transaction | null> {
 
   const posts: Post[] = postRows.map((postRow) => ({
     id: postRow.id,
-    transactionId: postRow.transaction_id,
+    verifikatId: postRow.transaction_id,
     accountId: postRow.account_id,
     debet: postRow.debet,
     kredit: postRow.kredit,
@@ -1325,9 +1325,9 @@ export async function getTransaction(id: number): Promise<Transaction | null> {
 
 // Booking suggestion type
 export interface BookingSuggestion {
-  transactionId: number;
-  transactionDescription: string;
-  transactionDate: Date;
+  verifikatId: number;
+  verifikatDescription: string;
+  verifikatDate: Date;
   posts: Array<{
     accountId: number;
     accountName: string;
@@ -1452,9 +1452,9 @@ export async function getBookingSuggestion(
   );
 
   return {
-    transactionId: row.transaction_id,
-    transactionDescription: row.transaction_description,
-    transactionDate: new Date(row.transaction_date),
+    verifikatId: row.transaction_id,
+    verifikatDescription: row.transaction_description,
+    verifikatDate: new Date(row.transaction_date),
     posts: postRows.map((p) => ({
       accountId: p.account_id,
       accountName: p.account_name,
@@ -1479,9 +1479,9 @@ export interface KonteringsforslagMonster {
   monsterNyckel: string;
   rader: KonteringsforslagRad[]; // All rows: tillgångskonto first, then motkonton
   stodVerifikat: Array<{
-    transactionId: number;
-    transactionDescription: string;
-    transactionDate: Date;
+    verifikatId: number;
+    verifikatDescription: string;
+    verifikatDate: Date;
     bankEventAmount: number;
     bankEventDescription: string;
   }>;
@@ -1549,9 +1549,9 @@ export async function getKonteringsforslag(
     accountType: string;
   };
   type TxnData = {
-    transactionId: number;
-    transactionDescription: string;
-    transactionDate: string;
+    verifikatId: number;
+    verifikatDescription: string;
+    verifikatDate: string;
     bankEventDescription: string;
     bankEventAmount: number;
     bankAccountId: number | null;
@@ -1562,9 +1562,9 @@ export async function getKonteringsforslag(
   for (const row of rows) {
     if (!txnMap.has(row.transaction_id)) {
       txnMap.set(row.transaction_id, {
-        transactionId: row.transaction_id,
-        transactionDescription: row.transaction_description,
-        transactionDate: row.transaction_date,
+        verifikatId: row.transaction_id,
+        verifikatDescription: row.transaction_description,
+        verifikatDate: row.transaction_date,
         bankEventDescription: row.bank_event_description,
         bankEventAmount: Number(row.bank_event_amount),
         bankAccountId: row.bank_account_id,
@@ -1590,9 +1590,9 @@ export async function getKonteringsforslag(
 
   // --- Build pattern groups ---
   type StodVerifikatData = {
-    transactionId: number;
-    transactionDescription: string;
-    transactionDate: string;
+    verifikatId: number;
+    verifikatDescription: string;
+    verifikatDate: string;
     bankEventAmount: number;
     bankEventDescription: string;
     // Amounts for motkonton in sorted-by-accountId order
@@ -1639,7 +1639,7 @@ export async function getKonteringsforslag(
     }));
 
     const nyckel = buildMonsterNyckel(motkonton);
-    const ds = descriptionScore(txn.bankEventDescription, txn.transactionDescription);
+    const ds = descriptionScore(txn.bankEventDescription, txn.verifikatDescription);
     if (ds === 0) continue;
 
     if (!patternMap.has(nyckel)) {
@@ -1656,9 +1656,9 @@ export async function getKonteringsforslag(
     const group = patternMap.get(nyckel)!;
     group.maxDescScore = Math.max(group.maxDescScore, ds);
     group.stodVerifikat.push({
-      transactionId: txn.transactionId,
-      transactionDescription: txn.transactionDescription,
-      transactionDate: txn.transactionDate,
+      verifikatId: txn.verifikatId,
+      verifikatDescription: txn.verifikatDescription,
+      verifikatDate: txn.verifikatDate,
       bankEventAmount: txn.bankEventAmount,
       bankEventDescription: txn.bankEventDescription,
       sortedMotkontoProportion: sortedMotkonton.map((p) =>
@@ -1682,7 +1682,7 @@ export async function getKonteringsforslag(
       ...group,
       historicalAmounts: group.stodVerifikat.map((sv) => sv.bankEventAmount),
       antal: group.stodVerifikat.length,
-      senasteDatum: group.stodVerifikat[0]?.transactionDate ?? "",
+      senasteDatum: group.stodVerifikat[0]?.verifikatDate ?? "",
     })),
     amount
   );
@@ -1693,7 +1693,7 @@ export async function getKonteringsforslag(
 
   // Determine the most common recurring item among each pattern's stödverifikat
   const allStodTxnIds = top3.flatMap((group) =>
-    group.stodVerifikat.map((sv) => sv.transactionId)
+    group.stodVerifikat.map((sv) => sv.verifikatId)
   );
   const recurringByTxn = await fetchRecurringItemsForTransactions(allStodTxnIds);
 
@@ -1725,7 +1725,7 @@ export async function getKonteringsforslag(
     // Pick the recurring item used most often across this pattern's history
     const recurringCounts = new Map<number, { namn: string; count: number }>();
     for (const sv of group.stodVerifikat) {
-      const items = recurringByTxn.get(sv.transactionId);
+      const items = recurringByTxn.get(sv.verifikatId);
       if (!items) continue;
       for (const item of items) {
         const existing = recurringCounts.get(item.id);
@@ -1749,9 +1749,9 @@ export async function getKonteringsforslag(
       monsterNyckel: group.monsterNyckel,
       rader,
       stodVerifikat: group.stodVerifikat.map((sv) => ({
-        transactionId: sv.transactionId,
-        transactionDescription: sv.transactionDescription,
-        transactionDate: new Date(sv.transactionDate),
+        verifikatId: sv.verifikatId,
+        verifikatDescription: sv.verifikatDescription,
+        verifikatDate: new Date(sv.verifikatDate),
         bankEventAmount: sv.bankEventAmount,
         bankEventDescription: sv.bankEventDescription,
       })),
@@ -1762,8 +1762,8 @@ export async function getKonteringsforslag(
   });
 }
 
-// Update a transaction
-export async function updateTransaction(
+// Update a verifikat
+export async function updateVerifikat(
   id: number,
   data: {
     date: Date;
@@ -1848,7 +1848,7 @@ async function checkPeriodLock(date: Date): Promise<void> {
     const month = date.getMonth() + 1;
     throw createActionError(
       "LOCKED_PERIOD",
-      `Kan inte ändra transaktion. Perioden ${year}-${String(month).padStart(2, "0")} är låst.`
+      `Kan inte ändra verifikat. Perioden ${year}-${String(month).padStart(2, "0")} är låst.`
     );
   }
 }
@@ -2174,7 +2174,7 @@ export async function getRecurringItemsStatus(
     );
 
     const recentUsages = recentRows.map((r) => ({
-      transactionId: r.transaction_id,
+      verifikatId: r.transaction_id,
       date: new Date(r.date),
       description: r.description,
       amount: Number(r.total_amount),
@@ -2194,53 +2194,53 @@ export async function getRecurringItemsStatus(
   return statuses;
 }
 
-export async function getRecurringItemForTransaction(
-  transactionId: number
+export async function getRecurringItemForVerifikat(
+  verifikatId: number
 ): Promise<number | null> {
   const result = await queryOne<{ recurring_item_id: number }>(
     "SELECT recurring_item_id FROM transaction_recurring_items WHERE transaction_id = $1",
-    [transactionId]
+    [verifikatId]
   );
   return result?.recurring_item_id ?? null;
 }
 
-export async function linkTransactionToRecurringItem(
-  transactionId: number,
+export async function linkVerifikatToRecurringItem(
+  verifikatId: number,
   recurringItemId: number
 ): Promise<void> {
   await query(
     "INSERT INTO transaction_recurring_items (transaction_id, recurring_item_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-    [transactionId, recurringItemId]
+    [verifikatId, recurringItemId]
   );
   revalidateMutationViews();
 }
 
-export async function unlinkTransactionFromRecurringItem(
-  transactionId: number,
+export async function unlinkVerifikatFromRecurringItem(
+  verifikatId: number,
   recurringItemId: number
 ): Promise<void> {
   await query(
     "DELETE FROM transaction_recurring_items WHERE transaction_id = $1 AND recurring_item_id = $2",
-    [transactionId, recurringItemId]
+    [verifikatId, recurringItemId]
   );
   revalidateMutationViews();
 }
 
-export async function updateTransactionRecurringItemLink(
-  transactionId: number,
+export async function updateVerifikatRecurringItemLink(
+  verifikatId: number,
   recurringItemId: number | null
 ): Promise<void> {
   // First, remove any existing links
   await query(
     "DELETE FROM transaction_recurring_items WHERE transaction_id = $1",
-    [transactionId]
+    [verifikatId]
   );
 
   // If a recurring item is selected, create the link
   if (recurringItemId !== null) {
     await query(
       "INSERT INTO transaction_recurring_items (transaction_id, recurring_item_id) VALUES ($1, $2)",
-      [transactionId, recurringItemId]
+      [verifikatId, recurringItemId]
     );
   }
 

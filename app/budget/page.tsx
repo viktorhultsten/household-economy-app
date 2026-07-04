@@ -182,7 +182,7 @@ export default function BudgetPage() {
             <p>Klicka på ett konto för att ställa in budget för alla 12 månader. Budget är oberoende av periodlås.</p>
             <p className="text-xs">
               <strong>OBS:</strong> För balansposter (Tillgång/Skuld) representerar budgeten den förväntade <em>förändringen</em> per månad,
-              inte det totala saldot. För resultatposter (Intäkt/Utgift) är budgeten summan av transaktioner för månaden.
+              inte det totala saldot. För resultatposter (Intäkt/Utgift) är budgeten summan av verifikat för månaden.
             </p>
           </div>
         </div>

@@ -35,13 +35,13 @@ export interface BankEvent {
   description: string;
   amount: number;
   isPosted: boolean;
-  transactionId?: number;
+  verifikatId?: number;
   importId?: number;
   import?: Import; // Include import data to access default account
 }
 
-// Accounting transaction with balanced posts
-export interface Transaction {
+// Accounting verifikat with balanced posts (double-entry bookkeeping unit)
+export interface Verifikat {
   id: number;
   date: Date;
   description: string;
@@ -51,10 +51,10 @@ export interface Transaction {
   recurringItems?: RecurringItem[]; // Associated recurring items
 }
 
-// Individual post/entry in a transaction
+// Individual post/entry in a verifikat
 export interface Post {
   id: number;
-  transactionId: number;
+  verifikatId: number;
   accountId: number;
   account?: Account;
   debet: number;
@@ -99,9 +99,9 @@ export interface RecurringItem {
   createdAt: Date;
 }
 
-// A transaction that used a recurring item (for context in the sidebar)
+// A verifikat that used a recurring item (for context in the sidebar)
 export interface RecurringItemUsage {
-  transactionId: number;
+  verifikatId: number;
   date: Date;
   description: string;
   amount: number;

@@ -7,7 +7,7 @@ export interface CSVSkippedRow {
 }
 
 export interface ParseSwedishCSVResult {
-  events: Omit<BankEvent, "id" | "isPosted" | "transactionId">[];
+  events: Omit<BankEvent, "id" | "isPosted" | "verifikatId">[]; 
   skippedRows: CSVSkippedRow[];
 }
 
@@ -55,7 +55,7 @@ export function parseSwedishCSV(
   csvContent: string
 ): ParseSwedishCSVResult {
   const lines = csvContent.split(/\r?\n/);
-  const events: Omit<BankEvent, "id" | "isPosted" | "transactionId">[] = [];
+  const events: Omit<BankEvent, "id" | "isPosted" | "verifikatId">[] = [];
   const skippedRows: CSVSkippedRow[] = [];
 
   let firstDataLineFound = false;

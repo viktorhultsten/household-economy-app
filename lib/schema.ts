@@ -50,7 +50,7 @@ export const imports = pgTable("imports", {
   }),
 });
 
-export const transactions = pgTable("transactions", {
+export const verifikat = pgTable("transactions", {
   id: serial("id").primaryKey(),
   date: date("date", { mode: "string" }).notNull(),
   description: text("description").notNull(),
@@ -64,7 +64,7 @@ export const bankEvents = pgTable("bank_events", {
   description: text("description").notNull(),
   amount: numeric("amount", { precision: 15, scale: 2 }).notNull(),
   isPosted: integer("is_posted").notNull().default(0),
-  transactionId: integer("transaction_id").references((): AnyPgColumn => transactions.id),
+  verifikatId: integer("transaction_id").references((): AnyPgColumn => verifikat.id),
   importId: integer("import_id").references(() => imports.id, {
     onDelete: "cascade",
   }),
@@ -75,9 +75,9 @@ export const posts = pgTable(
   "posts",
   {
     id: serial("id").primaryKey(),
-    transactionId: integer("transaction_id")
+    verifikatId: integer("transaction_id")
       .notNull()
-      .references(() => transactions.id, { onDelete: "cascade" }),
+      .references(() => verifikat.id, { onDelete: "cascade" }),
     accountId: integer("account_id")
       .notNull()
       .references(() => accounts.id),
@@ -137,13 +137,13 @@ export const recurringItems = pgTable("recurring_items", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-export const transactionRecurringItems = pgTable(
+export const verifikatRecurringItems = pgTable(
   "transaction_recurring_items",
   {
     id: serial("id").primaryKey(),
-    transactionId: integer("transaction_id")
+    verifikatId: integer("transaction_id")
       .notNull()
-      .references(() => transactions.id, { onDelete: "cascade" }),
+      .references(() => verifikat.id, { onDelete: "cascade" }),
     recurringItemId: integer("recurring_item_id")
       .notNull()
       .references(() => recurringItems.id, { onDelete: "cascade" }),
@@ -151,7 +151,7 @@ export const transactionRecurringItems = pgTable(
   },
   (table) => [
     unique("transaction_recurring_items_transaction_id_recurring_item_id_unique").on(
-      table.transactionId,
+      table.verifikatId,
       table.recurringItemId
     ),
   ]

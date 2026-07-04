@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Transaktioner",
-  description: "Min transaktionslista",
+  title: "Bokföring",
+  description: "Privat bokföring med dubbel bokföring",
 };
 
 export default function RootLayout({

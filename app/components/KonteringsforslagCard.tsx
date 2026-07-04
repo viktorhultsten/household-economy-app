@@ -30,7 +30,7 @@ export default function KonteringsforslagCard({
           <>
             {" "}
             · Senast{" "}
-            {latestStod.transactionDate.toLocaleDateString("sv-SE")}
+            {latestStod.verifikatDate.toLocaleDateString("sv-SE")}
           </>
         )}
       </div>
@@ -112,11 +112,11 @@ export default function KonteringsforslagCard({
                 : null;
             return (
               <li
-                key={sv.transactionId}
+                key={sv.verifikatId}
                 className="text-xs text-zinc-500 dark:text-zinc-400 flex items-baseline gap-1.5"
               >
                 <span className="tabular-nums shrink-0">
-                  {sv.transactionDate.toLocaleDateString("sv-SE")}
+                  {sv.verifikatDate.toLocaleDateString("sv-SE")}
                 </span>
                 <span className="tabular-nums shrink-0 text-zinc-700 dark:text-zinc-300">
                   {formatSwedishAmount(sv.bankEventAmount)} kr

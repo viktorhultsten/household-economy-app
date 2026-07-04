@@ -110,7 +110,7 @@ export default function PerioderPage() {
             Om periodlåsning
           </h2>
           <p className="text-sm text-blue-800 dark:text-blue-200">
-            När en period är låst kan inga transaktioner för den perioden skapas, ändras eller
+            När en period är låst kan inga verifikat för den perioden skapas, ändras eller
             tas bort. Detta skyddar bokföringen från oavsiktliga ändringar. Lås perioder när
             bokföringen är klar och granskad.
           </p>
@@ -223,7 +223,7 @@ export default function PerioderPage() {
           message={`Är du säker på att du vill låsa upp perioden ${formatPeriod(
             unlockConfirm.year,
             unlockConfirm.month
-          )}? Detta gör det möjligt att ändra transaktioner för denna period igen.`}
+          )}? Detta gör det möjligt att ändra verifikat för denna period igen.`}
           confirmText="Lås upp"
           cancelText="Avbryt"
           variant="warning"
