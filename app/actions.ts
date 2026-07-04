@@ -1522,6 +1522,7 @@ export interface KonteringsforslagMonster {
     transactionDescription: string;
     transactionDate: Date;
     bankEventAmount: number;
+    bankEventDescription: string;
   }>;
   antal: number;
   matchScore: number;
@@ -1660,6 +1661,7 @@ export async function getKonteringsforslag(
     transactionDescription: string;
     transactionDate: string;
     bankEventAmount: number;
+    bankEventDescription: string;
     // Amounts for motkonton in sorted-by-accountId order
     sortedMotkontoProportion: number[];
   };
@@ -1725,6 +1727,7 @@ export async function getKonteringsforslag(
       transactionDescription: txn.transactionDescription,
       transactionDate: txn.transactionDate,
       bankEventAmount: txn.bankEventAmount,
+      bankEventDescription: txn.bankEventDescription,
       sortedMotkontoProportion: sortedMotkonton.map((p) =>
         Math.max(p.debet, p.kredit)
       ),
@@ -1775,11 +1778,12 @@ export async function getKonteringsforslag(
     return {
       monsterNyckel: group.monsterNyckel,
       rader,
-      stodVerifikat: group.stodVerifikat.slice(0, 5).map((sv) => ({
+      stodVerifikat: group.stodVerifikat.map((sv) => ({
         transactionId: sv.transactionId,
         transactionDescription: sv.transactionDescription,
         transactionDate: new Date(sv.transactionDate),
         bankEventAmount: sv.bankEventAmount,
+        bankEventDescription: sv.bankEventDescription,
       })),
       antal: group.stodVerifikat.length,
       matchScore: group.maxDescScore,

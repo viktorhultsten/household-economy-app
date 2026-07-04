@@ -1,6 +1,6 @@
 # 09 — Underlag: senaste 5 stödverifikat i förslagskortet
 
-Status: Att göra
+Status: Klar
 
 ## What to build
 
@@ -10,10 +10,10 @@ Underlaget är sekundärt i kortet — mönstret och det föreslagna beloppet f�
 
 ## Acceptance criteria
 
-- [ ] Varje förslagskort visar antal stödverifikat och de senaste 5 (datum + belopp)
-- [ ] Bankhändelse-beskrivningen visas per rad när den skiljer sig från den aktuella
-- [ ] Underlaget är visuellt underordnat mönstret och det föreslagna beloppet
-- [ ] Belopp formateras med appens `formatSwedishAmount`
+- [x] Varje förslagskort visar antal stödverifikat och de senaste 5 (datum + belopp)
+- [x] Bankhändelse-beskrivningen visas per rad när den skiljer sig från den aktuella
+- [x] Underlaget är visuellt underordnat mönstret och det föreslagna beloppet
+- [x] Belopp formateras med appens `formatSwedishAmount`
 
 ## Blocked by
 

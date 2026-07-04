@@ -538,6 +538,7 @@ export default function TransactionForm({
                       <div key={f.monsterNyckel} className="flex-1 min-w-[14rem]">
                         <KonteringsforslagCard
                           forslag={f}
+                          currentDescription={bankEvent?.description}
                           onApply={() => applyForslag(f)}
                         />
                       </div>

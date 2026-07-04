@@ -2,13 +2,22 @@
 
 import { KonteringsforslagMonster } from "../actions";
 
+function formatSwedishAmount(amount: number): string {
+  return amount.toLocaleString("sv-SE", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
 interface KonteringsforslagCardProps {
   forslag: KonteringsforslagMonster;
+  currentDescription?: string;
   onApply: () => void;
 }
 
 export default function KonteringsforslagCard({
   forslag,
+  currentDescription,
   onApply,
 }: KonteringsforslagCardProps) {
   const latestStod = forslag.stodVerifikat[0];
@@ -77,6 +86,40 @@ export default function KonteringsforslagCard({
       >
         Använd
       </button>
+
+      <details className="group">
+        <summary className="cursor-pointer text-xs text-blue-600 dark:text-blue-400 select-none list-none flex items-center gap-1">
+          <span className="group-open:hidden">▶</span>
+          <span className="hidden group-open:inline">▼</span>
+          Baserat på {forslag.antal} {forslag.antal === 1 ? "verifikat" : "verifikat"}
+        </summary>
+        <ul className="mt-1.5 flex flex-col gap-0.5">
+          {forslag.stodVerifikat.map((sv) => {
+            const diffDesc =
+              currentDescription &&
+              sv.bankEventDescription.trim().toLowerCase() !==
+                currentDescription.trim().toLowerCase()
+                ? sv.bankEventDescription
+                : null;
+            return (
+              <li
+                key={sv.transactionId}
+                className="text-xs text-zinc-500 dark:text-zinc-400 flex items-baseline gap-1.5"
+              >
+                <span className="tabular-nums shrink-0">
+                  {sv.transactionDate.toLocaleDateString("sv-SE")}
+                </span>
+                <span className="tabular-nums shrink-0 text-zinc-700 dark:text-zinc-300">
+                  {formatSwedishAmount(sv.bankEventAmount)} kr
+                </span>
+                {diffDesc && (
+                  <span className="truncate italic">{diffDesc}</span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </details>
     </div>
   );
 }
