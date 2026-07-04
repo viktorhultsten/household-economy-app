@@ -1,6 +1,6 @@
 # 08 — Rankad lista av konteringsmönster med nytt förslagskort
 
-Status: Att göra
+Status: Klar
 
 ## What to build
 
@@ -12,12 +12,12 @@ Inget förslag är förvalt eller ifyllt i förväg — användaren väljer allt
 
 ## Acceptance criteria
 
-- [ ] Server action returnerar en rankad lista av konteringsmönster grupperade på *(motkonto, sida)*, där split är eget mönster
-- [ ] Upp till 3 förslag visas; inget är förvalt eller ifyllt automatiskt
-- [ ] Ny publik komponent `KonteringsforslagCard` renderar mönstret i appens Debet/Kredit-stil utan `D`/`K`-etiketter
-- [ ] Föreslaget belopp fördelas proportionellt på split med öres-rest på största raden, så att debet = kredit
-- [ ] Att välja ett förslag fyller formuläret men sparar inget innan användaren bekräftar
-- [ ] Test som täcker gruppering till mönster och beloppsfördelning (inkl. balansinvariant)
+- [x] Server action returnerar en rankad lista av konteringsmönster grupperade på *(motkonto, sida)*, där split är eget mönster
+- [x] Upp till 3 förslag visas; inget är förvalt eller ifyllt automatiskt
+- [x] Ny publik komponent `KonteringsforslagCard` renderar mönstret i appens Debet/Kredit-stil utan `D`/`K`-etiketter
+- [x] Föreslaget belopp fördelas proportionellt på split med öres-rest på största raden, så att debet = kredit
+- [x] Att välja ett förslag fyller formuläret men sparar inget innan användaren bekräftar
+- [x] Test som täcker gruppering till mönster och beloppsfördelning (inkl. balansinvariant)
 
 ## Blocked by
 

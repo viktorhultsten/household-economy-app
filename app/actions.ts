@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { queryAll, queryOne, query, transaction as dbTransaction } from "@/lib/db";
 import { BankEvent, Transaction, Post, Account, Group, Import, AccountType, PeriodLock, BookingTemplate, RecurringItem, RecurringItemStatus, Budget, BudgetComparison, CustomResultView, CustomResultViewWithDetails } from "./types";
+import { buildMonsterNyckel, distributeAmount } from "./lib/konteringsforslagUtils";
 
 type ActionErrorCategory = "VALIDATION" | "NOT_FOUND" | "CONFLICT" | "LOCKED_PERIOD" | "DATABASE";
 
@@ -1502,6 +1503,288 @@ export async function getBookingSuggestion(
     recurringItemName: row.recurring_item_name ?? null,
     matchScore: score,
   };
+}
+
+// --- Konteringsförslag (ranked list of konteringsmönster) ---
+
+export interface KonteringsforslagRad {
+  accountId: number;
+  accountName: string;
+  isDebet: boolean;
+  amount: number; // Proposed amount for this row
+}
+
+export interface KonteringsforslagMonster {
+  monsterNyckel: string;
+  rader: KonteringsforslagRad[]; // All rows: tillgångskonto first, then motkonton
+  stodVerifikat: Array<{
+    transactionId: number;
+    transactionDescription: string;
+    transactionDate: Date;
+    bankEventAmount: number;
+  }>;
+  antal: number;
+  matchScore: number;
+}
+
+/**
+ * Return a ranked list (max 3) of konteringsmönster for a new bank event.
+ * Each pattern is grouped by its motkonto structure (excluding the bank
+ * account row). Ranked by description match score, then by frequency.
+ */
+export async function getKonteringsforslag(
+  description: string,
+  amount: number,
+  date: Date
+): Promise<KonteringsforslagMonster[]> {
+  if (!description || description.trim().length === 0) return [];
+
+  const rows = await queryAll<{
+    transaction_id: number;
+    transaction_description: string;
+    transaction_date: string;
+    bank_event_description: string;
+    bank_event_amount: string;
+    bank_account_id: number | null;
+    post_account_id: number;
+    post_account_name: string;
+    post_debet: string;
+    post_kredit: string;
+    account_type: string;
+  }>(
+    `SELECT
+       t.id                  AS transaction_id,
+       t.description         AS transaction_description,
+       t.date                AS transaction_date,
+       be.description        AS bank_event_description,
+       be.amount             AS bank_event_amount,
+       i.account_id          AS bank_account_id,
+       p.account_id          AS post_account_id,
+       a.namn                AS post_account_name,
+       p.debet               AS post_debet,
+       p.kredit              AS post_kredit,
+       g.typ                 AS account_type
+     FROM transactions t
+     JOIN bank_events be ON be.transaction_id = t.id
+     LEFT JOIN imports i ON i.id = be.import_id
+     JOIN posts p ON p.transaction_id = t.id
+     JOIN accounts a ON a.id = p.account_id
+     JOIN groups g ON g.id = a.group_id
+     ORDER BY t.date DESC, t.id DESC, p.id ASC
+     LIMIT 3000`
+  );
+
+  if (rows.length === 0) return [];
+
+  // Group rows by transaction_id
+  type TxnPost = {
+    accountId: number;
+    accountName: string;
+    debet: number;
+    kredit: number;
+    accountType: string;
+  };
+  type TxnData = {
+    transactionId: number;
+    transactionDescription: string;
+    transactionDate: string;
+    bankEventDescription: string;
+    bankEventAmount: number;
+    bankAccountId: number | null;
+    posts: TxnPost[];
+  };
+
+  const txnMap = new Map<number, TxnData>();
+  for (const row of rows) {
+    if (!txnMap.has(row.transaction_id)) {
+      txnMap.set(row.transaction_id, {
+        transactionId: row.transaction_id,
+        transactionDescription: row.transaction_description,
+        transactionDate: row.transaction_date,
+        bankEventDescription: row.bank_event_description,
+        bankEventAmount: Number(row.bank_event_amount),
+        bankAccountId: row.bank_account_id,
+        posts: [],
+      });
+    }
+    txnMap.get(row.transaction_id)!.posts.push({
+      accountId: row.post_account_id,
+      accountName: row.post_account_name,
+      debet: Number(row.post_debet),
+      kredit: Number(row.post_kredit),
+      accountType: row.account_type,
+    });
+  }
+
+  // --- Description scoring ---
+  const NOISE = new Set(["se", "ab", "i", "och", "the", ""]);
+  function tokenise(s: string): string[] {
+    return s
+      .toLowerCase()
+      .replace(/[^a-zåäö0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length > 2 && !NOISE.has(w));
+  }
+  const queryTokens = tokenise(description);
+
+  function descriptionScore(beDesc: string, txnDesc: string): number {
+    const normalized = description.trim().toLowerCase();
+    if (beDesc.trim().toLowerCase() === normalized) return 100;
+
+    const candidateTokens = [
+      ...new Set([...tokenise(beDesc), ...tokenise(txnDesc)]),
+    ];
+    if (queryTokens.length === 0 || candidateTokens.length === 0) return 0;
+
+    let hits = 0;
+    for (const qt of queryTokens) {
+      if (candidateTokens.some((ct) => ct === qt)) {
+        hits += 2;
+      } else if (candidateTokens.some((ct) => ct.includes(qt) || qt.includes(ct))) {
+        hits += 1;
+      }
+    }
+
+    const exactTokenHits = queryTokens.filter((qt) =>
+      candidateTokens.includes(qt)
+    ).length;
+    if (exactTokenHits === 0) return 0;
+
+    const union = queryTokens.length + candidateTokens.length - hits / 2;
+    return Math.round((hits / (union * 2)) * 70);
+  }
+
+  // --- Build pattern groups ---
+  type StodVerifikatData = {
+    transactionId: number;
+    transactionDescription: string;
+    transactionDate: string;
+    bankEventAmount: number;
+    // Amounts for motkonton in sorted-by-accountId order
+    sortedMotkontoProportion: number[];
+  };
+  type PatternGroup = {
+    monsterNyckel: string;
+    bankAccountId: number;
+    bankAccountName: string;
+    motkonton: Array<{ accountId: number; accountName: string; isDebet: boolean }>;
+    stodVerifikat: StodVerifikatData[];
+    maxDescScore: number;
+  };
+
+  const patternMap = new Map<string, PatternGroup>();
+
+  for (const txn of txnMap.values()) {
+    // Identify the bank account row
+    let bankPost: TxnPost | undefined;
+    let motkontoPosts: TxnPost[];
+
+    if (txn.bankAccountId !== null) {
+      bankPost = txn.posts.find((p) => p.accountId === txn.bankAccountId);
+      motkontoPosts = txn.posts.filter((p) => p.accountId !== txn.bankAccountId);
+    } else {
+      // Fallback: treat the single Tillgång row as the bank account
+      const tillgangPosts = txn.posts.filter((p) => p.accountType === "Tillgång");
+      if (tillgangPosts.length !== 1) continue;
+      bankPost = tillgangPosts[0];
+      motkontoPosts = txn.posts.filter((p) => p.accountType !== "Tillgång");
+    }
+
+    if (!bankPost || motkontoPosts.length === 0) continue;
+
+    // Sort motkonton by accountId for a stable key and consistent proportion order
+    const sortedMotkonton = [...motkontoPosts].sort(
+      (a, b) => a.accountId - b.accountId
+    );
+
+    const motkonton = sortedMotkonton.map((p) => ({
+      accountId: p.accountId,
+      accountName: p.accountName,
+      isDebet: p.debet > 0,
+    }));
+
+    const nyckel = buildMonsterNyckel(motkonton);
+    const ds = descriptionScore(txn.bankEventDescription, txn.transactionDescription);
+    if (ds === 0) continue;
+
+    if (!patternMap.has(nyckel)) {
+      patternMap.set(nyckel, {
+        monsterNyckel: nyckel,
+        bankAccountId: bankPost.accountId,
+        bankAccountName: bankPost.accountName,
+        motkonton,
+        stodVerifikat: [],
+        maxDescScore: 0,
+      });
+    }
+
+    const group = patternMap.get(nyckel)!;
+    group.maxDescScore = Math.max(group.maxDescScore, ds);
+    group.stodVerifikat.push({
+      transactionId: txn.transactionId,
+      transactionDescription: txn.transactionDescription,
+      transactionDate: txn.transactionDate,
+      bankEventAmount: txn.bankEventAmount,
+      sortedMotkontoProportion: sortedMotkonton.map((p) =>
+        Math.max(p.debet, p.kredit)
+      ),
+    });
+  }
+
+  if (patternMap.size === 0) return [];
+
+  // Sort patterns by (maxDescScore desc, antal desc) — issue 10 will refine ranking
+  const sorted = [...patternMap.values()].sort(
+    (a, b) =>
+      b.maxDescScore - a.maxDescScore ||
+      b.stodVerifikat.length - a.stodVerifikat.length
+  );
+
+  const top3 = sorted.filter((p) => p.maxDescScore >= 10).slice(0, 3);
+  if (top3.length === 0) return [];
+
+  // Build return value
+  const targetAmount = Math.abs(amount);
+  const isBankDebet = amount > 0; // Tillgångskonto: ingoing = debet, outgoing = kredit
+
+  return top3.map((group): KonteringsforslagMonster => {
+    // Use the latest stödverifikat for proportional amount distribution
+    const latestStod = group.stodVerifikat[0];
+    const proposedAmounts = distributeAmount(
+      amount,
+      latestStod.sortedMotkontoProportion
+    );
+
+    const rader: KonteringsforslagRad[] = [
+      // Tillgångskonto always first
+      {
+        accountId: group.bankAccountId,
+        accountName: group.bankAccountName,
+        isDebet: isBankDebet,
+        amount: targetAmount,
+      },
+      // Motkonton with proposed amounts
+      ...group.motkonton.map((m, i) => ({
+        accountId: m.accountId,
+        accountName: m.accountName,
+        isDebet: m.isDebet,
+        amount: proposedAmounts[i] ?? targetAmount,
+      })),
+    ];
+
+    return {
+      monsterNyckel: group.monsterNyckel,
+      rader,
+      stodVerifikat: group.stodVerifikat.slice(0, 5).map((sv) => ({
+        transactionId: sv.transactionId,
+        transactionDescription: sv.transactionDescription,
+        transactionDate: new Date(sv.transactionDate),
+        bankEventAmount: sv.bankEventAmount,
+      })),
+      antal: group.stodVerifikat.length,
+      matchScore: group.maxDescScore,
+    };
+  });
 }
 
 // Update a transaction

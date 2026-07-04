@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Account, BankEvent, Post, BookingTemplate, RecurringItemStatus, Transaction } from "../types";
-import { getAccounts, createTransaction, updateTransaction, isPeriodLocked, getBookingTemplates, createBookingTemplate, getRecurringItemsStatus, linkTransactionToRecurringItem, getRecurringItemForTransaction, updateTransactionRecurringItemLink, getBookingSuggestion, BookingSuggestion } from "../actions";
+import { getAccounts, createTransaction, updateTransaction, isPeriodLocked, getBookingTemplates, createBookingTemplate, getRecurringItemsStatus, linkTransactionToRecurringItem, getRecurringItemForTransaction, updateTransactionRecurringItemLink, getKonteringsforslag, KonteringsforslagMonster } from "../actions";
 import AccountSelectorModal from "./AccountSelectorModal";
 import ConfirmModal from "./ConfirmModal";
+import KonteringsforslagCard from "./KonteringsforslagCard";
 
 type PostInput = Omit<Post, "id" | "transactionId">;
 
@@ -107,9 +108,9 @@ export default function TransactionForm({
   const [debetInputs, setDebetInputs] = useState<{ [key: number]: string }>({});
   const [kreditInputs, setKreditInputs] = useState<{ [key: number]: string }>({});
 
-  const [suggestion, setSuggestion] = useState<BookingSuggestion | null>(null);
-  const [suggestionLoaded, setSuggestionLoaded] = useState(false);
-  const [suggestionDismissed, setSuggestionDismissed] = useState(false);
+  const [forslag, setForslag] = useState<KonteringsforslagMonster[]>([]);
+  const [forslagLoaded, setForslagLoaded] = useState(false);
+  const [forslagDismissed, setForslagDismissed] = useState(false);
 
   useEffect(() => {
     async function loadData() {
@@ -138,16 +139,18 @@ export default function TransactionForm({
     loadData();
   }, [date, isEditing, transaction]);
 
-  // Fetch booking suggestion when creating a new transaction from a bank event
+  // Fetch konteringsförslag when creating a new transaction from a bank event
   useEffect(() => {
     if (isEditing || !bankEvent) return;
-    setSuggestionDismissed(false);
-    setSuggestion(null);
-    setSuggestionLoaded(false);
-    getBookingSuggestion(bankEvent.description, bankEvent.amount, bankEvent.date).then((result) => {
-      setSuggestion(result);
-      setSuggestionLoaded(true);
-    });
+    setForslagDismissed(false);
+    setForslag([]);
+    setForslagLoaded(false);
+    getKonteringsforslag(bankEvent.description, bankEvent.amount, bankEvent.date).then(
+      (results) => {
+        setForslag(results);
+        setForslagLoaded(true);
+      }
+    );
   }, [bankEvent, isEditing]);
 
   useEffect(() => {
@@ -312,23 +315,15 @@ export default function TransactionForm({
     setPosts(newPosts);
   };
 
-  const applySuggestion = () => {
-    if (!suggestion || !bankEvent) return;
-
-    const amount = Math.abs(bankEvent.amount);
-    const newPosts = suggestion.posts.map((p) => ({
-      accountId: p.accountId,
-      debet: p.isDebet ? amount : 0,
-      kredit: !p.isDebet ? amount : 0,
+  const applyForslag = (f: KonteringsforslagMonster) => {
+    const newPosts = f.rader.map((r) => ({
+      accountId: r.accountId,
+      debet: r.isDebet ? r.amount : 0,
+      kredit: r.isDebet ? 0 : r.amount,
       description: "",
     }));
     setPosts(newPosts);
-
-    if (suggestion.recurringItemId !== null) {
-      setSelectedRecurringItemId(suggestion.recurringItemId);
-    }
-
-    setSuggestionDismissed(true);
+    setForslagDismissed(true);
   };
 
   const saveAsTemplate = async () => {
@@ -504,60 +499,49 @@ export default function TransactionForm({
           )}
 
           {/* Konteringsförslag — reserved-height slot so nothing jumps while loading */}
-          {!isEditing && bankEvent && !suggestionDismissed && (
-            <div className="mb-4 min-h-[7rem]">
-              {!suggestionLoaded ? (
-                <div className="h-28 rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 p-4 animate-pulse">
-                  <div className="mb-3 h-3 w-48 rounded bg-zinc-200 dark:bg-zinc-700" />
-                  <div className="mb-3 h-3 w-64 rounded bg-zinc-200 dark:bg-zinc-700" />
-                  <div className="flex gap-1">
-                    <div className="h-5 w-24 rounded bg-zinc-200 dark:bg-zinc-700" />
-                    <div className="h-5 w-24 rounded bg-zinc-200 dark:bg-zinc-700" />
-                  </div>
+          {!isEditing && bankEvent && !forslagDismissed && (
+            <div className="mb-4">
+              {!forslagLoaded ? (
+                <div className="flex gap-3">
+                  {[0, 1].map((i) => (
+                    <div
+                      key={i}
+                      className="flex-1 h-28 rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 p-3 animate-pulse"
+                    >
+                      <div className="mb-3 h-3 w-32 rounded bg-zinc-200 dark:bg-zinc-700" />
+                      <div className="mb-2 h-3 w-full rounded bg-zinc-200 dark:bg-zinc-700" />
+                      <div className="h-3 w-full rounded bg-zinc-200 dark:bg-zinc-700" />
+                    </div>
+                  ))}
                 </div>
-              ) : !suggestion ? (
+              ) : forslag.length === 0 ? (
                 <div className="rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 px-4 py-3 text-sm text-zinc-500 dark:text-zinc-400">
                   Hittade inga konteringsförslag.
                 </div>
               ) : (
-                <div className="rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-1">
-                        Förslag baserat på tidigare bokföring
-                      </p>
-                      <p className="text-xs text-blue-700 dark:text-blue-300 mb-2">
-                        Senast bokförd {suggestion.transactionDate.toLocaleDateString("sv-SE")} — {suggestion.transactionDescription}
-                      </p>
-                      <div className="flex flex-wrap gap-1 mb-2">
-                        {suggestion.posts.map((p, i) => (
-                          <span key={i} className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs bg-blue-100 dark:bg-blue-800/50 text-blue-800 dark:text-blue-200">
-                            <span className="font-medium">{p.isDebet ? "D" : "K"}</span>
-                            {p.accountName}
-                          </span>
-                        ))}
-                        {suggestion.recurringItemName && (
-                          <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs bg-purple-100 dark:bg-purple-800/50 text-purple-800 dark:text-purple-200">
-                            Återkommande: {suggestion.recurringItemName}
-                          </span>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={applySuggestion}
-                        className="text-xs font-semibold px-3 py-1.5 rounded-md bg-blue-700 text-white hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-500"
-                      >
-                        Använd förslag
-                      </button>
-                    </div>
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                      Konteringsförslag
+                    </p>
                     <button
                       type="button"
-                      onClick={() => setSuggestionDismissed(true)}
-                      className="text-blue-400 hover:text-blue-600 dark:hover:text-blue-300 shrink-0 text-lg leading-none"
+                      onClick={() => setForslagDismissed(true)}
+                      className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 text-lg leading-none"
                       aria-label="Stäng förslag"
                     >
                       ✕
                     </button>
+                  </div>
+                  <div className="flex gap-3 flex-wrap">
+                    {forslag.map((f) => (
+                      <div key={f.monsterNyckel} className="flex-1 min-w-[14rem]">
+                        <KonteringsforslagCard
+                          forslag={f}
+                          onApply={() => applyForslag(f)}
+                        />
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
