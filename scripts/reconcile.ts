@@ -81,6 +81,9 @@ BEGIN
     IF EXISTS (
       SELECT 1 FROM pg_constraint
       WHERE conname = r.oldname AND conrelid = ('public.' || quote_ident(r.tbl))::regclass
+    ) AND NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conname = r.newname AND conrelid = ('public.' || quote_ident(r.tbl))::regclass
     ) THEN
       EXECUTE format('ALTER TABLE public.%I RENAME CONSTRAINT %I TO %I', r.tbl, r.oldname, r.newname);
     END IF;
