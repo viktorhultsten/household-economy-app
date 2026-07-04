@@ -1487,6 +1487,8 @@ export interface KonteringsforslagMonster {
   }>;
   antal: number;
   matchScore: number;
+  // Most common recurring item among the pattern's stödverifikat, if any
+  recurringItem: { id: number; namn: string } | null;
 }
 
 /**
@@ -1689,6 +1691,12 @@ export async function getKonteringsforslag(
   const targetAmount = Math.abs(amount);
   const isBankDebet = amount > 0; // Tillgångskonto: ingoing = debet, outgoing = kredit
 
+  // Determine the most common recurring item among each pattern's stödverifikat
+  const allStodTxnIds = top3.flatMap((group) =>
+    group.stodVerifikat.map((sv) => sv.transactionId)
+  );
+  const recurringByTxn = await fetchRecurringItemsForTransactions(allStodTxnIds);
+
   return top3.map((group): KonteringsforslagMonster => {
     // Use the latest stödverifikat for proportional amount distribution
     const latestStod = group.stodVerifikat[0];
@@ -1714,6 +1722,29 @@ export async function getKonteringsforslag(
       })),
     ];
 
+    // Pick the recurring item used most often across this pattern's history
+    const recurringCounts = new Map<number, { namn: string; count: number }>();
+    for (const sv of group.stodVerifikat) {
+      const items = recurringByTxn.get(sv.transactionId);
+      if (!items) continue;
+      for (const item of items) {
+        const existing = recurringCounts.get(item.id);
+        if (existing) {
+          existing.count++;
+        } else {
+          recurringCounts.set(item.id, { namn: item.namn, count: 1 });
+        }
+      }
+    }
+    let recurringItem: { id: number; namn: string } | null = null;
+    let bestCount = 0;
+    for (const [id, { namn, count }] of recurringCounts) {
+      if (count > bestCount) {
+        bestCount = count;
+        recurringItem = { id, namn };
+      }
+    }
+
     return {
       monsterNyckel: group.monsterNyckel,
       rader,
@@ -1726,6 +1757,7 @@ export async function getKonteringsforslag(
       })),
       antal: group.stodVerifikat.length,
       matchScore: beloppsScore(amount, group.historicalAmounts),
+      recurringItem,
     };
   });
 }
@@ -2118,6 +2150,36 @@ export async function getRecurringItemsStatus(
       0
     );
 
+    // Get the most recent transactions that used this recurring item, so the
+    // user can see what to look for when matching new bank events.
+    const recentRows = await queryAll<{
+      transaction_id: number;
+      date: string;
+      description: string;
+      total_amount: number;
+    }>(
+      `SELECT
+        t.id AS transaction_id,
+        t.date AS date,
+        t.description AS description,
+        COALESCE(SUM(p.debet), 0) AS total_amount
+      FROM transaction_recurring_items tri
+      JOIN transactions t ON t.id = tri.transaction_id
+      LEFT JOIN posts p ON p.transaction_id = t.id
+      WHERE tri.recurring_item_id = $1
+      GROUP BY t.id, t.date, t.description
+      ORDER BY t.date DESC, t.id DESC
+      LIMIT 3`,
+      [item.id]
+    );
+
+    const recentUsages = recentRows.map((r) => ({
+      transactionId: r.transaction_id,
+      date: new Date(r.date),
+      description: r.description,
+      amount: Number(r.total_amount),
+    }));
+
     statuses.push({
       recurringItem: item,
       currentPeriodCount,
@@ -2125,6 +2187,7 @@ export async function getRecurringItemsStatus(
       previousPeriodCount,
       previousPeriodAmount,
       isComplete: currentPeriodCount >= item.expectedPerMonth,
+      recentUsages,
     });
   }
 

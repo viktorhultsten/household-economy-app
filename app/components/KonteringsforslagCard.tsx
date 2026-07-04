@@ -35,6 +35,15 @@ export default function KonteringsforslagCard({
         )}
       </div>
 
+      {forslag.recurringItem && (
+        <div className="flex items-center gap-1.5 text-xs">
+          <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-800/40 px-2 py-0.5 font-medium text-blue-800 dark:text-blue-200">
+            <span aria-hidden>↻</span>
+            Återkommande: {forslag.recurringItem.namn}
+          </span>
+        </div>
+      )}
+
       <table className="w-full text-xs border-collapse">
         <thead>
           <tr>

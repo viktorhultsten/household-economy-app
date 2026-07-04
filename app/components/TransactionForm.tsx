@@ -323,6 +323,9 @@ export default function TransactionForm({
       description: "",
     }));
     setPosts(newPosts);
+    if (f.recurringItem) {
+      setSelectedRecurringItemId(f.recurringItem.id);
+    }
     setForslagDismissed(true);
   };
 
@@ -916,6 +919,32 @@ export default function TransactionForm({
                       </span>
                     </div>
                   </div>
+                  {item.recentUsages.length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-zinc-200 dark:border-zinc-700 space-y-1">
+                      <div className="text-[10px] font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+                        Senaste
+                      </div>
+                      {item.recentUsages.map((usage) => (
+                        <div
+                          key={usage.transactionId}
+                          className="flex items-baseline justify-between gap-2 text-xs text-zinc-600 dark:text-zinc-400"
+                        >
+                          <span className="tabular-nums shrink-0 text-zinc-500 dark:text-zinc-500">
+                            {usage.date.toLocaleDateString("sv-SE")}
+                          </span>
+                          <span className="truncate flex-1 min-w-0">
+                            {usage.description}
+                          </span>
+                          <span className="tabular-nums shrink-0 font-medium">
+                            {usage.amount.toLocaleString("sv-SE", {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })} kr
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </button>
               ))}
             </div>

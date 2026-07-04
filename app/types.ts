@@ -99,6 +99,14 @@ export interface RecurringItem {
   createdAt: Date;
 }
 
+// A transaction that used a recurring item (for context in the sidebar)
+export interface RecurringItemUsage {
+  transactionId: number;
+  date: Date;
+  description: string;
+  amount: number;
+}
+
 // Recurring item status for a specific period
 export interface RecurringItemStatus {
   recurringItem: RecurringItem;
@@ -107,6 +115,7 @@ export interface RecurringItemStatus {
   previousPeriodCount: number;
   previousPeriodAmount: number;
   isComplete: boolean;
+  recentUsages: RecurringItemUsage[];
 }
 
 // Budget - monthly budget amount for an account
