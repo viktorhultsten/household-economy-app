@@ -16,6 +16,10 @@ export default function BulkBokforingVy({ queue, onClose }: BulkBokforingVyProps
   const [savedIds, setSavedIds] = useState<Map<number, number>>(new Map());
   // bankEventId → Verifikat data for edit mode on revisit
   const [savedVerifikat, setSavedVerifikat] = useState<Map<number, Verifikat>>(new Map());
+  // Track flagged state changes during the session
+  const [flaggedIds, setFlaggedIds] = useState<Set<number>>(
+    () => new Set(queue.filter((e) => e.flagged).map((e) => e.id))
+  );
 
   const currentEvent = queue[currentIndex];
   const isSaved = savedIds.has(currentEvent.id);
@@ -30,6 +34,27 @@ export default function BulkBokforingVy({ queue, onClose }: BulkBokforingVyProps
     },
     [currentIndex, queue.length]
   );
+
+  const handleJump = useCallback(
+    (index: number) => {
+      if (index >= 0 && index < queue.length) {
+        setCurrentIndex(index);
+      }
+    },
+    [queue.length]
+  );
+
+  const handleFlagChange = useCallback((updated: BankEvent) => {
+    setFlaggedIds((prev) => {
+      const next = new Set(prev);
+      if (updated.flagged) {
+        next.add(updated.id);
+      } else {
+        next.delete(updated.id);
+      }
+      return next;
+    });
+  }, []);
 
   // Called by VerifikatForm after a new verifikat is created in bulk mode.
   // Fetches the full verifikat so we can show it in edit/revisit mode.
@@ -61,6 +86,12 @@ export default function BulkBokforingVy({ queue, onClose }: BulkBokforingVyProps
     }
   }, [isSaved, savedIds, currentEvent.id]);
 
+  const segments = queue.map((event) => {
+    if (savedIds.has(event.id)) return "saved" as const;
+    if (flaggedIds.has(event.id)) return "flagged" as const;
+    return "pending" as const;
+  });
+
   return (
     <VerifikatForm
       key={`bulk-${currentEvent.id}-${isSaved ? "saved" : "new"}`}
@@ -68,13 +99,17 @@ export default function BulkBokforingVy({ queue, onClose }: BulkBokforingVyProps
       verifikat={currentVerifikat}
       onClose={onClose}
       onSuccess={handleSuccess}
+      onFlagChange={handleFlagChange}
       bulkNav={{
         currentIndex,
         total: queue.length,
         isSaved,
         onNavigate: handleNavigate,
         onSaved: handleVerifikatSaved,
+        segments,
+        onJump: handleJump,
       }}
     />
   );
 }
+

@@ -1,6 +1,6 @@
 # 15 — Bulkbokföring: segmenterad förloppskarta
 
-Status: Att göra
+Status: Klar
 
 ## What to build
 
@@ -16,11 +16,11 @@ En händelse som redigerats men lämnats utan att sparas förblir gul (ingen ege
 
 ## Acceptance criteria
 
-- [ ] Segmenterad rad med ett segment per händelse i kön
-- [ ] Färger: grön = bokförd, gul = ej påbörjad, vit = flaggad
-- [ ] Aktuellt segment markeras tydligt ovanpå statusfärgen
-- [ ] Klick på ett segment hoppar till den händelsen
-- [ ] Ej sparade ändringar håller segmentet gult (ingen separat påbörjad-status)
+- [x] Segmenterad rad med ett segment per händelse i kön
+- [x] Färger: grön = bokförd, gul = ej påbörjad, vit = flaggad
+- [x] Aktuellt segment markeras tydligt ovanpå statusfärgen
+- [x] Klick på ett segment hoppar till den händelsen
+- [x] Ej sparade ändringar håller segmentet gult (ingen separat påbörjad-status)
 
 ## Blocked by
 

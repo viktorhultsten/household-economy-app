@@ -35,6 +35,8 @@ interface BulkNavProps {
   isSaved: boolean;
   onNavigate: (direction: -1 | 1) => void;
   onSaved: (verifikatId: number) => Promise<void>;
+  segments: Array<"saved" | "flagged" | "pending">;
+  onJump: (index: number) => void;
 }
 
 interface VerifikatFormProps {
@@ -125,6 +127,7 @@ export default function VerifikatForm({
   const isFlagged = bankEvent?.flagged ?? false;
 
   const [pendingNavDirection, setPendingNavDirection] = useState<-1 | 1 | null>(null);
+  const [pendingNavIndex, setPendingNavIndex] = useState<number | null>(null);
 
   // Store raw input strings for debit/credit fields to allow typing commas
   const [debetInputs, setDebetInputs] = useState<{ [key: number]: string }>({});
@@ -260,6 +263,16 @@ export default function VerifikatForm({
       setShowCloseConfirm(true);
     } else {
       bulkNav?.onNavigate(direction);
+    }
+  };
+
+  const attemptJump = (index: number) => {
+    if (index === bulkNav?.currentIndex) return;
+    if (isDirty) {
+      setPendingNavIndex(index);
+      setShowCloseConfirm(true);
+    } else {
+      bulkNav?.onJump(index);
     }
   };
 
@@ -868,6 +881,30 @@ export default function VerifikatForm({
 
           {/* Sammanfattningssektion — alltid längst ner */}
           <div className="shrink-0 border-t border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-6 py-4 space-y-4">
+          {bulkNav && bulkNav.segments.length > 1 && (
+            <div className="flex gap-0.5" role="group" aria-label="Förloppskarta">
+              {bulkNav.segments.map((status, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => attemptJump(i)}
+                  aria-label={`Gå till händelse ${i + 1}`}
+                  aria-current={i === bulkNav.currentIndex ? "true" : undefined}
+                  className={[
+                    "flex-1 min-w-[6px] h-2 rounded-sm transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-700 dark:focus-visible:ring-zinc-300",
+                    status === "saved"
+                      ? "bg-green-500"
+                      : status === "flagged"
+                      ? "bg-white border border-zinc-300 dark:bg-zinc-300 dark:border-zinc-400"
+                      : "bg-amber-400",
+                    i === bulkNav.currentIndex
+                      ? "ring-2 ring-zinc-700 dark:ring-zinc-100 ring-offset-1 ring-offset-white dark:ring-offset-zinc-800"
+                      : "opacity-70 hover:opacity-100",
+                  ].join(" ")}
+                />
+              ))}
+            </div>
+          )}
           {showSaveTemplate && (
             <div className="p-4 border border-zinc-200 dark:border-zinc-700 rounded-md bg-zinc-50 dark:bg-zinc-900">
               <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
@@ -1198,11 +1235,11 @@ export default function VerifikatForm({
         <ConfirmModal
           title="Kasta osparade ändringar?"
           message={
-            pendingNavDirection !== null
+            pendingNavDirection !== null || pendingNavIndex !== null
               ? "Du har osparade ändringar. Vill du bläddra vidare utan att spara?"
               : "Du har ändringar som inte sparats. Vill du stänga utan att spara?"
           }
-          confirmText={pendingNavDirection !== null ? "Bläddra vidare" : "Stäng utan att spara"}
+          confirmText={pendingNavDirection !== null || pendingNavIndex !== null ? "Bläddra vidare" : "Stäng utan att spara"}
           cancelText="Fortsätt redigera"
           variant="warning"
           onConfirm={() => {
@@ -1211,6 +1248,10 @@ export default function VerifikatForm({
               const dir = pendingNavDirection;
               setPendingNavDirection(null);
               bulkNav?.onNavigate(dir);
+            } else if (pendingNavIndex !== null) {
+              const idx = pendingNavIndex;
+              setPendingNavIndex(null);
+              bulkNav?.onJump(idx);
             } else {
               onClose();
             }
@@ -1218,6 +1259,7 @@ export default function VerifikatForm({
           onCancel={() => {
             setShowCloseConfirm(false);
             setPendingNavDirection(null);
+            setPendingNavIndex(null);
           }}
         />
       )}
