@@ -600,11 +600,6 @@ export default function TransactionForm({
             <div>
               <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
                 Transaktionsbeskrivning
-                {bankEvent && (
-                  <span className="ml-1 text-xs font-normal text-zinc-500 dark:text-zinc-400">
-                    (Redigera vid behov)
-                  </span>
-                )}
               </label>
               <input
                 type="text"
@@ -626,9 +621,13 @@ export default function TransactionForm({
               <button
                 type="button"
                 onClick={addPost}
-                className="text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
+                className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-md border border-zinc-300 dark:border-zinc-600 bg-zinc-100 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-600 transition-colors"
               >
-                + Lägg till post
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                Lägg till post
               </button>
             </div>
 
@@ -673,6 +672,7 @@ export default function TransactionForm({
                           updatePost(index, "debet", numValue);
                         }
                       }}
+                      onFocus={(e) => e.target.select()}
                       onBlur={() => {
                         // Clear the input string on blur to show formatted value
                         const newInputs = { ...debetInputs };
@@ -702,6 +702,7 @@ export default function TransactionForm({
                           updatePost(index, "kredit", numValue);
                         }
                       }}
+                      onFocus={(e) => e.target.select()}
                       onBlur={() => {
                         // Clear the input string on blur to show formatted value
                         const newInputs = { ...kreditInputs };

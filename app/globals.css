@@ -25,6 +25,15 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* Pointer cursor on all interactive elements */
+button,
+[role="button"],
+select,
+label[for],
+summary {
+  cursor: pointer;
+}
+
 /* Remove spinner arrows from number inputs */
 input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button {
