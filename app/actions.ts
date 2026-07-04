@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { queryAll, queryOne, query, transaction as dbTransaction } from "@/lib/db";
 import { BankEvent, Transaction, Post, Account, Group, Import, AccountType, PeriodLock, BookingTemplate, RecurringItem, RecurringItemStatus, Budget, BudgetComparison, CustomResultView, CustomResultViewWithDetails } from "./types";
-import { buildMonsterNyckel, distributeAmount } from "./lib/konteringsforslagUtils";
+import { buildMonsterNyckel, distributeAmount, rankMonster, beloppsScore, scoreBeskrivning } from "./lib/konteringsforslagUtils";
 
 type ActionErrorCategory = "VALIDATION" | "NOT_FOUND" | "CONFLICT" | "LOCKED_PERIOD" | "DATABASE";
 
@@ -1375,47 +1375,8 @@ export async function getBookingSuggestion(
   if (candidateRows.length === 0) return null;
 
   // --- Description scoring ---
-  // Tokenise into meaningful words (strip short noise tokens and pure city/country suffixes)
-  const NOISE = new Set(["se", "ab", "i", "och", "the", ""]);
-  function tokenise(s: string): string[] {
-    return s
-      .toLowerCase()
-      .replace(/[^a-zåäö0-9\s]/g, " ")
-      .split(/\s+/)
-      .filter((w) => w.length > 2 && !NOISE.has(w));
-  }
-
-  const queryTokens = tokenise(description);
-
   function descriptionScore(beDesc: string): number {
-    const normalized = description.trim().toLowerCase();
-    const beNorm = beDesc.trim().toLowerCase();
-
-    // Exact match
-    if (beNorm === normalized) return 100;
-
-    const candidateTokens = tokenise(beDesc);
-    if (queryTokens.length === 0 || candidateTokens.length === 0) return 0;
-
-    // Count tokens in query that appear as a substring of any candidate token, and vice versa
-    let hits = 0;
-    for (const qt of queryTokens) {
-      if (candidateTokens.some((ct) => ct === qt)) {
-        hits += 2; // exact token match worth more
-      } else if (candidateTokens.some((ct) => ct.includes(qt) || qt.includes(ct))) {
-        hits += 1;
-      }
-    }
-
-    // Jaccard-style: hits relative to union of token counts
-    const union = queryTokens.length + candidateTokens.length - hits / 2;
-    const similarity = hits / (union * 2);
-
-    // Require at least one strong token overlap to avoid location-name false positives
-    const exactTokenHits = queryTokens.filter((qt) => candidateTokens.includes(qt)).length;
-    if (exactTokenHits === 0) return 0;
-
-    return Math.round(similarity * 70);
+    return scoreBeskrivning(description, beDesc);
   }
 
   // --- Amount scoring (up to 20 pts) ---
@@ -1618,41 +1579,11 @@ export async function getKonteringsforslag(
   }
 
   // --- Description scoring ---
-  const NOISE = new Set(["se", "ab", "i", "och", "the", ""]);
-  function tokenise(s: string): string[] {
-    return s
-      .toLowerCase()
-      .replace(/[^a-zåäö0-9\s]/g, " ")
-      .split(/\s+/)
-      .filter((w) => w.length > 2 && !NOISE.has(w));
-  }
-  const queryTokens = tokenise(description);
-
   function descriptionScore(beDesc: string, txnDesc: string): number {
-    const normalized = description.trim().toLowerCase();
-    if (beDesc.trim().toLowerCase() === normalized) return 100;
-
-    const candidateTokens = [
-      ...new Set([...tokenise(beDesc), ...tokenise(txnDesc)]),
-    ];
-    if (queryTokens.length === 0 || candidateTokens.length === 0) return 0;
-
-    let hits = 0;
-    for (const qt of queryTokens) {
-      if (candidateTokens.some((ct) => ct === qt)) {
-        hits += 2;
-      } else if (candidateTokens.some((ct) => ct.includes(qt) || qt.includes(ct))) {
-        hits += 1;
-      }
-    }
-
-    const exactTokenHits = queryTokens.filter((qt) =>
-      candidateTokens.includes(qt)
-    ).length;
-    if (exactTokenHits === 0) return 0;
-
-    const union = queryTokens.length + candidateTokens.length - hits / 2;
-    return Math.round((hits / (union * 2)) * 70);
+    return Math.max(
+      scoreBeskrivning(description, beDesc),
+      scoreBeskrivning(description, txnDesc)
+    );
   }
 
   // --- Build pattern groups ---
@@ -1736,15 +1667,23 @@ export async function getKonteringsforslag(
 
   if (patternMap.size === 0) return [];
 
-  // Sort patterns by (maxDescScore desc, antal desc) — issue 10 will refine ranking
-  const sorted = [...patternMap.values()].sort(
-    (a, b) =>
-      b.maxDescScore - a.maxDescScore ||
-      b.stodVerifikat.length - a.stodVerifikat.length
+  // Filter to patterns with a meaningful description match, then rank by
+  // belopp-fit (primary), frequency (secondary), recency (tertiary).
+  // Score-gap decides whether to show 1 clear winner or up to 3.
+  const filtered = [...patternMap.values()].filter(
+    (p) => p.maxDescScore >= 10
   );
+  if (filtered.length === 0) return [];
 
-  const top3 = sorted.filter((p) => p.maxDescScore >= 10).slice(0, 3);
-  if (top3.length === 0) return [];
+  const top3 = rankMonster(
+    filtered.map((group) => ({
+      ...group,
+      historicalAmounts: group.stodVerifikat.map((sv) => sv.bankEventAmount),
+      antal: group.stodVerifikat.length,
+      senasteDatum: group.stodVerifikat[0]?.transactionDate ?? "",
+    })),
+    amount
+  );
 
   // Build return value
   const targetAmount = Math.abs(amount);
@@ -1786,7 +1725,7 @@ export async function getKonteringsforslag(
         bankEventDescription: sv.bankEventDescription,
       })),
       antal: group.stodVerifikat.length,
-      matchScore: group.maxDescScore,
+      matchScore: beloppsScore(amount, group.historicalAmounts),
     };
   });
 }

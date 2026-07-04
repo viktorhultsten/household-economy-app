@@ -1,6 +1,6 @@
 # 10 — Belopp-fit-rankning och en-vs-flera via score-gap
 
-Status: Att göra
+Status: Klar
 
 ## What to build
 
@@ -12,10 +12,10 @@ Antalet visade förslag styrs av **score-gapet** mellan de främsta mönstren: �
 
 ## Acceptance criteria
 
-- [ ] Rankning väger beloppspassning som primär särskiljare, frekvens och aktualitet som utslagsgivare
-- [ ] Tydligt beloppsutslag kan ranka ett mindre frekvent mönster högst (SL-scenariot)
-- [ ] Score-gap avgör om ett eller flera förslag visas; högst 3
-- [ ] Test som täcker SL 50 kr / 100 kr-split-scenariot och ett tvetydigt fall med flera förslag
+- [x] Rankning väger beloppspassning som primär särskiljare, frekvens och aktualitet som utslagsgivare
+- [x] Tydligt beloppsutslag kan ranka ett mindre frekvent mönster högst (SL-scenariot)
+- [x] Score-gap avgör om ett eller flera förslag visas; högst 3
+- [x] Test som täcker SL 50 kr / 100 kr-split-scenariot och ett tvetydigt fall med flera förslag
 
 ## Blocked by
 

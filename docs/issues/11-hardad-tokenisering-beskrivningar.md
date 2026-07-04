@@ -1,6 +1,6 @@
 # 11 — Härdad tokenisering av bankhändelse-beskrivningar
 
-Status: Att göra
+Status: Klar
 
 ## What to build
 
@@ -10,11 +10,11 @@ Där enbart siffror skiljer och inget namn finns kvar hamnar fallet naturligt i 
 
 ## Acceptance criteria
 
-- [ ] Korta alfabetiska varumärkestoken (`sl`, `ica`) behålls i matchningen
-- [ ] Rena sifferton­ken särskiljer inte: "SL 123" och "SL 324" matchar
-- [ ] Identiskt delat sifferton­ken förstärker matchning/gruppering
-- [ ] Swish-rader med olika mottagarnamn hålls isär
-- [ ] Test som täcker SL-numren, identiskt OCR-nummer och åtskilda Swish-mottagare
+- [x] Korta alfabetiska varumärkestoken (`sl`, `ica`) behålls i matchningen
+- [x] Rena sifferton­ken särskiljer inte: "SL 123" och "SL 324" matchar
+- [x] Identiskt delat sifferton­ken förstärker matchning/gruppering
+- [x] Swish-rader med olika mottagarnamn hålls isär
+- [x] Test som täcker SL-numren, identiskt OCR-nummer och åtskilda Swish-mottagare
 
 ## Blocked by
 
