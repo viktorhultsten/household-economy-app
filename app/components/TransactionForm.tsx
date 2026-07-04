@@ -97,6 +97,7 @@ export default function TransactionForm({
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const recurringItemRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [periodLockWarning, setPeriodLockWarning] = useState("");
@@ -325,6 +326,14 @@ export default function TransactionForm({
     setPosts(newPosts);
     if (f.recurringItem) {
       setSelectedRecurringItemId(f.recurringItem.id);
+      const recurringId = f.recurringItem.id;
+      // Wait for the selection to render, then scroll it into view
+      requestAnimationFrame(() => {
+        recurringItemRefs.current.get(recurringId)?.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+      });
     }
     setForslagDismissed(true);
   };
@@ -876,6 +885,13 @@ export default function TransactionForm({
                 <button
                   key={item.recurringItem.id}
                   type="button"
+                  ref={(el) => {
+                    if (el) {
+                      recurringItemRefs.current.set(item.recurringItem.id, el);
+                    } else {
+                      recurringItemRefs.current.delete(item.recurringItem.id);
+                    }
+                  }}
                   onClick={() => setSelectedRecurringItemId(
                     selectedRecurringItemId === item.recurringItem.id
                       ? null
