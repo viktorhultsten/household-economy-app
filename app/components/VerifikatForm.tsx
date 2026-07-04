@@ -287,6 +287,12 @@ export default function VerifikatForm({
       } else if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
         e.preventDefault();
         formRef.current?.requestSubmit();
+      } else if (bulkNav && (e.metaKey || e.ctrlKey) && e.key === "ArrowLeft") {
+        e.preventDefault();
+        attemptNavigate(-1);
+      } else if (bulkNav && (e.metaKey || e.ctrlKey) && e.key === "ArrowRight") {
+        e.preventDefault();
+        attemptNavigate(1);
       }
     };
     document.addEventListener("keydown", handleKey);
@@ -1003,20 +1009,20 @@ export default function VerifikatForm({
                 </button>
               )}
               <button
-                type="button"
-                onClick={attemptClose}
-                className="px-4 py-2 text-sm font-medium text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-50"
-                disabled={loading}
-              >
-                Avbryt
-              </button>
-              <button
                 type="submit"
                 disabled={!isBalanced || loading || !!periodLockWarning || !amountMatchesBankEvent || !allAmountRowsHaveAccount}
                 className="px-4 py-2 text-sm font-semibold rounded-md bg-zinc-900 text-zinc-50 hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
               >
                 {loading ? "Sparar..." : isEditing ? "Spara verifikat" : "Skapa verifikat"}
               </button>
+              {bulkNav?.isSaved && (
+                <span className="inline-flex items-center gap-1 text-sm font-medium text-green-600 dark:text-green-400">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  Bokförd
+                </span>
+              )}
             </div>
           </div>
           </div>
