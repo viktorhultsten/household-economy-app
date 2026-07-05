@@ -17,6 +17,7 @@ export default function Navigation() {
     { href: "/imports", label: "Importer" },
     { href: "/accounts", label: "Konton" },
     { href: "/periods", label: "Perioder" },
+    { href: "/settings", label: "Inställningar" },
   ];
 
   return (

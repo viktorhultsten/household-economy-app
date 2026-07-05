@@ -13,6 +13,9 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
+# pg_dump is needed by the /api/export database backup route.
+RUN apk add --no-cache postgresql-client
+
 # Non-root user
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
