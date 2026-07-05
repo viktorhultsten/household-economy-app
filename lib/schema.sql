@@ -14,9 +14,14 @@ CREATE TABLE IF NOT EXISTS accounts (
   namn TEXT NOT NULL,
   group_id INTEGER NOT NULL,
   exclude_from_budget INTEGER DEFAULT 0,
+  is_periodisering_default INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (group_id) REFERENCES groups(id)
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS accounts_periodisering_default_unique
+  ON accounts (is_periodisering_default)
+  WHERE is_periodisering_default = 1;
 
 -- Imports table (CSV import metadata)
 CREATE TABLE IF NOT EXISTS imports (
@@ -36,6 +41,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   date TEXT NOT NULL,
   description TEXT NOT NULL,
   bank_event_id INTEGER,
+  periodisering_parent_id INTEGER REFERENCES transactions(id) ON DELETE CASCADE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

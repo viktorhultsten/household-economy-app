@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { queryAll, queryOne, query, transaction as dbTransaction } from "@/lib/db";
 import { BankEvent, Verifikat, Post, Account, Group, Import, AccountType, PeriodLock, BookingTemplate, RecurringItem, RecurringItemStatus, Budget, BudgetComparison, CustomResultView, CustomResultViewWithDetails } from "./types";
 import { buildMonsterNyckel, distributeAmount, rankMonster, beloppsScore, scoreBeskrivning } from "./lib/konteringsforslagUtils";
+import { derivePeriodiseringPosts } from "./lib/periodiseringUtils";
 
 type ActionErrorCategory = "VALIDATION" | "NOT_FOUND" | "CONFLICT" | "LOCKED_PERIOD" | "DATABASE";
 
@@ -554,14 +555,17 @@ export async function postVerifikat(
 
 export async function deleteVerifikat(id: number): Promise<void> {
   // Get verifikat date to check lock
-  const txn = await queryOne<{ date: string }>(
-    "SELECT date FROM transactions WHERE id = $1",
+  const txn = await queryOne<{ date: string; periodisering_parent_id: number | null }>(
+    "SELECT date, periodisering_parent_id FROM transactions WHERE id = $1",
     [id]
   );
 
   if (!txn) {
     throw createActionError("NOT_FOUND", "Verifikat hittades inte");
   }
+
+  // A periodisering pair may never be broken via the normal delete path.
+  await assertNotPeriodiseringMember(id, txn.periodisering_parent_id);
 
   // Check if period is locked
   await checkPeriodLock(new Date(txn.date));
@@ -575,6 +579,345 @@ export async function deleteVerifikat(id: number): Promise<void> {
   // Delete transaction (posts will cascade)
   await query("DELETE FROM transactions WHERE id = $1", [id]);
   revalidateMutationViews();
+}
+
+// ==================== PERIODISERING ====================
+// A periodisering splits a bank event's booking into two linked verifikat via
+// an interim account (periodiseringskonto). See docs/adr/0008.
+
+export type PeriodiseringInput = {
+  bankEventId: number;
+  description: string;
+  bankDate: Date; // Huvudverifikatets datum = bankhändelsens datum
+  targetDate: Date; // Länkat verifikats datum
+  anchorAccountId: number; // Konteringsraden som ligger kvar på bankdatumet
+  posts: VerifikatPostInput[]; // Den logiska konteringen (balanserad)
+  recurringItemId?: number | null; // Kopplas till det länkade verifikatet
+};
+
+function sameDay(a: Date, b: Date): boolean {
+  return a.toISOString().slice(0, 10) === b.toISOString().slice(0, 10);
+}
+
+// The pg-like client passed to the transaction() callback.
+type TxClient = Parameters<Parameters<typeof dbTransaction>[0]>[0];
+
+// Throw if the verifikat is part of a periodisering (either half).
+async function assertNotPeriodiseringMember(
+  id: number,
+  periodiseringParentId: number | null
+): Promise<void> {
+  if (periodiseringParentId !== null) {
+    throw createActionError(
+      "CONFLICT",
+      "Detta verifikat tillhör en periodisering. Justera eller ta bort den via huvudverifikatet."
+    );
+  }
+  const child = await queryOne<{ id: number }>(
+    "SELECT id FROM transactions WHERE periodisering_parent_id = $1 LIMIT 1",
+    [id]
+  );
+  if (child) {
+    throw createActionError(
+      "CONFLICT",
+      "Detta verifikat är huvudverifikat i en periodisering. Använd periodiseringsvyn."
+    );
+  }
+}
+
+// Derive the two verifikats' posts from the logical kontering.
+// Implemented in ./lib/periodiseringUtils so it can be unit-tested.
+
+async function insertPosts(
+  client: TxClient,
+  transactionId: number,
+  posts: VerifikatPostInput[]
+): Promise<void> {
+  for (const post of posts) {
+    await client.query(
+      "INSERT INTO posts (transaction_id, account_id, debet, kredit, description) VALUES ($1, $2, $3, $4, $5)",
+      [transactionId, post.accountId, post.debet, post.kredit, post.description ?? null]
+    );
+  }
+}
+
+// Create a periodisering: two linked verifikat bridged by the periodiseringskonto.
+// Returns the huvudverifikat id.
+export async function createPeriodisering(input: PeriodiseringInput): Promise<number> {
+  const periodiseringskonto = await getPeriodiseringskonto();
+  if (!periodiseringskonto) {
+    throw createActionError(
+      "VALIDATION",
+      "Inget förvalt periodiseringskonto är satt. Markera ett konto i kontovyn först."
+    );
+  }
+
+  if (sameDay(input.bankDate, input.targetDate)) {
+    throw createActionError(
+      "VALIDATION",
+      "Måldatumet måste skilja sig från bankhändelsens datum."
+    );
+  }
+
+  const { huvudPosts, lankatPosts } = derivePeriodiseringPosts(
+    input.posts,
+    input.anchorAccountId,
+    periodiseringskonto.id
+  );
+
+  await checkPeriodLock(input.bankDate);
+  await checkPeriodLock(input.targetDate);
+
+  const huvudId = await dbTransaction(async (client) => {
+    const huvud = await client.query<{ id: number }>(
+      "INSERT INTO transactions (date, description, bank_event_id) VALUES ($1, $2, $3) RETURNING id",
+      [input.bankDate.toISOString(), input.description, input.bankEventId]
+    );
+    const huvudTxnId = huvud.rows[0].id;
+    await insertPosts(client, huvudTxnId, huvudPosts);
+
+    await client.query(
+      "UPDATE bank_events SET is_posted = 1, transaction_id = $1, flagged = false, flag_comment = NULL WHERE id = $2",
+      [huvudTxnId, input.bankEventId]
+    );
+
+    const lankat = await client.query<{ id: number }>(
+      "INSERT INTO transactions (date, description, periodisering_parent_id) VALUES ($1, $2, $3) RETURNING id",
+      [input.targetDate.toISOString(), input.description, huvudTxnId]
+    );
+    const lankatTxnId = lankat.rows[0].id;
+    await insertPosts(client, lankatTxnId, lankatPosts);
+
+    if (input.recurringItemId != null) {
+      await client.query(
+        "INSERT INTO transaction_recurring_items (transaction_id, recurring_item_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        [lankatTxnId, input.recurringItemId]
+      );
+    }
+
+    return huvudTxnId;
+  });
+
+  revalidateMutationViews();
+  return huvudId;
+}
+
+// Update an existing periodisering by rewriting both verifikat.
+export async function updatePeriodisering(
+  huvudId: number,
+  input: Omit<PeriodiseringInput, "bankEventId">
+): Promise<void> {
+  const huvud = await queryOne<{ date: string; bank_event_id: number | null }>(
+    "SELECT date, bank_event_id FROM transactions WHERE id = $1",
+    [huvudId]
+  );
+  if (!huvud) {
+    throw createActionError("NOT_FOUND", "Huvudverifikat hittades inte");
+  }
+
+  const child = await queryOne<{ id: number; date: string }>(
+    "SELECT id, date FROM transactions WHERE periodisering_parent_id = $1 LIMIT 1",
+    [huvudId]
+  );
+  if (!child) {
+    throw createActionError("VALIDATION", "Verifikatet är inte en periodisering.");
+  }
+
+  const periodiseringskonto = await getPeriodiseringskonto();
+  if (!periodiseringskonto) {
+    throw createActionError(
+      "VALIDATION",
+      "Inget förvalt periodiseringskonto är satt. Markera ett konto i kontovyn först."
+    );
+  }
+
+  if (sameDay(input.bankDate, input.targetDate)) {
+    throw createActionError(
+      "VALIDATION",
+      "Måldatumet måste skilja sig från bankhändelsens datum."
+    );
+  }
+
+  const { huvudPosts, lankatPosts } = derivePeriodiseringPosts(
+    input.posts,
+    input.anchorAccountId,
+    periodiseringskonto.id
+  );
+
+  // Both months in the existing pair and the new target month must be unlocked.
+  await checkPeriodLock(new Date(huvud.date));
+  await checkPeriodLock(new Date(child.date));
+  await checkPeriodLock(input.bankDate);
+  await checkPeriodLock(input.targetDate);
+
+  await dbTransaction(async (client) => {
+    // Rewrite huvud (keeps its bank event link).
+    await client.query(
+      "UPDATE transactions SET date = $1, description = $2 WHERE id = $3",
+      [input.bankDate.toISOString(), input.description, huvudId]
+    );
+    await client.query("DELETE FROM posts WHERE transaction_id = $1", [huvudId]);
+    await insertPosts(client, huvudId, huvudPosts);
+
+    // Recreate the länkat verifikat.
+    await client.query("DELETE FROM transactions WHERE id = $1", [child.id]);
+    const lankat = await client.query<{ id: number }>(
+      "INSERT INTO transactions (date, description, periodisering_parent_id) VALUES ($1, $2, $3) RETURNING id",
+      [input.targetDate.toISOString(), input.description, huvudId]
+    );
+    const lankatTxnId = lankat.rows[0].id;
+    await insertPosts(client, lankatTxnId, lankatPosts);
+
+    if (input.recurringItemId != null) {
+      await client.query(
+        "INSERT INTO transaction_recurring_items (transaction_id, recurring_item_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        [lankatTxnId, input.recurringItemId]
+      );
+    }
+  });
+
+  revalidateMutationViews();
+}
+
+// Delete both verifikat in a periodisering and return the bank event to the todo list.
+export async function deletePeriodisering(huvudId: number): Promise<void> {
+  const huvud = await queryOne<{ date: string }>(
+    "SELECT date FROM transactions WHERE id = $1",
+    [huvudId]
+  );
+  if (!huvud) {
+    throw createActionError("NOT_FOUND", "Huvudverifikat hittades inte");
+  }
+
+  const child = await queryOne<{ id: number; date: string }>(
+    "SELECT id, date FROM transactions WHERE periodisering_parent_id = $1 LIMIT 1",
+    [huvudId]
+  );
+  if (!child) {
+    throw createActionError("VALIDATION", "Verifikatet är inte en periodisering.");
+  }
+
+  await checkPeriodLock(new Date(huvud.date));
+  await checkPeriodLock(new Date(child.date));
+
+  await dbTransaction(async (client) => {
+    await client.query(
+      "UPDATE bank_events SET is_posted = 0, transaction_id = NULL WHERE transaction_id = $1",
+      [huvudId]
+    );
+    // Deleting the huvud cascades to the länkat verifikat and all posts.
+    await client.query("DELETE FROM transactions WHERE id = $1", [huvudId]);
+  });
+
+  revalidateMutationViews();
+}
+
+// Reconstruct the logical kontering of a periodisering for editing.
+export type PeriodiseringDetails = {
+  huvudId: number;
+  bankEventId?: number;
+  description: string;
+  bankDate: Date;
+  targetDate: Date;
+  anchorAccountId: number;
+  periodiseringskontoId: number;
+  posts: Post[];
+  recurringItemId: number | null;
+};
+
+export async function getPeriodiseringForHuvud(
+  huvudId: number
+): Promise<PeriodiseringDetails | null> {
+  const huvud = await queryOne<{
+    id: number;
+    date: string;
+    description: string;
+    bank_event_id: number | null;
+  }>("SELECT id, date, description, bank_event_id FROM transactions WHERE id = $1", [huvudId]);
+  if (!huvud) return null;
+
+  const child = await queryOne<{ id: number; date: string }>(
+    "SELECT id, date FROM transactions WHERE periodisering_parent_id = $1 LIMIT 1",
+    [huvudId]
+  );
+  if (!child) return null;
+
+  type PostRow = {
+    id: number;
+    transaction_id: number;
+    account_id: number;
+    debet: string;
+    kredit: string;
+    description: string | null;
+    account_name: string;
+    group_id: number;
+    group_name: string;
+    group_type: string;
+  };
+  const fetchPosts = (txnId: number) =>
+    queryAll<PostRow>(
+      `SELECT p.id, p.transaction_id, p.account_id, p.debet, p.kredit, p.description,
+              a.namn as account_name, g.id as group_id, g.namn as group_name, g.typ as group_type
+       FROM posts p
+       JOIN accounts a ON a.id = p.account_id
+       JOIN groups g ON g.id = a.group_id
+       WHERE p.transaction_id = $1
+       ORDER BY p.id`,
+      [txnId]
+    );
+
+  const [huvudPosts, childPosts] = await Promise.all([
+    fetchPosts(huvud.id),
+    fetchPosts(child.id),
+  ]);
+
+  // The periodiseringskonto is the account present in both verifikat (the bridge).
+  const childAccountIds = new Set(childPosts.map((p) => p.account_id));
+  const periodiseringskontoId =
+    huvudPosts.find((p) => childAccountIds.has(p.account_id))?.account_id ?? -1;
+
+  const toPost = (row: PostRow): Post => ({
+    id: row.id,
+    verifikatId: row.transaction_id,
+    accountId: row.account_id,
+    debet: Number(row.debet),
+    kredit: Number(row.kredit),
+    description: row.description ?? undefined,
+    account: {
+      id: row.account_id,
+      namn: row.account_name,
+      groupId: row.group_id,
+      group: {
+        id: row.group_id,
+        namn: row.group_name,
+        typ: row.group_type as AccountType,
+      },
+    },
+  });
+
+  // Logical kontering = anchor (huvud, non-bridge) + child rows minus the bridge.
+  const anchorRow = huvudPosts.find((p) => p.account_id !== periodiseringskontoId);
+  const logicalPosts: Post[] = [
+    ...(anchorRow ? [toPost(anchorRow)] : []),
+    ...childPosts.filter((p) => p.account_id !== periodiseringskontoId).map(toPost),
+  ];
+
+  const recurring = await queryOne<{ recurring_item_id: number }>(
+    "SELECT recurring_item_id FROM transaction_recurring_items WHERE transaction_id = $1",
+    [child.id]
+  );
+
+  return {
+    huvudId: huvud.id,
+    bankEventId: huvud.bank_event_id ?? undefined,
+    description: huvud.description,
+    bankDate: new Date(huvud.date),
+    targetDate: new Date(child.date),
+    anchorAccountId: anchorRow?.account_id ?? -1,
+    periodiseringskontoId,
+    posts: logicalPosts,
+    recurringItemId: recurring?.recurring_item_id ?? null,
+  };
 }
 
 // Group actions
@@ -623,11 +966,12 @@ export async function getAccounts(): Promise<Account[]> {
     namn: string;
     group_id: number;
     exclude_from_budget: number;
+    is_periodisering_default: number;
     has_posts: number;
     group_namn: string;
     group_typ: string;
   }>(
-    `SELECT a.id, a.namn, a.group_id, a.exclude_from_budget,
+    `SELECT a.id, a.namn, a.group_id, a.exclude_from_budget, a.is_periodisering_default,
             CASE WHEN EXISTS (SELECT 1 FROM posts p WHERE p.account_id = a.id) THEN 1 ELSE 0 END as has_posts,
             g.namn as group_namn, g.typ as group_typ
      FROM accounts a
@@ -640,6 +984,7 @@ export async function getAccounts(): Promise<Account[]> {
     namn: row.namn,
     groupId: row.group_id,
     excludeFromBudget: row.exclude_from_budget === 1,
+    isPeriodiseringDefault: row.is_periodisering_default === 1,
     hasPosts: row.has_posts === 1,
     group: {
       id: row.group_id,
@@ -713,17 +1058,63 @@ const defaultUpdateAccountDependencies: UpdateAccountDependencies = {
     return Number(row?.count ?? 0);
   },
   persistUpdate: async (account: Omit<Account, "group">) => {
-    await query(
-      "UPDATE accounts SET namn = $1, group_id = $2, exclude_from_budget = $3 WHERE id = $4",
-      [
-        account.namn,
-        account.groupId,
-        account.excludeFromBudget ? 1 : 0,
-        account.id,
-      ]
-    );
+    await dbTransaction(async (client) => {
+      // A single account may be the default periodiseringskonto. Setting a new
+      // default clears any previous one in the same transaction.
+      if (account.isPeriodiseringDefault) {
+        await client.query(
+          "UPDATE accounts SET is_periodisering_default = 0 WHERE id <> $1 AND is_periodisering_default = 1",
+          [account.id]
+        );
+      }
+      await client.query(
+        "UPDATE accounts SET namn = $1, group_id = $2, exclude_from_budget = $3, is_periodisering_default = $4 WHERE id = $5",
+        [
+          account.namn,
+          account.groupId,
+          account.excludeFromBudget ? 1 : 0,
+          account.isPeriodiseringDefault ? 1 : 0,
+          account.id,
+        ]
+      );
+    });
   },
 };
+
+// Returns the account marked as the default periodiseringskonto, or null.
+export async function getPeriodiseringskonto(): Promise<Account | null> {
+  const row = await queryOne<{
+    id: number;
+    namn: string;
+    group_id: number;
+    exclude_from_budget: number;
+    is_periodisering_default: number;
+    group_namn: string;
+    group_typ: string;
+  }>(
+    `SELECT a.id, a.namn, a.group_id, a.exclude_from_budget, a.is_periodisering_default,
+            g.namn as group_namn, g.typ as group_typ
+     FROM accounts a
+     JOIN groups g ON a.group_id = g.id
+     WHERE a.is_periodisering_default = 1
+     LIMIT 1`
+  );
+
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    namn: row.namn,
+    groupId: row.group_id,
+    excludeFromBudget: row.exclude_from_budget === 1,
+    isPeriodiseringDefault: true,
+    group: {
+      id: row.group_id,
+      namn: row.group_namn,
+      typ: row.group_typ as AccountType,
+    },
+  };
+}
 
 export async function deleteAccount(id: number): Promise<void> {
   await query("DELETE FROM accounts WHERE id = $1", [id]);
@@ -987,9 +1378,54 @@ export async function getAccountTransactionsForPeriod(
 }
 
 // Get all transactions with full details
+// Resolve periodisering link info for a set of loaded verifikat ids. Returns a
+// map from verifikat id to its role and its counterpart (for click-through).
+async function resolvePeriodiseringLinks(
+  transactionIds: number[]
+): Promise<Map<number, { role: "huvud" | "lankat"; motpartVerifikatId: number; motpartDate: Date }>> {
+  const result = new Map<
+    number,
+    { role: "huvud" | "lankat"; motpartVerifikatId: number; motpartDate: Date }
+  >();
+  if (transactionIds.length === 0) return result;
+
+  const rows = await queryAll<{
+    child_id: number;
+    child_date: string;
+    parent_id: number;
+    parent_date: string;
+  }>(
+    `SELECT child.id AS child_id, child.date AS child_date,
+            parent.id AS parent_id, parent.date AS parent_date
+     FROM transactions child
+     JOIN transactions parent ON child.periodisering_parent_id = parent.id
+     WHERE child.id = ANY($1) OR parent.id = ANY($1)`,
+    [transactionIds]
+  );
+
+  const loaded = new Set(transactionIds);
+  for (const row of rows) {
+    if (loaded.has(row.parent_id)) {
+      result.set(row.parent_id, {
+        role: "huvud",
+        motpartVerifikatId: row.child_id,
+        motpartDate: new Date(row.child_date),
+      });
+    }
+    if (loaded.has(row.child_id)) {
+      result.set(row.child_id, {
+        role: "lankat",
+        motpartVerifikatId: row.parent_id,
+        motpartDate: new Date(row.parent_date),
+      });
+    }
+  }
+
+  return result;
+}
+
 // Helper function to fetch recurring items for multiple transactions
-async function fetchRecurringItemsForTransactions(transactionIds: number[]): Promise<Map<number, RecurringItem[]>> {
-  if (transactionIds.length === 0) return new Map();
+async function fetchRecurringItemsForTransactions(transactionIds: number[]): Promise<Map<number, RecurringItem[]>> {  if (transactionIds.length === 0) return new Map();
 
   const rows = await queryAll<{
     transaction_id: number;
@@ -1028,6 +1464,7 @@ type TransactionJoinRow = {
   txn_date: string;
   txn_description: string;
   txn_bank_event_id: number | null;
+  txn_periodisering_parent_id: number | null;
   post_id: number;
   post_account_id: number;
   post_debet: string;
@@ -1054,6 +1491,7 @@ const TRANSACTION_LIST_SELECT = `
     t.date as txn_date,
     t.description as txn_description,
     t.bank_event_id as txn_bank_event_id,
+    t.periodisering_parent_id as txn_periodisering_parent_id,
     p.id as post_id,
     p.account_id as post_account_id,
     p.debet as post_debet,
@@ -1084,6 +1522,7 @@ async function mapVerifikatFromJoinRows(rows: TransactionJoinRow[]): Promise<Ver
         date: new Date(row.txn_date),
         description: row.txn_description,
         bankEventId: row.txn_bank_event_id ?? undefined,
+        periodiseringParentId: row.txn_periodisering_parent_id ?? undefined,
         bankEvent: row.be_id
           ? {
               id: row.be_id,
@@ -1129,6 +1568,14 @@ async function mapVerifikatFromJoinRows(rows: TransactionJoinRow[]): Promise<Ver
     const recurringItems = recurringMap.get(txnId);
     if (recurringItems && recurringItems.length > 0) {
       verifikat.recurringItems = recurringItems;
+    }
+  }
+
+  const periodiseringMap = await resolvePeriodiseringLinks(verifikatIds);
+  for (const [txnId, verifikat] of verifikatMap) {
+    const link = periodiseringMap.get(txnId);
+    if (link) {
+      verifikat.periodisering = link;
     }
   }
 
@@ -1253,7 +1700,7 @@ export async function getVerifikatPaginated(
   const rows = await queryAll<TransactionJoinRow>(
     `
     WITH paginated_transactions AS (
-      SELECT id, date, description, bank_event_id
+      SELECT id, date, description, bank_event_id, periodisering_parent_id
       FROM transactions t
       ${whereClause}
       ${orderBy}
@@ -1285,6 +1732,7 @@ export async function getVerifikat(id: number): Promise<Verifikat | null> {
     date: string;
     description: string;
     bank_event_id: number | null;
+    periodisering_parent_id: number | null;
     created_at: string;
   }>("SELECT * FROM transactions WHERE id = $1", [id]);
 
@@ -1355,11 +1803,15 @@ export async function getVerifikat(id: number): Promise<Verifikat | null> {
     createdAt: new Date(row.created_at),
   }));
 
+  const periodiseringMap = await resolvePeriodiseringLinks([txnRow.id]);
+
   return {
     id: txnRow.id,
     date: new Date(txnRow.date),
     description: txnRow.description,
     bankEventId: txnRow.bank_event_id ?? undefined,
+    periodiseringParentId: txnRow.periodisering_parent_id ?? undefined,
+    periodisering: periodiseringMap.get(txnRow.id),
     posts,
     recurringItems: recurringItems.length > 0 ? recurringItems : undefined,
   };
@@ -1576,6 +2028,9 @@ export async function getKonteringsforslag(
      JOIN posts p ON p.transaction_id = t.id
      JOIN accounts a ON a.id = p.account_id
      JOIN groups g ON g.id = a.group_id
+     WHERE NOT EXISTS (
+       SELECT 1 FROM transactions c WHERE c.periodisering_parent_id = t.id
+     )
      ORDER BY t.date DESC, t.id DESC, p.id ASC
      LIMIT 3000`
   );
@@ -1819,6 +2274,14 @@ export async function updateVerifikat(
     }>;
   }
 ): Promise<void> {
+  const existing = await queryOne<{ periodisering_parent_id: number | null }>(
+    "SELECT periodisering_parent_id FROM transactions WHERE id = $1",
+    [id]
+  );
+  if (existing) {
+    await assertNotPeriodiseringMember(id, existing.periodisering_parent_id);
+  }
+
   await postVerifikat({
     mode: "update",
     id,

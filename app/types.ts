@@ -11,6 +11,7 @@ export interface Account {
   namn: string;
   groupId: number;
   excludeFromBudget?: boolean;
+  isPeriodiseringDefault?: boolean;
   hasPosts?: boolean;
   group?: Group;
 }
@@ -42,6 +43,13 @@ export interface BankEvent {
   import?: Import; // Include import data to access default account
 }
 
+// Link between the two verifikat in a periodisering pair (see docs/adr/0008)
+export interface PeriodiseringLink {
+  role: "huvud" | "lankat";
+  motpartVerifikatId: number;
+  motpartDate: Date;
+}
+
 // Accounting verifikat with balanced posts (double-entry bookkeeping unit)
 export interface Verifikat {
   id: number;
@@ -51,6 +59,8 @@ export interface Verifikat {
   bankEvent?: BankEvent; // Include full bank event for displaying original description
   posts: Post[];
   recurringItems?: RecurringItem[]; // Associated recurring items
+  periodiseringParentId?: number; // Set on the länkat verifikat, points to huvudverifikat
+  periodisering?: PeriodiseringLink; // Resolved link info for display/click-through
 }
 
 // Individual post/entry in a verifikat

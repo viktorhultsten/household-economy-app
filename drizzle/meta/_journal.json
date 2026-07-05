@@ -22,6 +22,13 @@
       "when": 1783500000000,
       "tag": "0002_flagged_bank_events",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1783600000000,
+      "tag": "0003_periodisering",
+      "breakpoints": true
     }
   ]
 }

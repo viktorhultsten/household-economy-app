@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, memo } from "react";
 import { Verifikat } from "../types";
-import { getVerifikatPaginated, deleteVerifikat } from "../actions";
+import { getVerifikatPaginated, deleteVerifikat, getVerifikat } from "../actions";
 import VerifikatForm from "./VerifikatForm";
 import ConfirmModal from "./ConfirmModal";
 
@@ -171,6 +171,26 @@ const VerifikatList = memo(function VerifikatList({
     setSelectedVerifikat(null);
   }
 
+  // Open a verifikat by id, fetching it if it isn't in the currently loaded window.
+  const openVerifikatById = useCallback(async (id: number) => {
+    const existing = verifikat.find((v) => v.id === id);
+    if (existing) {
+      setSelectedVerifikat(existing);
+      return;
+    }
+    const fetched = await getVerifikat(id);
+    if (fetched) setSelectedVerifikat(fetched);
+  }, [verifikat]);
+
+  // Editing a länkat periodiseringsverifikat routes to its huvudverifikat instead.
+  function openForEdit(v: Verifikat) {
+    if (v.periodisering?.role === "lankat") {
+      openVerifikatById(v.periodisering.motpartVerifikatId);
+      return;
+    }
+    setSelectedVerifikat(v);
+  }
+
   if (initialLoading) {
     return (
       <div className="rounded-lg bg-white shadow dark:bg-zinc-800 p-8 text-center">
@@ -222,6 +242,11 @@ const VerifikatList = memo(function VerifikatList({
                               Återkommande
                             </span>
                           )}
+                          {v.periodisering && (
+                            <span className="px-2 py-0.5 text-xs font-medium rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
+                              {v.periodisering.role === "huvud" ? "Periodisering" : "Periodisering (länkat)"}
+                            </span>
+                          )}
                         </div>
                         {v.bankEvent && (
                           <div className="text-xs text-zinc-600 dark:text-zinc-400">
@@ -231,7 +256,7 @@ const VerifikatList = memo(function VerifikatList({
                       </div>
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => setSelectedVerifikat(v)}
+                          onClick={() => openForEdit(v)}
                           className="rounded-md bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-900 hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-50 dark:hover:bg-zinc-600"
                         >
                           Redigera
@@ -302,9 +327,11 @@ const VerifikatList = memo(function VerifikatList({
 
       {selectedVerifikat && (
         <VerifikatForm
+          key={selectedVerifikat.id}
           verifikat={selectedVerifikat}
           onClose={() => setSelectedVerifikat(null)}
           onSuccess={handleEditSuccess}
+          onOpenVerifikat={openVerifikatById}
         />
       )}
 

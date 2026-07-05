@@ -12,6 +12,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   varchar,
 } from "drizzle-orm/pg-core";
 
@@ -28,15 +29,24 @@ export const groups = pgTable(
   ]
 );
 
-export const accounts = pgTable("accounts", {
-  id: serial("id").primaryKey(),
-  namn: text("namn").notNull(),
-  groupId: integer("group_id")
-    .notNull()
-    .references(() => groups.id),
-  excludeFromBudget: integer("exclude_from_budget").notNull().default(0),
-  createdAt: timestamp("created_at").defaultNow(),
-});
+export const accounts = pgTable(
+  "accounts",
+  {
+    id: serial("id").primaryKey(),
+    namn: text("namn").notNull(),
+    groupId: integer("group_id")
+      .notNull()
+      .references(() => groups.id),
+    excludeFromBudget: integer("exclude_from_budget").notNull().default(0),
+    isPeriodiseringDefault: integer("is_periodisering_default").notNull().default(0),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("accounts_periodisering_default_unique")
+      .on(table.isPeriodiseringDefault)
+      .where(sql`${table.isPeriodiseringDefault} = 1`),
+  ]
+);
 
 export const imports = pgTable("imports", {
   id: serial("id").primaryKey(),
@@ -55,6 +65,10 @@ export const verifikat = pgTable("transactions", {
   date: date("date", { mode: "string" }).notNull(),
   description: text("description").notNull(),
   bankEventId: integer("bank_event_id").references((): AnyPgColumn => bankEvents.id),
+  periodiseringParentId: integer("periodisering_parent_id").references(
+    (): AnyPgColumn => verifikat.id,
+    { onDelete: "cascade" }
+  ),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

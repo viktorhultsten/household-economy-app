@@ -39,6 +39,7 @@ export default function KontonPage() {
   const [editAccountName, setEditAccountName] = useState("");
   const [editAccountGroupId, setEditAccountGroupId] = useState(0);
   const [editAccountExcludeFromBudget, setEditAccountExcludeFromBudget] = useState(false);
+  const [editAccountIsPeriodiseringDefault, setEditAccountIsPeriodiseringDefault] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -126,6 +127,7 @@ export default function KontonPage() {
     setEditAccountName(account.namn);
     setEditAccountGroupId(account.groupId);
     setEditAccountExcludeFromBudget(account.excludeFromBudget || false);
+    setEditAccountIsPeriodiseringDefault(account.isPeriodiseringDefault || false);
   }
 
   async function handleUpdateAccount() {
@@ -153,12 +155,14 @@ export default function KontonPage() {
       namn: editAccountName,
       groupId: editAccountGroupId,
       excludeFromBudget: editAccountExcludeFromBudget,
+      isPeriodiseringDefault: editAccountIsPeriodiseringDefault,
     });
 
     setEditingAccount(null);
     setEditAccountName("");
     setEditAccountGroupId(0);
     setEditAccountExcludeFromBudget(false);
+    setEditAccountIsPeriodiseringDefault(false);
     await loadData();
   }
 
@@ -305,6 +309,15 @@ export default function KontonPage() {
                               />
                               <span className="text-xs">Uteslut från budget</span>
                             </label>
+                            <label className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300 whitespace-nowrap">
+                              <input
+                                type="checkbox"
+                                checked={editAccountIsPeriodiseringDefault}
+                                onChange={(e) => setEditAccountIsPeriodiseringDefault(e.target.checked)}
+                                className="rounded border-zinc-300 dark:border-zinc-600"
+                              />
+                              <span className="text-xs">Förvalt periodiseringskonto</span>
+                            </label>
                           </div>
                           <div className="flex items-center gap-2 ml-4">
                             <button
@@ -319,6 +332,7 @@ export default function KontonPage() {
                                 setEditAccountName("");
                                 setEditAccountGroupId(0);
                                 setEditAccountExcludeFromBudget(false);
+                                setEditAccountIsPeriodiseringDefault(false);
                               }}
                               className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
                             >
@@ -334,6 +348,11 @@ export default function KontonPage() {
                               {account.excludeFromBudget && (
                                 <span className="ml-2 text-xs text-zinc-500 dark:text-zinc-400 italic">
                                   (exkluderad från budget)
+                                </span>
+                              )}
+                              {account.isPeriodiseringDefault && (
+                                <span className="ml-2 text-xs text-blue-600 dark:text-blue-400 italic">
+                                  (förvalt periodiseringskonto)
                                 </span>
                               )}
                             </p>

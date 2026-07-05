@@ -51,6 +51,26 @@ En återkommande konteringsstruktur — vilka motkonton som används och på vil
 Ett föreslaget konteringsmönster för en obokförd bankhändelse, rankat efter hur sannolikt det är. Rankningen väger in bankhändelsens belopp mot varje mönsters historiska belopp, så att t.ex. ett splittat mönster kan föreslås framför ett enklare när beloppet talar för det. Presenteras med de historiska verifikat som stödjer mönstret. Flera förslag kan visas samtidigt när underlaget är tvetydigt.
 _Avoid_: Förslag (ensamt, tvetydigt)
 
+### Periodisering
+
+**Periodisering**:
+Att dela upp en bankhändelses bokföring i två länkade verifikat så att kostnaden eller intäkten hamnar i vald period medan bankrörelsen ligger kvar på sitt faktiska datum. Nettar till noll över de två verifikaten via ett periodiseringskonto.
+_Avoid_: Periodförskjutning (riven funktion som dubbelräknade), Körning
+
+**Periodiseringskonto**:
+Det interimskonto som bryggar de två verifikaten i en periodisering och nettar till noll över dem. Exakt ett konto kan markeras som förvalt periodiseringskonto.
+_Avoid_: Mellankonto, Interimskonto, Bryggkonto
+
+**Ankarrad**:
+Konteringsraden i en periodisering som representerar bankrörelsen och ligger kvar på bankhändelsens datum. Bryggas mot periodiseringskontot; exakt en per periodisering, förvald till importens förvalda konto.
+
+**Huvudverifikat**:
+Det av de två verifikaten i ett periodiseringspar som bär bankhändelsen och periodiseringsvyn (där paret justeras eller tas bort).
+_Avoid_: Ursprungsverifikat
+
+**Länkat verifikat**:
+Det andra verifikatet i ett periodiseringspar. Hänvisar tillbaka till huvudverifikatet och kan inte justeras fristående.
+
 ### Planering och uppföljning
 
 **Återkommande händelse**:

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Account, BankEvent, Post, BookingTemplate, RecurringItemStatus, Verifikat } from "../types";
-import { getAccounts, createVerifikat, updateVerifikat, isPeriodLocked, getBookingTemplates, createBookingTemplate, getRecurringItemsStatus, linkVerifikatToRecurringItem, getRecurringItemForVerifikat, updateVerifikatRecurringItemLink, getKonteringsforslag, KonteringsforslagMonster, flagBankEvent, unflagBankEvent } from "../actions";
+import { getAccounts, createVerifikat, updateVerifikat, isPeriodLocked, getBookingTemplates, createBookingTemplate, getRecurringItemsStatus, linkVerifikatToRecurringItem, getRecurringItemForVerifikat, updateVerifikatRecurringItemLink, getKonteringsforslag, KonteringsforslagMonster, flagBankEvent, unflagBankEvent, getPeriodiseringskonto, createPeriodisering, updatePeriodisering, deletePeriodisering, getPeriodiseringForHuvud } from "../actions";
 import AccountSelectorModal from "./AccountSelectorModal";
 import ConfirmModal from "./ConfirmModal";
 import KonteringsforslagCard from "./KonteringsforslagCard";
@@ -46,6 +46,7 @@ interface VerifikatFormProps {
   onSuccess: () => void;
   onFlagChange?: (updated: BankEvent) => void;
   bulkNav?: BulkNavProps;
+  onOpenVerifikat?: (verifikatId: number) => void;
 }
 
 export default function VerifikatForm({
@@ -55,9 +56,12 @@ export default function VerifikatForm({
   onSuccess,
   onFlagChange,
   bulkNav,
+  onOpenVerifikat,
 }: VerifikatFormProps) {
   const isEditing = !!verifikat;
   const verifikatBankEvent = verifikat?.bankEvent || bankEvent;
+  const isPeriodiseringHuvud = verifikat?.periodisering?.role === "huvud";
+  const isPeriodiseringLankat = verifikat?.periodisering?.role === "lankat";
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [templates, setTemplates] = useState<BookingTemplate[]>([]);
   const [recurringItems, setRecurringItems] = useState<RecurringItemStatus[]>([]);
@@ -115,6 +119,18 @@ export default function VerifikatForm({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [periodLockWarning, setPeriodLockWarning] = useState("");
+
+  // Periodisering state (see docs/adr/0008)
+  const [periodisera, setPeriodisera] = useState(false);
+  const [targetDate, setTargetDate] = useState<Date>(initialDate);
+  const [anchorAccountId, setAnchorAccountId] = useState<number>(
+    bankEvent?.import?.accountId ?? 0
+  );
+  const [periodiseringskontoName, setPeriodiseringskontoName] = useState<string | null>(null);
+  const [hasPeriodiseringskonto, setHasPeriodiseringskonto] = useState(true);
+  const [periodiseringLockWarning, setPeriodiseringLockWarning] = useState("");
+  const [showPeriodiseringSaveConfirm, setShowPeriodiseringSaveConfirm] = useState(false);
+  const [showPeriodiseringDeleteConfirm, setShowPeriodiseringDeleteConfirm] = useState(false);
   const [showSaveTemplate, setShowSaveTemplate] = useState(false);
   const [templateName, setTemplateName] = useState("");
   const [showAccountSelector, setShowAccountSelector] = useState<number | null>(null);
@@ -152,7 +168,7 @@ export default function VerifikatForm({
       setRecurringLoaded(true);
 
       // If editing, load the existing recurring item link
-      if (isEditing && verifikat) {
+      if (isEditing && verifikat && !isPeriodiseringHuvud) {
         const existingRecurringItemId = await getRecurringItemForVerifikat(verifikat.id);
         setSelectedRecurringItemId(existingRecurringItemId);
         // Re-baseline so a pre-existing recurring link isn't counted as an unsaved change
@@ -162,6 +178,7 @@ export default function VerifikatForm({
       }
     }
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date, isEditing, verifikat]);
 
   // Fetch konteringsförslag when creating a new transaction from a bank event
@@ -193,6 +210,52 @@ export default function VerifikatForm({
     }
     checkPeriodLock();
   }, [date]);
+
+  // Load default periodiseringskonto availability/name once.
+  useEffect(() => {
+    getPeriodiseringskonto().then((konto) => {
+      setHasPeriodiseringskonto(!!konto);
+      setPeriodiseringskontoName(konto?.namn ?? null);
+    });
+  }, []);
+
+  // When editing a periodisering huvudverifikat, load the logical kontering.
+  useEffect(() => {
+    if (!isPeriodiseringHuvud || !verifikat) return;
+    let cancelled = false;
+    getPeriodiseringForHuvud(verifikat.id).then((details) => {
+      if (cancelled || !details) return;
+      const logicalPosts = details.posts.map((p) => ({
+        accountId: p.accountId,
+        debet: Number(p.debet) || 0,
+        kredit: Number(p.kredit) || 0,
+        description: p.description || "",
+      }));
+      setPeriodisera(true);
+      setDate(details.bankDate);
+      setTargetDate(details.targetDate);
+      setAnchorAccountId(details.anchorAccountId);
+      setDescription(details.description);
+      setPosts(logicalPosts);
+      setSelectedRecurringItemId(details.recurringItemId);
+      setBaseline(
+        serializeFormState(details.bankDate, details.description, logicalPosts, details.recurringItemId)
+      );
+      Promise.all([
+        isPeriodLocked(details.bankDate),
+        isPeriodLocked(details.targetDate),
+      ]).then(([bankLocked, targetLocked]) => {
+        if (bankLocked || targetLocked) {
+          setPeriodiseringLockWarning(
+            "Perioden är låst — periodiseringen kan inte ändras eller tas bort."
+          );
+        }
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isPeriodiseringHuvud, verifikat]);
 
   // Lock background scroll while the full-screen view is open
   useEffect(() => {
@@ -495,9 +558,85 @@ export default function VerifikatForm({
       return;
     }
 
+    // Periodisering-specific validation (create or huvud edit)
+    if (periodisera) {
+      if (!hasPeriodiseringskonto) {
+        setError("Inget förvalt periodiseringskonto är satt. Markera ett konto i kontovyn först.");
+        return;
+      }
+      if (!posts.some((p) => p.accountId === anchorAccountId)) {
+        setError("Välj vilken rad som är ankarrad (ligger kvar på bankdatumet).");
+        return;
+      }
+      if (targetDate.toISOString().slice(0, 10) === date.toISOString().slice(0, 10)) {
+        setError("Måldatumet måste skilja sig från bankhändelsens datum.");
+        return;
+      }
+      if (periodiseringLockWarning) {
+        setError(periodiseringLockWarning);
+        return;
+      }
+    }
+
+    // Editing an existing periodisering: confirm the linked verifikat will change.
+    if (isPeriodiseringHuvud) {
+      setShowPeriodiseringSaveConfirm(true);
+      return;
+    }
+
+    await performSave();
+  };
+
+  const performSave = async () => {
     setLoading(true);
 
     try {
+      // Update an existing periodisering (huvudverifikat edit).
+      if (isPeriodiseringHuvud && verifikat) {
+        await updatePeriodisering(verifikat.id, {
+          description,
+          bankDate: date,
+          targetDate,
+          anchorAccountId,
+          posts: posts.map((p) => ({
+            accountId: p.accountId,
+            debet: p.debet,
+            kredit: p.kredit,
+            description: p.description,
+          })),
+          recurringItemId: selectedRecurringItemId,
+        });
+        onSuccess();
+        onClose();
+        return;
+      }
+
+      // Create a new periodisering from a bank event.
+      if (!isEditing && bankEvent && periodisera) {
+        const huvudId = await createPeriodisering({
+          bankEventId: bankEvent.id,
+          description,
+          bankDate: date,
+          targetDate,
+          anchorAccountId,
+          posts: posts.map((p) => ({
+            accountId: p.accountId,
+            debet: p.debet,
+            kredit: p.kredit,
+            description: p.description,
+          })),
+          recurringItemId: selectedRecurringItemId,
+        });
+
+        if (bulkNav) {
+          await bulkNav.onSaved(huvudId);
+        } else {
+          onSuccess();
+          onClose();
+        }
+        return;
+      }
+
       if (isEditing) {
         // Update existing verifikat
         await updateVerifikat(verifikat!.id, {
@@ -552,6 +691,20 @@ export default function VerifikatForm({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ett fel uppstod");
       setLoading(false);
+    }
+  };
+
+  const handleDeletePeriodisering = async () => {
+    if (!verifikat) return;
+    setLoading(true);
+    try {
+      await deletePeriodisering(verifikat.id);
+      onSuccess();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Kunde inte ta bort periodiseringen");
+      setLoading(false);
+      setShowPeriodiseringDeleteConfirm(false);
     }
   };
 
@@ -610,6 +763,31 @@ export default function VerifikatForm({
           {periodLockWarning && (
             <div className="mb-4 rounded-md bg-amber-50 dark:bg-amber-900/20 p-4 text-sm text-amber-800 dark:text-amber-200">
               ⚠️ {periodLockWarning}
+            </div>
+          )}
+
+          {isPeriodiseringLankat && verifikat?.periodisering && (
+            <div className="mb-4 rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 p-4 text-sm text-blue-900 dark:text-blue-100">
+              <div className="font-medium mb-1">Länkat periodiseringsverifikat</div>
+              <p className="mb-3">
+                Det här verifikatet är en del av en periodisering och kan inte redigeras
+                direkt. Öppna huvudverifikatet för att ändra eller ta bort periodiseringen.
+              </p>
+              {onOpenVerifikat && (
+                <button
+                  type="button"
+                  onClick={() => onOpenVerifikat(verifikat.periodisering!.motpartVerifikatId)}
+                  className="px-4 py-2 text-sm font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700"
+                >
+                  Gå till huvudverifikat
+                </button>
+              )}
+            </div>
+          )}
+
+          {periodiseringLockWarning && (
+            <div className="mb-4 rounded-md bg-amber-50 dark:bg-amber-900/20 p-4 text-sm text-amber-800 dark:text-amber-200">
+              ⚠️ {periodiseringLockWarning}
             </div>
           )}
 
@@ -713,6 +891,61 @@ export default function VerifikatForm({
           </div>
 
 
+          {verifikatBankEvent && (!isEditing || isPeriodiseringHuvud) && (
+            <div className="rounded-md border border-zinc-200 dark:border-zinc-700 p-4 space-y-3">
+              <label className="flex items-center gap-2 text-sm font-medium text-zinc-800 dark:text-zinc-100">
+                <input
+                  type="checkbox"
+                  checked={periodisera}
+                  disabled={isPeriodiseringHuvud}
+                  onChange={(e) => {
+                    setPeriodisera(e.target.checked);
+                    if (!e.target.checked) {
+                      setTargetDate(date);
+                    }
+                  }}
+                  className="h-4 w-4"
+                />
+                Periodisera till en annan period
+              </label>
+
+              {periodisera && (
+                <div className="space-y-3 pl-6">
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Kostnaden/intäkten bokförs på måldatumet via periodiseringskontot
+                    {periodiseringskontoName ? ` (${periodiseringskontoName})` : ""}, medan
+                    bankraden ligger kvar på bankhändelsens datum. Två länkade verifikat skapas.
+                  </p>
+
+                  {!hasPeriodiseringskonto && (
+                    <div className="rounded-md bg-red-50 dark:bg-red-900/20 px-3 py-2 text-sm text-red-800 dark:text-red-200">
+                      Inget förvalt periodiseringskonto är satt. Markera ett konto som
+                      &quot;Förvalt periodiseringskonto&quot; i kontovyn först.
+                    </div>
+                  )}
+
+                  <div className="w-56">
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                      Måldatum (period att flytta till)
+                    </label>
+                    <input
+                      type="date"
+                      value={targetDate.toISOString().split("T")[0]}
+                      onChange={(e) => setTargetDate(new Date(e.target.value))}
+                      lang="sv-SE"
+                      className="w-full rounded-md border border-zinc-300 px-3 py-2 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+                    />
+                  </div>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Markera ankarraden (bankraden som ligger kvar på bankdatumet) i
+                    postlistan nedan.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+
           <div>
             <div className="flex items-center justify-between mb-3">
               <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
@@ -737,6 +970,22 @@ export default function VerifikatForm({
                   key={index}
                   className="flex gap-3 items-start border border-zinc-200 dark:border-zinc-700 rounded-md p-3"
                 >
+                  {periodisera && (
+                    <div className="w-14 shrink-0 text-center">
+                      <label className="block text-xs text-zinc-600 dark:text-zinc-400 mb-1">
+                        Ankare
+                      </label>
+                      <input
+                        type="radio"
+                        name="periodisering-anchor"
+                        checked={anchorAccountId === post.accountId && post.accountId !== 0}
+                        disabled={post.accountId === 0 || isPeriodiseringLankat}
+                        onChange={() => setAnchorAccountId(post.accountId)}
+                        className="mt-2 h-4 w-4"
+                        title="Ankarrad — ligger kvar på bankhändelsens datum"
+                      />
+                    </div>
+                  )}
                   <div className="flex-1">
                     <label className="block text-xs text-zinc-600 dark:text-zinc-400 mb-1">
                       Konto
@@ -1008,12 +1257,30 @@ export default function VerifikatForm({
                     : "Flagga"}
                 </button>
               )}
+              {isPeriodiseringHuvud && (
+                <button
+                  type="button"
+                  onClick={() => setShowPeriodiseringDeleteConfirm(true)}
+                  disabled={loading || !!periodiseringLockWarning}
+                  className="px-4 py-2 text-sm font-semibold rounded-md border border-red-300 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/40 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Ta bort periodisering
+                </button>
+              )}
               <button
                 type="submit"
-                disabled={!isBalanced || loading || !!periodLockWarning || !amountMatchesBankEvent || !allAmountRowsHaveAccount}
+                disabled={!isBalanced || loading || !!periodLockWarning || !amountMatchesBankEvent || !allAmountRowsHaveAccount || !!periodiseringLockWarning || isPeriodiseringLankat || (periodisera && !hasPeriodiseringskonto)}
                 className="px-4 py-2 text-sm font-semibold rounded-md bg-zinc-900 text-zinc-50 hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
               >
-                {loading ? "Sparar..." : isEditing ? "Spara verifikat" : "Skapa verifikat"}
+                {loading
+                  ? "Sparar..."
+                  : isPeriodiseringHuvud
+                  ? "Spara periodisering"
+                  : periodisera
+                  ? "Skapa periodisering"
+                  : isEditing
+                  ? "Spara verifikat"
+                  : "Skapa verifikat"}
               </button>
               {bulkNav?.isSaved && (
                 <span className="inline-flex items-center gap-1 text-sm font-medium text-green-600 dark:text-green-400">
@@ -1272,6 +1539,33 @@ export default function VerifikatForm({
             setPendingNavDirection(null);
             setPendingNavIndex(null);
           }}
+        />
+      )}
+
+      {showPeriodiseringSaveConfirm && (
+        <ConfirmModal
+          title="Spara ändrad periodisering?"
+          message="Båda de länkade verifikaten skrivs om utifrån den logiska konteringen. Vill du fortsätta?"
+          confirmText="Spara periodisering"
+          cancelText="Avbryt"
+          variant="warning"
+          onConfirm={() => {
+            setShowPeriodiseringSaveConfirm(false);
+            performSave();
+          }}
+          onCancel={() => setShowPeriodiseringSaveConfirm(false)}
+        />
+      )}
+
+      {showPeriodiseringDeleteConfirm && (
+        <ConfirmModal
+          title="Ta bort periodisering?"
+          message="Både huvud- och det länkade verifikatet tas bort. Bankhändelsen blir obokförd igen. Vill du fortsätta?"
+          confirmText="Ta bort periodisering"
+          cancelText="Avbryt"
+          variant="danger"
+          onConfirm={handleDeletePeriodisering}
+          onCancel={() => setShowPeriodiseringDeleteConfirm(false)}
         />
       )}
     </div>
