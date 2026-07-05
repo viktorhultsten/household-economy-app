@@ -20,8 +20,6 @@ export default function KontonPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [showNewGroupInput, setShowNewGroupInput] = useState(false);
   const [showGroupsModal, setShowGroupsModal] = useState(false);
   const [editingGroup, setEditingGroup] = useState<Group | null>(null);
   const [creatingGroup, setCreatingGroup] = useState(false);
@@ -29,14 +27,8 @@ export default function KontonPage() {
     namn: "",
     typ: "Utgift" as AccountType,
   });
-  const [newAccount, setNewAccount] = useState({
-    namn: "",
-    groupId: 0,
-  });
-  const [newGroup, setNewGroup] = useState({
-    namn: "",
-    typ: "Utgift" as AccountType,
-  });
+  const [addingToGroupId, setAddingToGroupId] = useState<number | null>(null);
+  const [newAccountName, setNewAccountName] = useState("");
   const [alertMessage, setAlertMessage] = useState("");
   const [confirmAction, setConfirmAction] = useState<{
     title: string;
@@ -76,27 +68,15 @@ export default function KontonPage() {
     setLoading(false);
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-
-    let groupId = newAccount.groupId;
-
-    // If user wants to create a new group
-    if (showNewGroupInput && newGroup.namn) {
-      groupId = await addGroup(newGroup);
-      await loadData(); // Reload to get the new group
-    }
-
-    if (groupId === 0) {
-      setAlertMessage("Välj en grupp eller skapa en ny!");
+  async function handleAddAccount(groupId: number) {
+    if (!newAccountName.trim()) {
+      setAlertMessage("Kontonamn måste anges!");
       return;
     }
 
-    await addAccount({ namn: newAccount.namn, groupId });
-    setNewAccount({ namn: "", groupId: 0 });
-    setNewGroup({ namn: "", typ: "Utgift" });
-    setShowForm(false);
-    setShowNewGroupInput(false);
+    await addAccount({ namn: newAccountName.trim(), groupId });
+    setNewAccountName("");
+    setAddingToGroupId(null);
     loadData();
   }
 
@@ -214,122 +194,8 @@ export default function KontonPage() {
             >
               Hantera grupper
             </button>
-            <button
-              onClick={() => setShowForm(!showForm)}
-              className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-zinc-50 hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
-            >
-              {showForm ? "Avbryt" : "Lägg till konto"}
-            </button>
           </div>
         </div>
-
-        {showForm && (
-          <div className="mb-6 rounded-lg bg-white p-6 shadow dark:bg-zinc-800">
-            <h2 className="mb-4 text-lg font-semibold text-zinc-900 dark:text-zinc-50">
-              Nytt konto
-            </h2>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
-                  Namn
-                </label>
-                <input
-                  type="text"
-                  value={newAccount.namn}
-                  onChange={(e) =>
-                    setNewAccount({ ...newAccount, namn: e.target.value })
-                  }
-                  required
-                  className="w-full rounded-md border border-zinc-300 px-3 py-2 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
-                  placeholder="t.ex. Drivmedel"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
-                  Grupp
-                </label>
-                {!showNewGroupInput ? (
-                  <div className="space-y-2">
-                    <select
-                      value={newAccount.groupId}
-                      onChange={(e) =>
-                        setNewAccount({
-                          ...newAccount,
-                          groupId: parseInt(e.target.value),
-                        })
-                      }
-                      required={!showNewGroupInput}
-                      className="w-full rounded-md border border-zinc-300 px-3 py-2 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
-                    >
-                      <option value={0}>Välj grupp...</option>
-                      {groups.map((group) => (
-                        <option key={group.id} value={group.id}>
-                          {group.namn} ({group.typ})
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => setShowNewGroupInput(true)}
-                      className="text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
-                    >
-                      + Skapa ny grupp
-                    </button>
-                  </div>
-                ) : (
-                  <div className="space-y-2 border border-zinc-300 dark:border-zinc-600 rounded-md p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                        Ny grupp
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowNewGroupInput(false);
-                          setNewGroup({ namn: "", typ: "Utgift" });
-                        }}
-                        className="text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
-                      >
-                        Avbryt
-                      </button>
-                    </div>
-                    <input
-                      type="text"
-                      value={newGroup.namn}
-                      onChange={(e) =>
-                        setNewGroup({ ...newGroup, namn: e.target.value })
-                      }
-                      required={showNewGroupInput}
-                      className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
-                      placeholder="Gruppnamn"
-                    />
-                    <select
-                      value={newGroup.typ}
-                      onChange={(e) =>
-                        setNewGroup({
-                          ...newGroup,
-                          typ: e.target.value as AccountType,
-                        })
-                      }
-                      className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
-                    >
-                      <option value="Intäkt">Intäkt</option>
-                      <option value="Utgift">Utgift</option>
-                      <option value="Tillgång">Tillgång</option>
-                      <option value="Skuld">Skuld</option>
-                    </select>
-                  </div>
-                )}
-              </div>
-              <button
-                type="submit"
-                className="w-full rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-zinc-50 hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
-              >
-                Spara
-              </button>
-            </form>
-          </div>
-        )}
 
         {accounts.length === 0 ? (
           <div className="rounded-lg bg-white shadow dark:bg-zinc-800 p-8 text-center">
@@ -339,17 +205,64 @@ export default function KontonPage() {
           </div>
         ) : (
           <div className="space-y-6">
-            {Object.entries(groupedAccounts).map(([grupp, accounts]) => (
+            {Object.entries(groupedAccounts).map(([grupp, accounts]) => {
+              const groupId = groups.find((g) => g.namn === grupp)?.id ?? null;
+              return (
               <div
                 key={grupp}
                 className="rounded-lg bg-white shadow dark:bg-zinc-800 overflow-hidden"
               >
-                <div className="bg-zinc-100 dark:bg-zinc-700 px-6 py-3">
+                <div className="bg-zinc-100 dark:bg-zinc-700 px-6 py-3 flex items-center justify-between">
                   <h3 className="font-semibold text-zinc-900 dark:text-zinc-50">
                     {grupp}
                   </h3>
+                  {groupId !== null && (
+                    <button
+                      onClick={() => {
+                        setAddingToGroupId(groupId);
+                        setNewAccountName("");
+                      }}
+                      className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                    >
+                      + Lägg till konto
+                    </button>
+                  )}
                 </div>
                 <div className="divide-y divide-zinc-200 dark:divide-zinc-700">
+                  {addingToGroupId === groupId && groupId !== null && (
+                    <div className="flex items-center gap-3 px-6 py-4 bg-zinc-50 dark:bg-zinc-700/50">
+                      <input
+                        type="text"
+                        autoFocus
+                        value={newAccountName}
+                        onChange={(e) => setNewAccountName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleAddAccount(groupId);
+                          if (e.key === "Escape") {
+                            setAddingToGroupId(null);
+                            setNewAccountName("");
+                          }
+                        }}
+                        className="flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+                        placeholder="t.ex. Drivmedel"
+                      />
+                      <button
+                        onClick={() => handleAddAccount(groupId)}
+                        className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                      >
+                        Spara
+                      </button>
+                      <button
+                        onClick={() => {
+                          setAddingToGroupId(null);
+                          setNewAccountName("");
+                        }}
+                        className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                      >
+                        Avbryt
+                      </button>
+                    </div>
+                  )}
                   {accounts.map((account) => (
                     <div
                       key={account.id}
@@ -458,7 +371,8 @@ export default function KontonPage() {
                   ))}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </main>
