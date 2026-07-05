@@ -298,7 +298,7 @@ export default function VerifikatForm({
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showCloseConfirm, showAccountSelector, isDirty, onClose]);
+  }, [showCloseConfirm, showAccountSelector, showFlagInput, showUnflagConfirm, isDirty, onClose]);
 
   const updatePost = (
     index: number,
@@ -1209,6 +1209,11 @@ export default function VerifikatForm({
               className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 px-3 py-2 text-sm text-zinc-900 dark:bg-zinc-700 dark:text-zinc-50 resize-none mb-4"
               onKeyDown={(e) => {
                 if (e.key === "Escape") { e.preventDefault(); setShowFlagInput(false); }
+                else if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (!flagLoading) handleFlag();
+                }
               }}
               autoFocus
             />

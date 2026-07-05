@@ -92,10 +92,9 @@ export default function Home() {
   }, []);
 
   const handleBulkOpen = useCallback(() => {
-    const n = Math.min(total, BATCH_SIZE);
-    setBulkQueue(events.slice(0, n));
+    setBulkQueue(events.filter((e) => !e.flagged).slice(0, BATCH_SIZE));
     setShowBulkVy(true);
-  }, [total, events]);
+  }, [events]);
 
   const handleBulkClose = useCallback(async () => {
     setShowBulkVy(false);
