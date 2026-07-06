@@ -270,16 +270,16 @@ export default function KontonPage() {
                   {accounts.map((account) => (
                     <div
                       key={account.id}
-                      className="flex items-center justify-between px-6 py-4 hover:bg-zinc-50 dark:hover:bg-zinc-700/50"
+                      className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 hover:bg-zinc-50 dark:hover:bg-zinc-700/50"
                     >
                       {editingAccount?.id === account.id ? (
                         <>
-                          <div className="flex-1 flex gap-3 items-center">
+                          <div className="flex-1 min-w-0 flex flex-wrap gap-3 items-center">
                             <input
                               type="text"
                               value={editAccountName}
                               onChange={(e) => setEditAccountName(e.target.value)}
-                              className="flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+                              className="flex-1 min-w-[8rem] rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
                               placeholder="Kontonamn"
                             />
                             <select
