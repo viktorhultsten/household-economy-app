@@ -188,6 +188,29 @@ export default function DashboardPage() {
               </ResponsiveContainer>
             </section>
 
+            {/* Budget vs utfall per month */}
+            <section className="rounded-lg bg-white p-5 shadow dark:bg-zinc-800">
+              <h2 className="mb-1 text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+                Budget mot utfall — senaste 12 månaderna
+              </h2>
+              <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
+                Budgeterat resultat jämfört med faktiskt utfall. Avvikelsen är
+                utfall minus budget (positiv = bättre än budget).
+              </p>
+              <ResponsiveContainer width="100%" height={320}>
+                <ComposedChart data={data.months} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} strokeOpacity={0.2} vertical={false} />
+                  <XAxis dataKey="label" tick={axisTick} tickLine={false} axisLine={{ stroke: gridStroke, strokeOpacity: 0.3 }} />
+                  <YAxis tickFormatter={formatCompact} tick={axisTick} tickLine={false} axisLine={false} width={44} />
+                  <Tooltip content={<ChartTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="budgetResultat" name="Budget" fill="#a1a1aa" radius={[3, 3, 0, 0]} maxBarSize={22} />
+                  <Bar dataKey="resultat" name="Utfall" fill="#2563eb" radius={[3, 3, 0, 0]} maxBarSize={22} />
+                  <Line type="monotone" dataKey="resultatAvvikelse" name="Avvikelse" stroke="#f59e0b" strokeWidth={2.5} dot={{ r: 3 }} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </section>
+
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               {/* Net worth chart */}
               <section className="rounded-lg bg-white p-5 shadow dark:bg-zinc-800">

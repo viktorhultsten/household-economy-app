@@ -219,6 +219,10 @@ export interface DashboardMonth {
   utgifter: number;
   resultat: number; // intakter - utgifter
   nettoformogenhet: number; // tillgångar - skulder at month end
+  budgetIntakter: number; // budgeted income for the month
+  budgetUtgifter: number; // budgeted expenses for the month
+  budgetResultat: number; // budgetIntakter - budgetUtgifter
+  resultatAvvikelse: number; // resultat - budgetResultat (positive = better than budget)
 }
 
 // An income-statement account that deviates from its budget

@@ -4252,6 +4252,8 @@ export async function getDashboardOverview(
     let utgifter = 0;
     let tillgangar = 0;
     let skulder = 0;
+    let budgetIntakter = 0;
+    let budgetUtgifter = 0;
     const monthOutliers: BudgetOutlier[] = [];
 
     for (const b of balances) {
@@ -4259,6 +4261,10 @@ export async function getDashboardOverview(
       else if (b.groupType === "Utgift") utgifter += b.balance;
       else if (b.groupType === "Tillgång") tillgangar += b.balance;
       else if (b.groupType === "Skuld") skulder += b.balance;
+
+      // Sum budgeted income/expenses for the month (for budget vs utfall).
+      if (b.groupType === "Intäkt") budgetIntakter += budgetMap.get(b.accountId) ?? 0;
+      else if (b.groupType === "Utgift") budgetUtgifter += budgetMap.get(b.accountId) ?? 0;
 
       // Income-statement accounts feed budget outliers.
       if (b.groupType === "Intäkt" || b.groupType === "Utgift") {
@@ -4308,6 +4314,7 @@ export async function getDashboardOverview(
 
     const resultat = intakter - utgifter;
     const nettoformogenhet = tillgangar - skulder;
+    const budgetResultat = budgetIntakter - budgetUtgifter;
 
     months.push({
       year: y,
@@ -4317,6 +4324,10 @@ export async function getDashboardOverview(
       utgifter,
       resultat,
       nettoformogenhet,
+      budgetIntakter,
+      budgetUtgifter,
+      budgetResultat,
+      resultatAvvikelse: resultat - budgetResultat,
     });
 
     // Sort outliers by how far they diverge from budget (largest first).
