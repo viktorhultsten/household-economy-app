@@ -7,7 +7,8 @@ export default function Navigation() {
   const pathname = usePathname();
 
   const navItems = [
-    { href: "/", label: "Bankhändelser" },
+    { href: "/", label: "Översikt" },
+    { href: "/bokfor", label: "Bankhändelser" },
     { href: "/verifikat", label: "Verifikat" },
     { href: "/resultat", label: "Resultat" },
     { href: "/balans", label: "Balans" },

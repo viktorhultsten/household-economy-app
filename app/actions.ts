@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { queryAll, queryOne, query, transaction as dbTransaction } from "@/lib/db";
-import { BankEvent, Verifikat, Post, Account, Group, Import, AccountType, PeriodLock, BookingTemplate, RecurringItem, RecurringItemStatus, Budget, BudgetComparison, CustomResultView, CustomResultViewWithDetails } from "./types";
+import { BankEvent, Verifikat, Post, Account, Group, Import, AccountType, PeriodLock, BookingTemplate, RecurringItem, RecurringItemStatus, Budget, BudgetComparison, CustomResultView, CustomResultViewWithDetails, DashboardOverview, DashboardMonth, DashboardMonthDetail, BudgetOutlier, DashboardTopExpense } from "./types";
 import { buildMonsterNyckel, distributeAmount, rankMonster, beloppsScore, scoreBeskrivning } from "./lib/konteringsforslagUtils";
 import { derivePeriodiseringPosts, derivePeriodiseringSlices } from "./lib/periodiseringUtils";
 
@@ -4177,4 +4177,238 @@ export async function deleteCustomResultView(id: number): Promise<void> {
   // CASCADE delete will automatically remove related records
   await query("DELETE FROM custom_result_views WHERE id = $1", [id]);
   revalidateMutationViews();
+}
+
+// --- Dashboard / Översikt ---
+
+const DASHBOARD_MONTH_NAMES = [
+  "jan", "feb", "mar", "apr", "maj", "jun",
+  "jul", "aug", "sep", "okt", "nov", "dec",
+];
+
+function dashboardMonthLabel(year: number, month: number): string {
+  return `${DASHBOARD_MONTH_NAMES[month - 1]} -${String(year).slice(2)}`;
+}
+
+// Compute the full dashboard overview in a single pass over the trailing
+// 12 months ending at (year, month). Reuses getAccountBalances per month for
+// both the income-statement series and the cumulative net-worth series.
+export async function getDashboardOverview(
+  year: number,
+  month: number
+): Promise<DashboardOverview> {
+  // Accounts excluded from budget follow-up should not appear as outliers.
+  const accounts = await getAccounts();
+  const excludedAccountIds = new Set(
+    accounts.filter((a) => a.excludeFromBudget).map((a) => a.id)
+  );
+
+  // Build the list of 12 months (chronological, oldest first).
+  const window: { year: number; month: number }[] = [];
+  for (let i = 11; i >= 0; i--) {
+    let m = month - i;
+    let y = year;
+    while (m < 1) {
+      m += 12;
+      y -= 1;
+    }
+    window.push({ year: y, month: m });
+  }
+
+  const months: DashboardMonth[] = [];
+  const monthDetails: DashboardMonthDetail[] = [];
+
+  // Accumulators for KPIs / top expenses / YTD outliers.
+  const expenseByAccount = new Map<
+    number,
+    { name: string; period: number; r12: number }
+  >();
+  const ytdActual = new Map<number, number>();
+  const ytdBudget = new Map<number, number>();
+  const ytdMeta = new Map<number, { name: string; type: AccountType }>();
+
+  let r12Resultat = 0;
+  let r12Intakter = 0;
+  let ytdResultat = 0;
+  let ytdIntakter = 0;
+  let periodResultat = 0;
+  let periodIntakter = 0;
+
+  for (let idx = 0; idx < window.length; idx++) {
+    const { year: y, month: m } = window[idx];
+    const isLast = idx === window.length - 1;
+    const isYtd = y === year && m <= month;
+
+    const balances = await getAccountBalances(y, m);
+
+    const budgetRows = await queryAll<{ account_id: number; amount: number }>(
+      "SELECT account_id, amount FROM budgets WHERE year = $1 AND month = $2",
+      [y, m]
+    );
+    const budgetMap = new Map<number, number>();
+    budgetRows.forEach((row) => budgetMap.set(row.account_id, Number(row.amount)));
+
+    let intakter = 0;
+    let utgifter = 0;
+    let tillgangar = 0;
+    let skulder = 0;
+    const monthOutliers: BudgetOutlier[] = [];
+
+    for (const b of balances) {
+      if (b.groupType === "Intäkt") intakter += b.balance;
+      else if (b.groupType === "Utgift") utgifter += b.balance;
+      else if (b.groupType === "Tillgång") tillgangar += b.balance;
+      else if (b.groupType === "Skuld") skulder += b.balance;
+
+      // Income-statement accounts feed budget outliers.
+      if (b.groupType === "Intäkt" || b.groupType === "Utgift") {
+        if (!excludedAccountIds.has(b.accountId)) {
+          const budget = budgetMap.get(b.accountId) ?? 0;
+          if (budget !== 0 || b.balance !== 0) {
+            const variance =
+              b.groupType === "Utgift"
+                ? budget - b.balance // under budget = good
+                : b.balance - budget; // more income = good
+            monthOutliers.push({
+              accountId: b.accountId,
+              accountName: b.accountName,
+              groupType: b.groupType,
+              actual: b.balance,
+              budget,
+              variance,
+            });
+          }
+        }
+      }
+
+      // Top expenses (selected month + R12).
+      if (b.groupType === "Utgift" && b.balance !== 0) {
+        const prev = expenseByAccount.get(b.accountId) ?? {
+          name: b.accountName,
+          period: 0,
+          r12: 0,
+        };
+        prev.r12 += b.balance;
+        if (isLast) prev.period = b.balance;
+        expenseByAccount.set(b.accountId, prev);
+      }
+
+      // YTD accumulation for income-statement accounts.
+      if (isYtd && (b.groupType === "Intäkt" || b.groupType === "Utgift")) {
+        if (!excludedAccountIds.has(b.accountId)) {
+          ytdActual.set(b.accountId, (ytdActual.get(b.accountId) ?? 0) + b.balance);
+          ytdBudget.set(
+            b.accountId,
+            (ytdBudget.get(b.accountId) ?? 0) + (budgetMap.get(b.accountId) ?? 0)
+          );
+          ytdMeta.set(b.accountId, { name: b.accountName, type: b.groupType });
+        }
+      }
+    }
+
+    const resultat = intakter - utgifter;
+    const nettoformogenhet = tillgangar - skulder;
+
+    months.push({
+      year: y,
+      month: m,
+      label: dashboardMonthLabel(y, m),
+      intakter,
+      utgifter,
+      resultat,
+      nettoformogenhet,
+    });
+
+    // Sort outliers by how far they diverge from budget (largest first).
+    monthOutliers.sort((a, b) => Math.abs(a.variance) - Math.abs(b.variance));
+    monthOutliers.reverse();
+    monthDetails.push({
+      year: y,
+      month: m,
+      label: dashboardMonthLabel(y, m),
+      outliers: monthOutliers.slice(0, 5),
+    });
+
+    r12Resultat += resultat;
+    r12Intakter += intakter;
+    if (isYtd) {
+      ytdResultat += resultat;
+      ytdIntakter += intakter;
+    }
+    if (isLast) {
+      periodResultat = resultat;
+      periodIntakter = intakter;
+    }
+  }
+
+  // Most recent month first for the per-month detail list.
+  monthDetails.reverse();
+
+  const sparkvot = (resultat: number, intakter: number) =>
+    intakter > 0 ? resultat / intakter : 0;
+
+  // Top expenses sorted by R12 size.
+  const topExpenses: DashboardTopExpense[] = Array.from(
+    expenseByAccount.entries()
+  )
+    .map(([accountId, v]) => ({
+      accountId,
+      accountName: v.name,
+      period: v.period,
+      r12: v.r12,
+    }))
+    .sort((a, b) => b.r12 - a.r12)
+    .slice(0, 8);
+
+  // YTD budget outliers.
+  const ytdOutliers: BudgetOutlier[] = Array.from(ytdMeta.entries())
+    .map(([accountId, meta]) => {
+      const actual = ytdActual.get(accountId) ?? 0;
+      const budget = ytdBudget.get(accountId) ?? 0;
+      const variance =
+        meta.type === "Utgift" ? budget - actual : actual - budget;
+      return {
+        accountId,
+        accountName: meta.name,
+        groupType: meta.type,
+        actual,
+        budget,
+        variance,
+      };
+    })
+    .filter((o) => o.budget !== 0 || o.actual !== 0)
+    .sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance))
+    .slice(0, 8);
+
+  // To-do counts (obokförda / flaggade bankhändelser).
+  const unpostedRow = await queryOne<{ count: number }>(
+    "SELECT COUNT(*) as count FROM bank_events WHERE is_posted = 0"
+  );
+  const flaggedRow = await queryOne<{ count: number }>(
+    "SELECT COUNT(*) as count FROM bank_events WHERE is_posted = 0 AND flagged = true"
+  );
+
+  return {
+    year,
+    month,
+    months,
+    monthDetails,
+    kpi: {
+      periodResultat,
+      periodIntakter,
+      periodSparkvot: sparkvot(periodResultat, periodIntakter),
+      r12Resultat,
+      r12Intakter,
+      r12Sparkvot: sparkvot(r12Resultat, r12Intakter),
+      ytdResultat,
+      ytdIntakter,
+      ytdSparkvot: sparkvot(ytdResultat, ytdIntakter),
+    },
+    todo: {
+      unposted: Number(unpostedRow?.count) || 0,
+      flagged: Number(flaggedRow?.count) || 0,
+    },
+    topExpenses,
+    ytdOutliers,
+  };
 }

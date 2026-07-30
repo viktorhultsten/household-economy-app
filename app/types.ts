@@ -207,3 +207,67 @@ export interface AccountBalanceWithChange extends AccountBalance {
   changeAmount: number;
   changePercent: number;
 }
+
+// --- Dashboard / Översikt ---
+
+// A single month in the 12-month dashboard series
+export interface DashboardMonth {
+  year: number;
+  month: number;
+  label: string; // short Swedish label, e.g. "jul -25"
+  intakter: number;
+  utgifter: number;
+  resultat: number; // intakter - utgifter
+  nettoformogenhet: number; // tillgångar - skulder at month end
+}
+
+// An income-statement account that deviates from its budget
+export interface BudgetOutlier {
+  accountId: number;
+  accountName: string;
+  groupType: AccountType;
+  actual: number;
+  budget: number;
+  variance: number; // good-sense: positive = better than budget, negative = worse
+}
+
+// Per-month detail with the accounts that deviate most from budget
+export interface DashboardMonthDetail {
+  year: number;
+  month: number;
+  label: string;
+  outliers: BudgetOutlier[];
+}
+
+// Aggregated result KPIs for period / R12 / YTD
+export interface DashboardKpi {
+  periodResultat: number;
+  periodIntakter: number;
+  periodSparkvot: number; // resultat / intakter
+  r12Resultat: number;
+  r12Intakter: number;
+  r12Sparkvot: number;
+  ytdResultat: number;
+  ytdIntakter: number;
+  ytdSparkvot: number;
+}
+
+// A top expense account (selected month + rolling 12 months)
+export interface DashboardTopExpense {
+  accountId: number;
+  accountName: string;
+  period: number;
+  r12: number;
+}
+
+// Everything the dashboard needs, computed in one pass over 12 months
+export interface DashboardOverview {
+  year: number;
+  month: number;
+  months: DashboardMonth[]; // chronological, oldest first
+  monthDetails: DashboardMonthDetail[]; // most recent first
+  kpi: DashboardKpi;
+  todo: { unposted: number; flagged: number };
+  topExpenses: DashboardTopExpense[];
+  ytdOutliers: BudgetOutlier[];
+}
