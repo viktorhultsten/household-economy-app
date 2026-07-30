@@ -222,7 +222,9 @@ export default function ImporterPage() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-zinc-200 dark:divide-zinc-700">
-                            {expandedEvents.map((event) => (
+                            {[...expandedEvents]
+                              .sort((a, b) => b.date.getTime() - a.date.getTime())
+                              .map((event) => (
                               <tr
                                 key={event.id}
                                 className={
