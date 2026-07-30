@@ -3292,6 +3292,57 @@ export async function getRecurringItemsStatus(
       amount: Number(r.total_amount),
     }));
 
+    // Estimate the amount expected for this recurring item and classify it as
+    // an expense or income based on the accounts touched by its most recent
+    // usage. This lets the dashboard sum up what is expected to be drawn.
+    const flowRows = await queryAll<{
+      group_type: AccountType;
+      debet: number;
+      kredit: number;
+    }>(
+      `WITH latest AS (
+        SELECT t.id
+        FROM transactions t
+        JOIN transaction_recurring_items tri ON tri.transaction_id = t.id
+        WHERE tri.recurring_item_id = $1
+        ORDER BY t.date DESC, t.id DESC
+        LIMIT 1
+      )
+      SELECT
+        g.typ AS group_type,
+        COALESCE(SUM(p.debet), 0) AS debet,
+        COALESCE(SUM(p.kredit), 0) AS kredit
+      FROM posts p
+      JOIN accounts a ON a.id = p.account_id
+      JOIN groups g ON g.id = a.group_id
+      WHERE p.transaction_id IN (SELECT id FROM latest)
+      GROUP BY g.typ`,
+      [item.id]
+    );
+
+    let expenseMagnitude = 0;
+    let incomeMagnitude = 0;
+    for (const row of flowRows) {
+      if (row.group_type === "Utgift") {
+        expenseMagnitude += Number(row.debet) - Number(row.kredit);
+      } else if (row.group_type === "Intäkt") {
+        incomeMagnitude += Number(row.kredit) - Number(row.debet);
+      }
+    }
+
+    let flowType: "expense" | "income" | "other";
+    let estimatedAmount: number;
+    if (expenseMagnitude <= 0 && incomeMagnitude <= 0) {
+      flowType = "other";
+      estimatedAmount = 0;
+    } else if (expenseMagnitude >= incomeMagnitude) {
+      flowType = "expense";
+      estimatedAmount = expenseMagnitude;
+    } else {
+      flowType = "income";
+      estimatedAmount = incomeMagnitude;
+    }
+
     statuses.push({
       recurringItem: item,
       currentPeriodCount,
@@ -3300,6 +3351,8 @@ export async function getRecurringItemsStatus(
       previousPeriodAmount,
       isComplete: currentPeriodCount >= item.expectedPerMonth,
       recentUsages,
+      estimatedAmount,
+      flowType,
     });
   }
 

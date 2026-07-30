@@ -130,6 +130,12 @@ export interface RecurringItemStatus {
   previousPeriodAmount: number;
   isComplete: boolean;
   recentUsages: RecurringItemUsage[];
+  // Estimated amount expected for one occurrence this month, based on the most
+  // recent historical usage. Positive magnitude.
+  estimatedAmount: number;
+  // Classification of the money flow, derived from the accounts touched by the
+  // most recent usage. "other" = pure balance-sheet movement (e.g. a transfer).
+  flowType: "expense" | "income" | "other";
 }
 
 // Budget - monthly budget amount for an account

@@ -325,26 +325,19 @@ export default function DashboardPage() {
 
               {/* Missing recurring items */}
               <section className="rounded-lg bg-white p-5 shadow dark:bg-zinc-800">
-                <h2 className="mb-4 text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+                <h2 className="mb-1 text-lg font-semibold text-zinc-900 dark:text-zinc-50">
                   Återkommande som saknas — {MONTHS[month - 1]}
                 </h2>
+                <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
+                  Uppskattat belopp som väntas dras/sättas in, baserat på senaste
+                  gången varje post bokfördes.
+                </p>
                 {missingRecurring.length === 0 ? (
                   <p className="text-sm text-zinc-500 dark:text-zinc-400">
                     Alla återkommande händelser är avklarade. 🎉
                   </p>
                 ) : (
-                  <ul className="divide-y divide-zinc-100 dark:divide-zinc-700/60">
-                    {missingRecurring.map((r) => (
-                      <li key={r.recurringItem.id} className="flex items-center justify-between py-2 text-sm">
-                        <span className="text-zinc-900 dark:text-zinc-50">
-                          {r.recurringItem.namn}
-                        </span>
-                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
-                          {r.currentPeriodCount}/{r.recurringItem.expectedPerMonth}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
+                  <RecurringExpected items={missingRecurring} />
                 )}
                 <Link href="/recurring" className="mt-3 inline-block text-sm text-zinc-500 underline hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200">
                   Till återkommande →
@@ -419,5 +412,88 @@ function TopExpenses({ data }: { data: DashboardOverview }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+type RecurringExpectedItem = RecurringItemStatus & {
+  remaining: number;
+  expectedTotal: number;
+};
+
+function RecurringExpected({ items }: { items: RecurringItemStatus[] }) {
+  const withRemaining: RecurringExpectedItem[] = items.map((r) => {
+    const remaining = Math.max(
+      1,
+      r.recurringItem.expectedPerMonth - r.currentPeriodCount
+    );
+    return { ...r, remaining, expectedTotal: r.estimatedAmount * remaining };
+  });
+
+  const expenses = withRemaining.filter((r) => r.flowType !== "income");
+  const incomes = withRemaining.filter((r) => r.flowType === "income");
+  const expenseSum = expenses.reduce((s, r) => s + r.expectedTotal, 0);
+  const incomeSum = incomes.reduce((s, r) => s + r.expectedTotal, 0);
+
+  return (
+    <div className="space-y-4">
+      <RecurringGroup title="Utgifter" items={expenses} sum={expenseSum} tone="expense" />
+      {incomes.length > 0 && (
+        <RecurringGroup title="Intäkter" items={incomes} sum={incomeSum} tone="income" />
+      )}
+      <div className="flex items-center justify-between border-t border-zinc-200 pt-3 text-sm font-semibold dark:border-zinc-700">
+        <span className="text-zinc-700 dark:text-zinc-300">Netto att vänta</span>
+        <span className={`tabular-nums ${amountColor(incomeSum - expenseSum)}`}>
+          {formatSEK(incomeSum - expenseSum)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function RecurringGroup({
+  title,
+  items,
+  sum,
+  tone,
+}: {
+  title: string;
+  items: RecurringExpectedItem[];
+  sum: number;
+  tone: "expense" | "income";
+}) {
+  if (items.length === 0) return null;
+  const sumColor =
+    tone === "income"
+      ? "text-green-600 dark:text-green-400"
+      : "text-red-600 dark:text-red-400";
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+          {title}
+        </h3>
+        <span className={`text-sm font-semibold tabular-nums ${sumColor}`}>
+          {tone === "income" ? "+" : "−"}
+          {formatSEK(sum)}
+        </span>
+      </div>
+      <ul className="divide-y divide-zinc-100 dark:divide-zinc-700/60">
+        {items.map((r) => (
+          <li key={r.recurringItem.id} className="flex items-center justify-between py-1.5 text-sm">
+            <span className="flex items-center gap-2">
+              <span className="text-zinc-900 dark:text-zinc-50">
+                {r.recurringItem.namn}
+              </span>
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
+                {r.currentPeriodCount}/{r.recurringItem.expectedPerMonth}
+              </span>
+            </span>
+            <span className="tabular-nums text-zinc-600 dark:text-zinc-400">
+              {r.estimatedAmount > 0 ? formatSEK(r.expectedTotal) : "okänt"}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
