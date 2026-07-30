@@ -60,17 +60,27 @@ export const imports = pgTable("imports", {
   }),
 });
 
-export const verifikat = pgTable("transactions", {
-  id: serial("id").primaryKey(),
-  date: date("date", { mode: "string" }).notNull(),
-  description: text("description").notNull(),
-  bankEventId: integer("bank_event_id").references((): AnyPgColumn => bankEvents.id),
-  periodiseringParentId: integer("periodisering_parent_id").references(
-    (): AnyPgColumn => verifikat.id,
-    { onDelete: "cascade" }
-  ),
-  createdAt: timestamp("created_at").defaultNow(),
-});
+export const verifikat = pgTable(
+  "transactions",
+  {
+    id: serial("id").primaryKey(),
+    date: date("date", { mode: "string" }).notNull(),
+    description: text("description").notNull(),
+    bankEventId: integer("bank_event_id").references((): AnyPgColumn => bankEvents.id),
+    periodiseringParentId: integer("periodisering_parent_id").references(
+      (): AnyPgColumn => verifikat.id,
+      { onDelete: "cascade" }
+    ),
+    periodiseringKind: text("periodisering_kind"),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    check(
+      "transactions_periodisering_kind_check",
+      sql`${table.periodiseringKind} IN ('forskjutning', 'periodisering')`
+    ),
+  ]
+);
 
 export const bankEvents = pgTable("bank_events", {
   id: serial("id").primaryKey(),

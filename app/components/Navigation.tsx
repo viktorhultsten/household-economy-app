@@ -12,6 +12,7 @@ export default function Navigation() {
     { href: "/resultat", label: "Resultat" },
     { href: "/balans", label: "Balans" },
     { href: "/budget", label: "Budget" },
+    { href: "/periodiseringar", label: "Periodiseringar" },
     { href: "/templates", label: "Mallar" },
     { href: "/recurring", label: "Återkommande" },
     { href: "/imports", label: "Importer" },

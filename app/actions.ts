@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { queryAll, queryOne, query, transaction as dbTransaction } from "@/lib/db";
 import { BankEvent, Verifikat, Post, Account, Group, Import, AccountType, PeriodLock, BookingTemplate, RecurringItem, RecurringItemStatus, Budget, BudgetComparison, CustomResultView, CustomResultViewWithDetails } from "./types";
 import { buildMonsterNyckel, distributeAmount, rankMonster, beloppsScore, scoreBeskrivning } from "./lib/konteringsforslagUtils";
-import { derivePeriodiseringPosts } from "./lib/periodiseringUtils";
+import { derivePeriodiseringPosts, derivePeriodiseringSlices } from "./lib/periodiseringUtils";
 
 type ActionErrorCategory = "VALIDATION" | "NOT_FOUND" | "CONFLICT" | "LOCKED_PERIOD" | "DATABASE";
 
@@ -581,11 +581,13 @@ export async function deleteVerifikat(id: number): Promise<void> {
   revalidateMutationViews();
 }
 
-// ==================== PERIODISERING ====================
-// A periodisering splits a bank event's booking into two linked verifikat via
-// an interim account (periodiseringskonto). See docs/adr/0008.
+// ==================== PERIODFÖRSKJUTNING ====================
+// A periodförskjutning splits a bank event's booking into two linked verifikat
+// via an interim account (periodiseringskonto), moving the whole amount to one
+// target period. See docs/adr/0008. (Periodisering — spreading over several
+// months — lives further down; see docs/adr/0009.)
 
-export type PeriodiseringInput = {
+export type PeriodforskjutningInput = {
   bankEventId: number;
   description: string;
   bankDate: Date; // Huvudverifikatets datum = bankhändelsens datum
@@ -597,6 +599,17 @@ export type PeriodiseringInput = {
 
 function sameDay(a: Date, b: Date): boolean {
   return a.toISOString().slice(0, 10) === b.toISOString().slice(0, 10);
+}
+
+// Add `months` calendar months to a date, keeping the day-of-month but clamping
+// to the target month's last day (so 31 jan + 1 månad → 28/29 feb, not 3 mars).
+function addMonthsUTC(date: Date, months: number): Date {
+  const target = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, 1));
+  const lastDay = new Date(
+    Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)
+  ).getUTCDate();
+  target.setUTCDate(Math.min(date.getUTCDate(), lastDay));
+  return target;
 }
 
 // The pg-like client passed to the transaction() callback.
@@ -641,9 +654,9 @@ async function insertPosts(
   }
 }
 
-// Create a periodisering: two linked verifikat bridged by the periodiseringskonto.
+// Create a periodförskjutning: two linked verifikat bridged by the periodiseringskonto.
 // Returns the huvudverifikat id.
-export async function createPeriodisering(input: PeriodiseringInput): Promise<number> {
+export async function createPeriodforskjutning(input: PeriodforskjutningInput): Promise<number> {
   const periodiseringskonto = await getPeriodiseringskonto();
   if (!periodiseringskonto) {
     throw createActionError(
@@ -670,7 +683,7 @@ export async function createPeriodisering(input: PeriodiseringInput): Promise<nu
 
   const huvudId = await dbTransaction(async (client) => {
     const huvud = await client.query<{ id: number }>(
-      "INSERT INTO transactions (date, description, bank_event_id) VALUES ($1, $2, $3) RETURNING id",
+      "INSERT INTO transactions (date, description, bank_event_id, periodisering_kind) VALUES ($1, $2, $3, 'forskjutning') RETURNING id",
       [input.bankDate.toISOString(), input.description, input.bankEventId]
     );
     const huvudTxnId = huvud.rows[0].id;
@@ -702,10 +715,10 @@ export async function createPeriodisering(input: PeriodiseringInput): Promise<nu
   return huvudId;
 }
 
-// Update an existing periodisering by rewriting both verifikat.
-export async function updatePeriodisering(
+// Update an existing periodförskjutning by rewriting both verifikat.
+export async function updatePeriodforskjutning(
   huvudId: number,
-  input: Omit<PeriodiseringInput, "bankEventId">
+  input: Omit<PeriodforskjutningInput, "bankEventId">
 ): Promise<void> {
   const huvud = await queryOne<{ date: string; bank_event_id: number | null }>(
     "SELECT date, bank_event_id FROM transactions WHERE id = $1",
@@ -779,8 +792,8 @@ export async function updatePeriodisering(
   revalidateMutationViews();
 }
 
-// Delete both verifikat in a periodisering and return the bank event to the todo list.
-export async function deletePeriodisering(huvudId: number): Promise<void> {
+// Delete both verifikat in a periodförskjutning and return the bank event to the todo list.
+export async function deletePeriodforskjutning(huvudId: number): Promise<void> {
   const huvud = await queryOne<{ date: string }>(
     "SELECT date FROM transactions WHERE id = $1",
     [huvudId]
@@ -812,8 +825,8 @@ export async function deletePeriodisering(huvudId: number): Promise<void> {
   revalidateMutationViews();
 }
 
-// Reconstruct the logical kontering of a periodisering for editing.
-export type PeriodiseringDetails = {
+// Reconstruct the logical kontering of a periodförskjutning for editing.
+export type PeriodforskjutningDetails = {
   huvudId: number;
   bankEventId?: number;
   description: string;
@@ -825,9 +838,9 @@ export type PeriodiseringDetails = {
   recurringItemId: number | null;
 };
 
-export async function getPeriodiseringForHuvud(
+export async function getPeriodforskjutningForHuvud(
   huvudId: number
-): Promise<PeriodiseringDetails | null> {
+): Promise<PeriodforskjutningDetails | null> {
   const huvud = await queryOne<{
     id: number;
     date: string;
@@ -918,6 +931,421 @@ export async function getPeriodiseringForHuvud(
     posts: logicalPosts,
     recurringItemId: recurring?.recurring_item_id ?? null,
   };
+}
+
+// ==================== PERIODISERING (fördelning över flera månader) ====================
+// A periodisering spreads a cost/intäkt evenly over N consecutive months
+// starting in the payment month, as a huvudverifikat + N länkade verifikat (one
+// per month) bridged by the periodiseringskonto. See docs/adr/0009.
+
+export type PeriodiseringInput = {
+  bankEventId: number;
+  description: string;
+  bankDate: Date; // Huvudverifikatets datum = bankhändelsens datum; första slicen ligger i denna månad
+  antalManader: number; // Antal månader att fördela över
+  anchorAccountId: number; // Konteringsraden som ligger kvar på bankdatumet
+  posts: VerifikatPostInput[]; // Den logiska konteringen (balanserad)
+};
+
+// Create a periodisering: huvudverifikat + N per-month länkade verifikat.
+// Returns the huvudverifikat id.
+export async function createPeriodisering(input: PeriodiseringInput): Promise<number> {
+  const periodiseringskonto = await getPeriodiseringskonto();
+  if (!periodiseringskonto) {
+    throw createActionError(
+      "VALIDATION",
+      "Inget förvalt periodiseringskonto är satt. Markera ett konto i kontovyn först."
+    );
+  }
+
+  const { huvudPosts, slices } = derivePeriodiseringSlices(
+    input.posts,
+    input.anchorAccountId,
+    periodiseringskonto.id,
+    input.antalManader
+  );
+
+  const sliceDates = slices.map((_, i) => addMonthsUTC(input.bankDate, i));
+
+  await checkPeriodLock(input.bankDate);
+  for (const d of sliceDates) {
+    await checkPeriodLock(d);
+  }
+
+  const huvudId = await dbTransaction(async (client) => {
+    const huvud = await client.query<{ id: number }>(
+      "INSERT INTO transactions (date, description, bank_event_id, periodisering_kind) VALUES ($1, $2, $3, 'periodisering') RETURNING id",
+      [input.bankDate.toISOString(), input.description, input.bankEventId]
+    );
+    const huvudTxnId = huvud.rows[0].id;
+    await insertPosts(client, huvudTxnId, huvudPosts);
+
+    await client.query(
+      "UPDATE bank_events SET is_posted = 1, transaction_id = $1, flagged = false, flag_comment = NULL WHERE id = $2",
+      [huvudTxnId, input.bankEventId]
+    );
+
+    for (let i = 0; i < slices.length; i++) {
+      const lankat = await client.query<{ id: number }>(
+        "INSERT INTO transactions (date, description, periodisering_parent_id) VALUES ($1, $2, $3) RETURNING id",
+        [sliceDates[i].toISOString(), input.description, huvudTxnId]
+      );
+      await insertPosts(client, lankat.rows[0].id, slices[i]);
+    }
+
+    return huvudTxnId;
+  });
+
+  revalidateMutationViews();
+  return huvudId;
+}
+
+// Update an existing periodisering by rewriting the huvud and all N slices.
+export async function updatePeriodisering(
+  huvudId: number,
+  input: Omit<PeriodiseringInput, "bankEventId">
+): Promise<void> {
+  const huvud = await queryOne<{ date: string; bank_event_id: number | null }>(
+    "SELECT date, bank_event_id FROM transactions WHERE id = $1",
+    [huvudId]
+  );
+  if (!huvud) {
+    throw createActionError("NOT_FOUND", "Huvudverifikat hittades inte");
+  }
+
+  const children = await queryAll<{ id: number; date: string }>(
+    "SELECT id, date FROM transactions WHERE periodisering_parent_id = $1",
+    [huvudId]
+  );
+  if (children.length === 0) {
+    throw createActionError("VALIDATION", "Verifikatet är inte en periodisering.");
+  }
+
+  const periodiseringskonto = await getPeriodiseringskonto();
+  if (!periodiseringskonto) {
+    throw createActionError(
+      "VALIDATION",
+      "Inget förvalt periodiseringskonto är satt. Markera ett konto i kontovyn först."
+    );
+  }
+
+  const { huvudPosts, slices } = derivePeriodiseringSlices(
+    input.posts,
+    input.anchorAccountId,
+    periodiseringskonto.id,
+    input.antalManader
+  );
+
+  const sliceDates = slices.map((_, i) => addMonthsUTC(input.bankDate, i));
+
+  // Every month in the existing span and the new span must be unlocked.
+  await checkPeriodLock(new Date(huvud.date));
+  for (const c of children) {
+    await checkPeriodLock(new Date(c.date));
+  }
+  await checkPeriodLock(input.bankDate);
+  for (const d of sliceDates) {
+    await checkPeriodLock(d);
+  }
+
+  await dbTransaction(async (client) => {
+    // Rewrite huvud (keeps its bank event link).
+    await client.query(
+      "UPDATE transactions SET date = $1, description = $2 WHERE id = $3",
+      [input.bankDate.toISOString(), input.description, huvudId]
+    );
+    await client.query("DELETE FROM posts WHERE transaction_id = $1", [huvudId]);
+    await insertPosts(client, huvudId, huvudPosts);
+
+    // Recreate all slices (deleting the old ones cascades their posts).
+    await client.query(
+      "DELETE FROM transactions WHERE periodisering_parent_id = $1",
+      [huvudId]
+    );
+    for (let i = 0; i < slices.length; i++) {
+      const lankat = await client.query<{ id: number }>(
+        "INSERT INTO transactions (date, description, periodisering_parent_id) VALUES ($1, $2, $3) RETURNING id",
+        [sliceDates[i].toISOString(), input.description, huvudId]
+      );
+      await insertPosts(client, lankat.rows[0].id, slices[i]);
+    }
+  });
+
+  revalidateMutationViews();
+}
+
+// Delete a periodisering (huvud + all slices) and return the bank event to the todo list.
+export async function deletePeriodisering(huvudId: number): Promise<void> {
+  const huvud = await queryOne<{ date: string }>(
+    "SELECT date FROM transactions WHERE id = $1",
+    [huvudId]
+  );
+  if (!huvud) {
+    throw createActionError("NOT_FOUND", "Huvudverifikat hittades inte");
+  }
+
+  const children = await queryAll<{ id: number; date: string }>(
+    "SELECT id, date FROM transactions WHERE periodisering_parent_id = $1",
+    [huvudId]
+  );
+  if (children.length === 0) {
+    throw createActionError("VALIDATION", "Verifikatet är inte en periodisering.");
+  }
+
+  await checkPeriodLock(new Date(huvud.date));
+  for (const c of children) {
+    await checkPeriodLock(new Date(c.date));
+  }
+
+  await dbTransaction(async (client) => {
+    await client.query(
+      "UPDATE bank_events SET is_posted = 0, transaction_id = NULL WHERE transaction_id = $1",
+      [huvudId]
+    );
+    // Deleting the huvud cascades to all länkade verifikat and their posts.
+    await client.query("DELETE FROM transactions WHERE id = $1", [huvudId]);
+  });
+
+  revalidateMutationViews();
+}
+
+// Reconstruct the logical (full) kontering of a periodisering for editing.
+export type PeriodiseringDetails = {
+  huvudId: number;
+  bankEventId?: number;
+  description: string;
+  bankDate: Date;
+  antalManader: number;
+  anchorAccountId: number;
+  periodiseringskontoId: number;
+  posts: Post[];
+};
+
+export async function getPeriodiseringForHuvud(
+  huvudId: number
+): Promise<PeriodiseringDetails | null> {
+  const huvud = await queryOne<{
+    id: number;
+    date: string;
+    description: string;
+    bank_event_id: number | null;
+  }>("SELECT id, date, description, bank_event_id FROM transactions WHERE id = $1", [huvudId]);
+  if (!huvud) return null;
+
+  const children = await queryAll<{ id: number; date: string }>(
+    "SELECT id, date FROM transactions WHERE periodisering_parent_id = $1 ORDER BY date",
+    [huvudId]
+  );
+  if (children.length === 0) return null;
+
+  type PostRow = {
+    id: number;
+    transaction_id: number;
+    account_id: number;
+    debet: string;
+    kredit: string;
+    description: string | null;
+    account_name: string;
+    group_id: number;
+    group_name: string;
+    group_type: string;
+  };
+  const fetchPosts = (txnIds: number[]) =>
+    queryAll<PostRow>(
+      `SELECT p.id, p.transaction_id, p.account_id, p.debet, p.kredit, p.description,
+              a.namn as account_name, g.id as group_id, g.namn as group_name, g.typ as group_type
+       FROM posts p
+       JOIN accounts a ON a.id = p.account_id
+       JOIN groups g ON g.id = a.group_id
+       WHERE p.transaction_id = ANY($1)
+       ORDER BY p.transaction_id, p.id`,
+      [txnIds]
+    );
+
+  const [huvudPosts, childPosts] = await Promise.all([
+    fetchPosts([huvud.id]),
+    fetchPosts(children.map((c) => c.id)),
+  ]);
+
+  // The periodiseringskonto (bridge) is the account present in both huvud and children.
+  const childAccountIds = new Set(childPosts.map((p) => p.account_id));
+  const periodiseringskontoId =
+    huvudPosts.find((p) => childAccountIds.has(p.account_id))?.account_id ?? -1;
+
+  const toAccount = (row: PostRow) => ({
+    id: row.account_id,
+    namn: row.account_name,
+    groupId: row.group_id,
+    group: {
+      id: row.group_id,
+      namn: row.group_name,
+      typ: row.group_type as AccountType,
+    },
+  });
+
+  // Anchor = the huvud row that is not the bridge.
+  const anchorRow = huvudPosts.find((p) => p.account_id !== periodiseringskontoId);
+
+  // Category rows = children rows minus the bridge, aggregated per account back
+  // to the full (logical) amount across all slices.
+  const categoryByAccount = new Map<number, Post>();
+  for (const row of childPosts) {
+    if (row.account_id === periodiseringskontoId) continue;
+    const existing = categoryByAccount.get(row.account_id);
+    if (existing) {
+      existing.debet += Number(row.debet);
+      existing.kredit += Number(row.kredit);
+    } else {
+      categoryByAccount.set(row.account_id, {
+        id: row.id,
+        verifikatId: huvud.id,
+        accountId: row.account_id,
+        debet: Number(row.debet),
+        kredit: Number(row.kredit),
+        description: row.description ?? undefined,
+        account: toAccount(row),
+      });
+    }
+  }
+
+  const logicalPosts: Post[] = [
+    ...(anchorRow
+      ? [
+          {
+            id: anchorRow.id,
+            verifikatId: huvud.id,
+            accountId: anchorRow.account_id,
+            debet: Number(anchorRow.debet),
+            kredit: Number(anchorRow.kredit),
+            description: anchorRow.description ?? undefined,
+            account: toAccount(anchorRow),
+          },
+        ]
+      : []),
+    ...categoryByAccount.values(),
+  ];
+
+  return {
+    huvudId: huvud.id,
+    bankEventId: huvud.bank_event_id ?? undefined,
+    description: huvud.description,
+    bankDate: new Date(huvud.date),
+    antalManader: children.length,
+    anchorAccountId: anchorRow?.account_id ?? -1,
+    periodiseringskontoId,
+    posts: logicalPosts,
+  };
+}
+
+// Overview of active periodiseringar for a selected period: how much has been
+// recognized cumulatively through the period and how much remains. See docs/adr/0009.
+export type PeriodiseringOversiktRad = {
+  huvudId: number;
+  description: string;
+  kontoNamn: string;
+  total: number;
+  avdraget: number;
+  kvar: number;
+  startDate: Date;
+  slutDate: Date;
+  antalManader: number;
+};
+
+export async function getPeriodiseringarOversikt(
+  year: number,
+  month: number
+): Promise<PeriodiseringOversiktRad[]> {
+  const periodStart = new Date(Date.UTC(year, month - 1, 1));
+  const periodEnd = new Date(Date.UTC(year, month, 0));
+  const periodEndKey = periodEnd.toISOString().slice(0, 10);
+  const periodStartKey = periodStart.toISOString().slice(0, 10);
+
+  const huvudRows = await queryAll<{ id: number; description: string }>(
+    "SELECT id, description FROM transactions WHERE periodisering_kind = 'periodisering'"
+  );
+  if (huvudRows.length === 0) return [];
+  const huvudIds = huvudRows.map((r) => r.id);
+
+  const children = await queryAll<{ id: number; parent_id: number; date: string }>(
+    "SELECT id, periodisering_parent_id AS parent_id, date FROM transactions WHERE periodisering_parent_id = ANY($1)",
+    [huvudIds]
+  );
+  const childIds = children.map((c) => c.id);
+
+  const childPosts =
+    childIds.length === 0
+      ? []
+      : await queryAll<{ transaction_id: number; account_id: number; debet: string; account_name: string }>(
+          `SELECT p.transaction_id, p.account_id, p.debet, a.namn AS account_name
+           FROM posts p JOIN accounts a ON a.id = p.account_id
+           WHERE p.transaction_id = ANY($1)`,
+          [childIds]
+        );
+
+  const huvudPosts = await queryAll<{ transaction_id: number; account_id: number }>(
+    "SELECT transaction_id, account_id FROM posts WHERE transaction_id = ANY($1)",
+    [huvudIds]
+  );
+
+  // Accounts appearing in each huvud (anchor + bridge) — a child account not in
+  // this set is a category (kostnad/intäkt) account.
+  const huvudAccounts = new Map<number, Set<number>>();
+  for (const p of huvudPosts) {
+    if (!huvudAccounts.has(p.transaction_id)) huvudAccounts.set(p.transaction_id, new Set());
+    huvudAccounts.get(p.transaction_id)!.add(p.account_id);
+  }
+
+  // Per child: slice amount (= sum of debet) and its parent.
+  const childAmount = new Map<number, number>();
+  const childCategoryName = new Map<number, string>();
+  const childParent = new Map<number, number>();
+  for (const c of children) childParent.set(c.id, c.parent_id);
+  for (const p of childPosts) {
+    childAmount.set(p.transaction_id, (childAmount.get(p.transaction_id) ?? 0) + Number(p.debet));
+    const parentId = childParent.get(p.transaction_id);
+    if (parentId != null && !huvudAccounts.get(parentId)?.has(p.account_id)) {
+      if (!childCategoryName.has(p.transaction_id)) {
+        childCategoryName.set(p.transaction_id, p.account_name);
+      }
+    }
+  }
+
+  const descByHuvud = new Map(huvudRows.map((r) => [r.id, r.description]));
+  const rows: PeriodiseringOversiktRad[] = [];
+
+  for (const huvudId of huvudIds) {
+    const own = children.filter((c) => c.parent_id === huvudId);
+    if (own.length === 0) continue;
+    let total = 0;
+    let avdraget = 0;
+    let kontoNamn = "";
+    let start = own[0].date;
+    let slut = own[0].date;
+    for (const c of own) {
+      const amount = childAmount.get(c.id) ?? 0;
+      total += amount;
+      if (c.date.slice(0, 10) <= periodEndKey) avdraget += amount;
+      if (!kontoNamn && childCategoryName.has(c.id)) kontoNamn = childCategoryName.get(c.id)!;
+      if (c.date < start) start = c.date;
+      if (c.date > slut) slut = c.date;
+    }
+    // Only show periodiseringar that still have a slice on/after the selected period.
+    if (slut.slice(0, 10) < periodStartKey) continue;
+    rows.push({
+      huvudId,
+      description: descByHuvud.get(huvudId) ?? "",
+      kontoNamn,
+      total: Math.round(total * 100) / 100,
+      avdraget: Math.round(avdraget * 100) / 100,
+      kvar: Math.round((total - avdraget) * 100) / 100,
+      startDate: new Date(start),
+      slutDate: new Date(slut),
+      antalManader: own.length,
+    });
+  }
+
+  rows.sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
+  return rows;
 }
 
 // Group actions
@@ -1382,10 +1810,10 @@ export async function getAccountTransactionsForPeriod(
 // map from verifikat id to its role and its counterpart (for click-through).
 async function resolvePeriodiseringLinks(
   transactionIds: number[]
-): Promise<Map<number, { role: "huvud" | "lankat"; motpartVerifikatId: number; motpartDate: Date }>> {
+): Promise<Map<number, { role: "huvud" | "lankat"; kind: "forskjutning" | "periodisering"; motpartVerifikatId: number; motpartDate: Date }>> {
   const result = new Map<
     number,
-    { role: "huvud" | "lankat"; motpartVerifikatId: number; motpartDate: Date }
+    { role: "huvud" | "lankat"; kind: "forskjutning" | "periodisering"; motpartVerifikatId: number; motpartDate: Date }
   >();
   if (transactionIds.length === 0) return result;
 
@@ -1394,9 +1822,11 @@ async function resolvePeriodiseringLinks(
     child_date: string;
     parent_id: number;
     parent_date: string;
+    parent_kind: string | null;
   }>(
     `SELECT child.id AS child_id, child.date AS child_date,
-            parent.id AS parent_id, parent.date AS parent_date
+            parent.id AS parent_id, parent.date AS parent_date,
+            parent.periodisering_kind AS parent_kind
      FROM transactions child
      JOIN transactions parent ON child.periodisering_parent_id = parent.id
      WHERE child.id = ANY($1) OR parent.id = ANY($1)`,
@@ -1405,9 +1835,13 @@ async function resolvePeriodiseringLinks(
 
   const loaded = new Set(transactionIds);
   for (const row of rows) {
+    const kind = (row.parent_kind === "periodisering" ? "periodisering" : "forskjutning") as
+      | "forskjutning"
+      | "periodisering";
     if (loaded.has(row.parent_id)) {
       result.set(row.parent_id, {
         role: "huvud",
+        kind,
         motpartVerifikatId: row.child_id,
         motpartDate: new Date(row.child_date),
       });
@@ -1415,6 +1849,7 @@ async function resolvePeriodiseringLinks(
     if (loaded.has(row.child_id)) {
       result.set(row.child_id, {
         role: "lankat",
+        kind,
         motpartVerifikatId: row.parent_id,
         motpartDate: new Date(row.parent_date),
       });

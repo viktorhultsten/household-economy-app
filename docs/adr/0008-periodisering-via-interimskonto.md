@@ -1,5 +1,7 @@
 # Periodisering som två länkade verifikat via ett interimskonto
 
+> **Uppdatering ([ADR-0009](0009-periodisering-over-flera-manader.md)):** Funktionen som beskrivs här — hela beloppet flyttat till **en** vald period — heter numera **periodförskjutning**. Namnet **periodisering** avser nu fördelning över flera månader (huvud + N länkade). Den modell och de invarianter som beskrivs nedan gäller oförändrat för periodförskjutningen; ADR-0009 generaliserar "alltid exakt två verifikat" till 1+N. Omnämnandet nedan av en "riven periodförskjutning" avser den äldre, dubbelräknande funktionen (issue 01), inte den omdöpta funktionen.
+
 En periodisering delar en bankhändelses bokföring i **två balanserade verifikat**: ett huvudverifikat på bankhändelsens datum (bär bankhändelsen och ankarraden mot periodiseringskontot) och ett länkat verifikat på ett valt måldatum (kategoriraderna mot periodiseringskontot). Periodiseringskontot nettar till noll över paret, så inget belopp dubbelräknas — till skillnad från den tidigare rivna periodförskjutningen ([issue 01](../issues/01-ta-bort-periodforskjutning.md)) som kopierade samma konteringsrader till ett nytt datum och saknade brygga.
 
 Detta återinför alltså funktionen som issue 01 sköt på framtiden ("övervägas för återimplementation senare som en riktig periodisering via interimskonto"), nu med en koherent modell. Skapande, justering och borttagning går genom samma choke-point som allt annat verifikatskrivande ([ADR-0003](0003-balance-invariant-choke-point.md)); paret skrivs alltid atomiskt.

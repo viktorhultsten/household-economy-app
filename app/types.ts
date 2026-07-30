@@ -43,9 +43,11 @@ export interface BankEvent {
   import?: Import; // Include import data to access default account
 }
 
-// Link between the two verifikat in a periodisering pair (see docs/adr/0008)
+// Link between a huvudverifikat and its länkade verifikat in a periodförskjutning
+// (1 länkat) or periodisering (N länkade). See docs/adr/0008 and 0009.
 export interface PeriodiseringLink {
   role: "huvud" | "lankat";
+  kind: "forskjutning" | "periodisering";
   motpartVerifikatId: number;
   motpartDate: Date;
 }

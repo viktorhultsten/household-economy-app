@@ -244,7 +244,13 @@ const VerifikatList = memo(function VerifikatList({
                           )}
                           {v.periodisering && (
                             <span className="px-2 py-0.5 text-xs font-medium rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
-                              {v.periodisering.role === "huvud" ? "Periodisering" : "Periodisering (länkat)"}
+                              {(() => {
+                                const namn =
+                                  v.periodisering.kind === "periodisering"
+                                    ? "Periodisering"
+                                    : "Periodförskjutning";
+                                return v.periodisering.role === "huvud" ? namn : `${namn} (länkat)`;
+                              })()}
                             </span>
                           )}
                         </div>
