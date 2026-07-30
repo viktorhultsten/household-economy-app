@@ -235,7 +235,7 @@ export async function getUnpostedBankEventsPaginated(
   const countResult = await queryOne<{ count: number }>(
     "SELECT COUNT(*) as count FROM bank_events WHERE is_posted = 0"
   );
-  const total = countResult?.count || 0;
+  const total = Number(countResult?.count) || 0;
 
   const rows = await queryAll<{
     id: number;

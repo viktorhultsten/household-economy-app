@@ -139,8 +139,11 @@ export default function Home() {
         </div>
 
         {total === 0 ? (
-          <div className="rounded-lg bg-white shadow dark:bg-zinc-800 p-8 text-center">
-            <p className="text-zinc-600 dark:text-zinc-400">
+          <div className="rounded-lg bg-white shadow dark:bg-zinc-800 p-12 text-center">
+            <p className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
+              Allt klart! 🎉
+            </p>
+            <p className="mt-2 text-zinc-600 dark:text-zinc-400">
               Inga obokförda bankhändelser. Gå till{" "}
               <Link href="/imports" className="text-zinc-900 dark:text-zinc-50 underline">
                 Importer
