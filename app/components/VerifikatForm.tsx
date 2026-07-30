@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Account, BankEvent, Post, BookingTemplate, RecurringItemStatus, Verifikat } from "../types";
-import { getAccounts, createVerifikat, updateVerifikat, isPeriodLocked, getBookingTemplates, createBookingTemplate, getRecurringItemsStatus, linkVerifikatToRecurringItem, getRecurringItemForVerifikat, updateVerifikatRecurringItemLink, getKonteringsforslag, KonteringsforslagMonster, flagBankEvent, unflagBankEvent, getPeriodiseringskonto, createPeriodforskjutning, updatePeriodforskjutning, deletePeriodforskjutning, getPeriodforskjutningForHuvud, createPeriodisering, updatePeriodisering, deletePeriodisering, getPeriodiseringForHuvud } from "../actions";
+import { getAccounts, createVerifikat, updateVerifikat, isPeriodLocked, getBookingTemplates, createBookingTemplate, getRecurringItemsStatus, linkVerifikatToRecurringItem, getRecurringItemForVerifikat, updateVerifikatRecurringItemLink, getKonteringsforslag, KonteringsforslagMonster, flagBankEvent, unflagBankEvent, getPeriodiseringskonto, createPeriodforskjutning, updatePeriodforskjutning, deletePeriodforskjutning, getPeriodforskjutningForHuvud, createPeriodisering, updatePeriodisering, deletePeriodisering, getPeriodiseringForHuvud, convertVerifikatToPeriodforskjutning, convertVerifikatToPeriodisering } from "../actions";
 import AccountSelectorModal from "./AccountSelectorModal";
 import ConfirmModal from "./ConfirmModal";
 import KonteringsforslagCard from "./KonteringsforslagCard";
@@ -68,6 +68,10 @@ export default function VerifikatForm({
     verifikat.periodisering.kind === "periodisering";
   const isHuvud = isForskjutningHuvud || isPeriodiseringHuvud;
   const isPeriodiseringLankat = verifikat?.periodisering?.role === "lankat";
+  // A normal, already-booked verifikat linked to a bank event can be converted
+  // into a periodförskjutning/periodisering while editing.
+  const canConvertToPeriodisering =
+    isEditing && !isHuvud && !isPeriodiseringLankat && !!(verifikat?.bankEvent || bankEvent);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [templates, setTemplates] = useState<BookingTemplate[]>([]);
   const [recurringItems, setRecurringItems] = useState<RecurringItemStatus[]>([]);
@@ -626,8 +630,9 @@ export default function VerifikatForm({
       }
     }
 
-    // Editing an existing periodisering: confirm the linked verifikat will change.
-    if (isHuvud) {
+    // Editing an existing periodisering, or converting a normal verifikat into
+    // one: confirm the restructuring before writing.
+    if (isHuvud || (isEditing && periodMode !== "none")) {
       setShowPeriodiseringSaveConfirm(true);
       return;
     }
@@ -717,6 +722,35 @@ export default function VerifikatForm({
       }
 
       if (isEditing) {
+        // Convert an existing normal verifikat into a periodförskjutning.
+        if (!isHuvud && periodMode === "forskjutning" && verifikat) {
+          await convertVerifikatToPeriodforskjutning(verifikat.id, {
+            description,
+            bankDate: date,
+            targetDate,
+            anchorAccountId,
+            posts: mappedPosts,
+            recurringItemId: selectedRecurringItemId,
+          });
+          onSuccess();
+          onClose();
+          return;
+        }
+
+        // Convert an existing normal verifikat into a periodisering.
+        if (!isHuvud && periodMode === "periodisering" && verifikat) {
+          await convertVerifikatToPeriodisering(verifikat.id, {
+            description,
+            bankDate: date,
+            antalManader,
+            anchorAccountId,
+            posts: mappedPosts,
+          });
+          onSuccess();
+          onClose();
+          return;
+        }
+
         // Update existing verifikat
         await updateVerifikat(verifikat!.id, {
           date,
@@ -974,7 +1008,7 @@ export default function VerifikatForm({
           </div>
 
 
-          {verifikatBankEvent && (!isEditing || isHuvud) && (
+          {verifikatBankEvent && (!isEditing || isHuvud || canConvertToPeriodisering) && (
             <div className="rounded-md border border-zinc-200 dark:border-zinc-700 p-4 space-y-3">
               <div
                 role="radiogroup"
@@ -1677,9 +1711,15 @@ export default function VerifikatForm({
 
       {showPeriodiseringSaveConfirm && (
         <ConfirmModal
-          title="Spara ändrad periodisering?"
-          message="Båda de länkade verifikaten skrivs om utifrån den logiska konteringen. Vill du fortsätta?"
-          confirmText="Spara periodisering"
+          title={isHuvud ? "Spara ändrad periodisering?" : "Periodisera verifikatet?"}
+          message={
+            isHuvud
+              ? "Båda de länkade verifikaten skrivs om utifrån den logiska konteringen. Vill du fortsätta?"
+              : periodMode === "forskjutning"
+              ? "Verifikatet ersätts av en periodförskjutning: två länkade verifikat skapas via periodiseringskontot. Vill du fortsätta?"
+              : "Verifikatet ersätts av en periodisering: ett länkat verifikat skapas per månad via periodiseringskontot. Vill du fortsätta?"
+          }
+          confirmText={isHuvud ? "Spara periodisering" : "Periodisera"}
           cancelText="Avbryt"
           variant="warning"
           onConfirm={() => {

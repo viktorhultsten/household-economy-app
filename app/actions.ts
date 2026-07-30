@@ -1000,6 +1000,178 @@ export async function createPeriodisering(input: PeriodiseringInput): Promise<nu
   return huvudId;
 }
 
+// ==================== KONVERTERA BEFINTLIGT VERIFIKAT ====================
+// Turn an already-booked "vanligt" verifikat into a periodförskjutning or
+// periodisering. The original verifikat is removed and the periodisering pair
+// is created in its place, linked to the same bank event — all in one
+// transaction so the bank event is never left dangling. See docs/adr/0008, 0009.
+
+// Load & validate a verifikat that is a candidate for periodisering. Must exist,
+// be linked to a bank event, and not already be part of a periodisering.
+async function loadConvertibleVerifikat(
+  verifikatId: number
+): Promise<{ date: string; bankEventId: number }> {
+  const source = await queryOne<{
+    date: string;
+    bank_event_id: number | null;
+    periodisering_parent_id: number | null;
+  }>(
+    "SELECT date, bank_event_id, periodisering_parent_id FROM transactions WHERE id = $1",
+    [verifikatId]
+  );
+  if (!source) {
+    throw createActionError("NOT_FOUND", "Verifikat hittades inte");
+  }
+  await assertNotPeriodiseringMember(verifikatId, source.periodisering_parent_id);
+  if (source.bank_event_id == null) {
+    throw createActionError(
+      "VALIDATION",
+      "Endast verifikat som är kopplade till en bankhändelse kan periodiseras."
+    );
+  }
+  return { date: source.date, bankEventId: source.bank_event_id };
+}
+
+// Convert an existing verifikat into a periodförskjutning (two linked verifikat).
+// Returns the new huvudverifikat id.
+export async function convertVerifikatToPeriodforskjutning(
+  verifikatId: number,
+  input: Omit<PeriodforskjutningInput, "bankEventId">
+): Promise<number> {
+  const source = await loadConvertibleVerifikat(verifikatId);
+
+  const periodiseringskonto = await getPeriodiseringskonto();
+  if (!periodiseringskonto) {
+    throw createActionError(
+      "VALIDATION",
+      "Inget förvalt periodiseringskonto är satt. Markera ett konto i kontovyn först."
+    );
+  }
+
+  if (sameDay(input.bankDate, input.targetDate)) {
+    throw createActionError(
+      "VALIDATION",
+      "Måldatumet måste skilja sig från bankhändelsens datum."
+    );
+  }
+
+  const { huvudPosts, lankatPosts } = derivePeriodiseringPosts(
+    input.posts,
+    input.anchorAccountId,
+    periodiseringskonto.id
+  );
+
+  await checkPeriodLock(new Date(source.date));
+  await checkPeriodLock(input.bankDate);
+  await checkPeriodLock(input.targetDate);
+
+  const huvudId = await dbTransaction(async (client) => {
+    // Release the bank event link and remove the original single verifikat.
+    await client.query(
+      "UPDATE bank_events SET transaction_id = NULL WHERE transaction_id = $1",
+      [verifikatId]
+    );
+    await client.query("DELETE FROM transactions WHERE id = $1", [verifikatId]);
+
+    const huvud = await client.query<{ id: number }>(
+      "INSERT INTO transactions (date, description, bank_event_id, periodisering_kind) VALUES ($1, $2, $3, 'forskjutning') RETURNING id",
+      [input.bankDate.toISOString(), input.description, source.bankEventId]
+    );
+    const huvudTxnId = huvud.rows[0].id;
+    await insertPosts(client, huvudTxnId, huvudPosts);
+
+    await client.query(
+      "UPDATE bank_events SET is_posted = 1, transaction_id = $1, flagged = false, flag_comment = NULL WHERE id = $2",
+      [huvudTxnId, source.bankEventId]
+    );
+
+    const lankat = await client.query<{ id: number }>(
+      "INSERT INTO transactions (date, description, periodisering_parent_id) VALUES ($1, $2, $3) RETURNING id",
+      [input.targetDate.toISOString(), input.description, huvudTxnId]
+    );
+    const lankatTxnId = lankat.rows[0].id;
+    await insertPosts(client, lankatTxnId, lankatPosts);
+
+    if (input.recurringItemId != null) {
+      await client.query(
+        "INSERT INTO transaction_recurring_items (transaction_id, recurring_item_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        [lankatTxnId, input.recurringItemId]
+      );
+    }
+
+    return huvudTxnId;
+  });
+
+  revalidateMutationViews();
+  return huvudId;
+}
+
+// Convert an existing verifikat into a periodisering (huvud + N månadsverifikat).
+// Returns the new huvudverifikat id.
+export async function convertVerifikatToPeriodisering(
+  verifikatId: number,
+  input: Omit<PeriodiseringInput, "bankEventId">
+): Promise<number> {
+  const source = await loadConvertibleVerifikat(verifikatId);
+
+  const periodiseringskonto = await getPeriodiseringskonto();
+  if (!periodiseringskonto) {
+    throw createActionError(
+      "VALIDATION",
+      "Inget förvalt periodiseringskonto är satt. Markera ett konto i kontovyn först."
+    );
+  }
+
+  const { huvudPosts, slices } = derivePeriodiseringSlices(
+    input.posts,
+    input.anchorAccountId,
+    periodiseringskonto.id,
+    input.antalManader
+  );
+
+  const sliceDates = slices.map((_, i) => addMonthsUTC(input.bankDate, i));
+
+  await checkPeriodLock(new Date(source.date));
+  await checkPeriodLock(input.bankDate);
+  for (const d of sliceDates) {
+    await checkPeriodLock(d);
+  }
+
+  const huvudId = await dbTransaction(async (client) => {
+    // Release the bank event link and remove the original single verifikat.
+    await client.query(
+      "UPDATE bank_events SET transaction_id = NULL WHERE transaction_id = $1",
+      [verifikatId]
+    );
+    await client.query("DELETE FROM transactions WHERE id = $1", [verifikatId]);
+
+    const huvud = await client.query<{ id: number }>(
+      "INSERT INTO transactions (date, description, bank_event_id, periodisering_kind) VALUES ($1, $2, $3, 'periodisering') RETURNING id",
+      [input.bankDate.toISOString(), input.description, source.bankEventId]
+    );
+    const huvudTxnId = huvud.rows[0].id;
+    await insertPosts(client, huvudTxnId, huvudPosts);
+
+    await client.query(
+      "UPDATE bank_events SET is_posted = 1, transaction_id = $1, flagged = false, flag_comment = NULL WHERE id = $2",
+      [huvudTxnId, source.bankEventId]
+    );
+
+    for (let i = 0; i < slices.length; i++) {
+      const lankat = await client.query<{ id: number }>(
+        "INSERT INTO transactions (date, description, periodisering_parent_id) VALUES ($1, $2, $3) RETURNING id",
+        [sliceDates[i].toISOString(), input.description, huvudTxnId]
+      );
+      await insertPosts(client, lankat.rows[0].id, slices[i]);
+    }
+
+    return huvudTxnId;
+  });
+
+  revalidateMutationViews();
+  return huvudId;
+}
+
 // Update an existing periodisering by rewriting the huvud and all N slices.
 export async function updatePeriodisering(
   huvudId: number,
