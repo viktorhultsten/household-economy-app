@@ -17,6 +17,7 @@ import {
 } from "recharts";
 import { DashboardOverview, RecurringItemStatus } from "./types";
 import { getDashboardOverview, getRecurringItemsStatus } from "./actions";
+import PeriodSelector from "./components/PeriodSelector";
 
 const MONTHS = [
   "Januari", "Februari", "Mars", "April", "Maj", "Juni",
@@ -117,32 +118,14 @@ export default function DashboardPage() {
           <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">
             Översikt
           </h1>
-          <div className="flex items-center gap-2">
-            <select
-              value={month}
-              onChange={(e) => setMonth(Number(e.target.value))}
-              className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-50"
-            >
-              {MONTHS.map((m, i) => (
-                <option key={i} value={i + 1}>
-                  {m}
-                </option>
-              ))}
-            </select>
-            <select
-              value={year}
-              onChange={(e) => setYear(Number(e.target.value))}
-              className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-50"
-            >
-              {Array.from({ length: 7 }, (_, i) => now.getFullYear() - 5 + i).map(
-                (y) => (
-                  <option key={y} value={y}>
-                    {y}
-                  </option>
-                )
-              )}
-            </select>
-          </div>
+          <PeriodSelector
+            year={year}
+            month={month}
+            onChange={(y, m) => {
+              setYear(y);
+              setMonth(m);
+            }}
+          />
         </div>
 
         {loading || !data ? (

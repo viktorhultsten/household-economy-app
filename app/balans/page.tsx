@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AccountType, Verifikat } from "../types";
 import { getAccountBalancesWithChangeBudget, getAccountTransactionsForPeriod, getVerifikat } from "../actions";
 import VerifikatForm from "../components/VerifikatForm";
+import PeriodSelector from "../components/PeriodSelector";
 
 interface AccountBalance {
   accountId: number;
@@ -94,6 +95,15 @@ export default function BalansPage() {
 
   useEffect(() => {
     loadBalances();
+    // Reload transactions for the expanded account when the period changes
+    if (expandedAccountId !== null) {
+      (async () => {
+        setLoadingTransactions(true);
+        const data = await getAccountTransactionsForPeriod(expandedAccountId, year, month);
+        setTransactions(data);
+        setLoadingTransactions(false);
+      })();
+    }
   }, [year, month]);
 
   async function loadBalances() {
@@ -208,69 +218,14 @@ export default function BalansPage() {
           <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">
             Balans
           </h1>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => {
-                if (month === 1) {
-                  setMonth(12);
-                  setYear(year - 1);
-                } else {
-                  setMonth(month - 1);
-                }
-              }}
-              className="px-3 py-2 text-sm font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-            >
-              ← Föregående månad
-            </button>
-            <div className="flex gap-3">
-              <select
-                value={month}
-                onChange={(e) => setMonth(parseInt(e.target.value))}
-                className="rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
-              >
-                <option value={1}>Januari</option>
-                <option value={2}>Februari</option>
-                <option value={3}>Mars</option>
-                <option value={4}>April</option>
-                <option value={5}>Maj</option>
-                <option value={6}>Juni</option>
-                <option value={7}>Juli</option>
-                <option value={8}>Augusti</option>
-                <option value={9}>September</option>
-                <option value={10}>Oktober</option>
-                <option value={11}>November</option>
-                <option value={12}>December</option>
-              </select>
-              <select
-                value={year}
-                onChange={(e) => setYear(parseInt(e.target.value))}
-                className="rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
-              >
-                {Array.from({ length: 5 }, (_, i) => {
-                  const currentYear = new Date().getFullYear();
-                  const y = currentYear - 2 + i;
-                  return (
-                    <option key={y} value={y}>
-                      {y}
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
-            <button
-              onClick={() => {
-                if (month === 12) {
-                  setMonth(1);
-                  setYear(year + 1);
-                } else {
-                  setMonth(month + 1);
-                }
-              }}
-              className="px-3 py-2 text-sm font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-            >
-              Nästa månad →
-            </button>
-          </div>
+          <PeriodSelector
+            year={year}
+            month={month}
+            onChange={(y, m) => {
+              setYear(y);
+              setMonth(m);
+            }}
+          />
         </div>
 
         {balances.length === 0 ? (
