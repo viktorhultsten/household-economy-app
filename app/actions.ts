@@ -3721,10 +3721,19 @@ export async function getAllAccountsBudgetComparison(
   return comparisons;
 }
 
-// Kontoanalys: budget vs utfall vs differens month-by-month for a single account/year
+// Kontoanalys: budget vs utfall vs differens month-by-month for a single account.
+// mode "calendar" = Jan..Dec of `year`; mode "r12" = the 12 months ending at
+// (year, refMonth), i.e. a rolling twelve-month window that can span years.
+const ANALYSIS_MONTH_NAMES = [
+  "Januari", "Februari", "Mars", "April", "Maj", "Juni",
+  "Juli", "Augusti", "September", "Oktober", "November", "December",
+];
+
 export async function getAccountAnalysis(
   accountId: number,
-  year: number
+  year: number,
+  mode: "calendar" | "r12" = "calendar",
+  refMonth: number = 12
 ): Promise<AccountAnalysis> {
   // Account metadata (name + type) drives sign convention and variance direction
   const accountRow = await queryOne<{
@@ -3748,27 +3757,51 @@ export async function getAccountAnalysis(
 
   const groupType = accountRow.group_type as AccountType;
 
-  // Net posting activity per month for this account within the year
+  // Build the ordered list of 12 (year, month) periods for the window
+  const periods: { year: number; month: number }[] = [];
+  if (mode === "r12") {
+    for (let i = 11; i >= 0; i--) {
+      let m = refMonth - i;
+      let y = year;
+      while (m < 1) {
+        m += 12;
+        y -= 1;
+      }
+      periods.push({ year: y, month: m });
+    }
+  } else {
+    for (let m = 1; m <= 12; m++) {
+      periods.push({ year, month: m });
+    }
+  }
+
+  const startYear = periods[0].year;
+  const endYear = periods[periods.length - 1].year;
+
+  // Net posting activity per (year, month) for this account across the window
   const activityRows = await queryAll<{
+    year: number;
     month: number;
     total_debet: number;
     total_kredit: number;
   }>(
     `
     SELECT
+      EXTRACT(YEAR FROM t.date::timestamp)::INTEGER as year,
       EXTRACT(MONTH FROM t.date::timestamp)::INTEGER as month,
       COALESCE(SUM(p.debet), 0) as total_debet,
       COALESCE(SUM(p.kredit), 0) as total_kredit
     FROM posts p
     JOIN transactions t ON t.id = p.transaction_id
     WHERE p.account_id = $1
-      AND EXTRACT(YEAR FROM t.date::timestamp) = $2
-    GROUP BY EXTRACT(MONTH FROM t.date::timestamp)
+      AND EXTRACT(YEAR FROM t.date::timestamp) BETWEEN $2 AND $3
+    GROUP BY 1, 2
     `,
-    [accountId, year]
+    [accountId, startYear, endYear]
   );
 
-  const actualByMonth = new Map<number, number>();
+  const key = (y: number, m: number) => `${y}-${m}`;
+  const actualByPeriod = new Map<string, number>();
   activityRows.forEach((row) => {
     const debet = Number(row.total_debet);
     const kredit = Number(row.total_kredit);
@@ -3777,26 +3810,26 @@ export async function getAccountAnalysis(
       groupType === "Tillgång" || groupType === "Utgift"
         ? debet - kredit
         : kredit - debet;
-    actualByMonth.set(row.month, actual);
+    actualByPeriod.set(key(row.year, row.month), actual);
   });
 
-  // Budgets for the account/year
-  const budgetRows = await queryAll<{ month: number; amount: number }>(
-    "SELECT month, amount FROM budgets WHERE account_id = $1 AND year = $2",
-    [accountId, year]
+  // Budgets for the account across the involved years
+  const budgetRows = await queryAll<{ year: number; month: number; amount: number }>(
+    "SELECT year, month, amount FROM budgets WHERE account_id = $1 AND year BETWEEN $2 AND $3",
+    [accountId, startYear, endYear]
   );
-  const budgetByMonth = new Map<number, number>();
+  const budgetByPeriod = new Map<string, number>();
   budgetRows.forEach((row) => {
-    budgetByMonth.set(row.month, Number(row.amount));
+    budgetByPeriod.set(key(row.year, row.month), Number(row.amount));
   });
 
   const months: AccountAnalysisMonth[] = [];
   let totalBudget = 0;
   let totalActual = 0;
 
-  for (let month = 1; month <= 12; month++) {
-    const budget = budgetByMonth.get(month) ?? 0;
-    const actual = actualByMonth.get(month) ?? 0;
+  for (const { year: y, month: m } of periods) {
+    const budget = budgetByPeriod.get(key(y, m)) ?? 0;
+    const actual = actualByPeriod.get(key(y, m)) ?? 0;
 
     // Good-sense variance: for costs (Utgift) and debt reduction (Skuld),
     // spending less than budget is positive; otherwise more is positive.
@@ -3805,7 +3838,12 @@ export async function getAccountAnalysis(
         ? budget - actual
         : actual - budget;
 
-    months.push({ month, budget, actual, variance });
+    const label =
+      mode === "r12"
+        ? `${ANALYSIS_MONTH_NAMES[m - 1].slice(0, 3).toLowerCase()} -${String(y).slice(2)}`
+        : ANALYSIS_MONTH_NAMES[m - 1];
+
+    months.push({ year: y, month: m, label, budget, actual, variance });
     totalBudget += budget;
     totalActual += actual;
   }
@@ -3820,6 +3858,7 @@ export async function getAccountAnalysis(
     accountName: accountRow.namn,
     groupName: accountRow.group_name,
     groupType,
+    mode,
     year,
     months,
     totalBudget,

@@ -11,6 +11,7 @@ import {
   getAccountAnalysis,
 } from "../actions";
 import AlertModal from "../components/AlertModal";
+import PeriodSelector from "../components/PeriodSelector";
 
 function formatSwedishAmount(amount: number): string {
   return amount.toLocaleString("sv-SE", {
@@ -60,6 +61,11 @@ export default function BudgetPage() {
   const [analysis, setAnalysis] = useState<AccountAnalysis | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisRefresh, setAnalysisRefresh] = useState(0);
+  const [analysisMode, setAnalysisMode] = useState<"calendar" | "r12">("calendar");
+  const [analysisEnd, setAnalysisEnd] = useState({
+    year: now.getFullYear(),
+    month: now.getMonth() + 1,
+  });
 
   // Edit budget modal state
   const [showBudgetModal, setShowBudgetModal] = useState(false);
@@ -79,7 +85,11 @@ export default function BudgetPage() {
     }
     let cancelled = false;
     setAnalysisLoading(true);
-    getAccountAnalysis(analysisAccountId, editYear)
+    const request =
+      analysisMode === "r12"
+        ? getAccountAnalysis(analysisAccountId, analysisEnd.year, "r12", analysisEnd.month)
+        : getAccountAnalysis(analysisAccountId, editYear, "calendar");
+    request
       .then((data) => {
         if (!cancelled) setAnalysis(data);
       })
@@ -95,7 +105,7 @@ export default function BudgetPage() {
     return () => {
       cancelled = true;
     };
-  }, [analysisAccountId, editYear, analysisRefresh]);
+  }, [analysisAccountId, editYear, analysisMode, analysisEnd.year, analysisEnd.month, analysisRefresh]);
 
   useEffect(() => {
     if (!showBudgetModal) return;
@@ -141,7 +151,9 @@ export default function BudgetPage() {
     setSavingBudget(true);
     try {
       await setBudgetsForYear(editingAccount.id, editYear, monthlyBudgets);
-      await loadData(); // Reload to show updated budgets
+      // Refresh quietly (no global loading flag) so scroll position and the modal stay put
+      const comparisonData = await getAllAccountsBudgetComparison(year, 12);
+      setComparisons(comparisonData);
       setAnalysisRefresh((n) => n + 1); // Refresh the analysis panel with new budget
     } catch (err) {
       setAlertMessage(err instanceof Error ? err.message : "Kunde inte spara budget");
@@ -351,9 +363,42 @@ export default function BudgetPage() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 p-6">
               {/* Left: Analys */}
               <div>
-                <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400 mb-3">
-                  Analys {editYear}
-                </h3>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                    Analys
+                  </h3>
+                  <div className="inline-flex rounded-md border border-zinc-300 dark:border-zinc-600 overflow-hidden text-xs font-semibold">
+                    <button
+                      onClick={() => setAnalysisMode("calendar")}
+                      className={`px-3 py-1.5 ${
+                        analysisMode === "calendar"
+                          ? "bg-zinc-900 text-zinc-50 dark:bg-zinc-50 dark:text-zinc-900"
+                          : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                      }`}
+                    >
+                      Kalenderår
+                    </button>
+                    <button
+                      onClick={() => setAnalysisMode("r12")}
+                      className={`px-3 py-1.5 border-l border-zinc-300 dark:border-zinc-600 ${
+                        analysisMode === "r12"
+                          ? "bg-zinc-900 text-zinc-50 dark:bg-zinc-50 dark:text-zinc-900"
+                          : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                      }`}
+                    >
+                      R12
+                    </button>
+                  </div>
+                </div>
+                {analysisMode === "r12" && (
+                  <div className="mb-3 overflow-x-auto">
+                    <PeriodSelector
+                      year={analysisEnd.year}
+                      month={analysisEnd.month}
+                      onChange={(year, month) => setAnalysisEnd({ year, month })}
+                    />
+                  </div>
+                )}
                 {analysisLoading ? (
                   <p className="text-sm text-zinc-600 dark:text-zinc-400">Laddar analys...</p>
                 ) : analysis ? (
@@ -377,9 +422,9 @@ export default function BudgetPage() {
                       </thead>
                       <tbody className="divide-y divide-zinc-200 dark:divide-zinc-700">
                         {analysis.months.map((m) => (
-                          <tr key={m.month} className="hover:bg-zinc-50 dark:hover:bg-zinc-700/50">
+                          <tr key={`${m.year}-${m.month}`} className="hover:bg-zinc-50 dark:hover:bg-zinc-700/50">
                             <td className="px-3 py-2 text-sm text-zinc-900 dark:text-zinc-50">
-                              {MONTHS[m.month - 1].label}
+                              {m.label}
                             </td>
                             <td className="px-3 py-2 text-right text-sm tabular-nums text-zinc-900 dark:text-zinc-50">
                               {formatSwedishAmount(m.budget)}

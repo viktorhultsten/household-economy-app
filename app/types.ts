@@ -180,7 +180,9 @@ export interface YearlyBudget {
 
 // Per-month budget vs actual for a single account (kontoanalys)
 export interface AccountAnalysisMonth {
+  year: number;
   month: number; // 1-12
+  label: string; // display label, e.g. "Januari" or "sep -25"
   budget: number;
   actual: number;
   variance: number; // good-sense: positive = better than budget
@@ -192,8 +194,9 @@ export interface AccountAnalysis {
   accountName: string;
   groupName: string;
   groupType: AccountType;
-  year: number;
-  months: AccountAnalysisMonth[]; // always 12 entries, Jan..Dec
+  mode: "calendar" | "r12";
+  year: number; // calendar year, or end year for R12
+  months: AccountAnalysisMonth[]; // always 12 entries
   totalBudget: number;
   totalActual: number;
   totalVariance: number;
