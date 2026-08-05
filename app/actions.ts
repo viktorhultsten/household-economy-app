@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { queryAll, queryOne, query, transaction as dbTransaction } from "@/lib/db";
-import { BankEvent, Verifikat, Post, Account, Group, Import, AccountType, PeriodLock, BookingTemplate, RecurringItem, RecurringItemStatus, Budget, BudgetComparison, CustomResultView, CustomResultViewWithDetails, DashboardOverview, DashboardMonth, DashboardMonthDetail, BudgetOutlier, DashboardTopExpense } from "./types";
+import { BankEvent, Verifikat, Post, Account, Group, Import, AccountType, PeriodLock, BookingTemplate, RecurringItem, RecurringItemStatus, Budget, BudgetComparison, CustomResultView, CustomResultViewWithDetails, DashboardOverview, DashboardMonth, DashboardMonthDetail, BudgetOutlier, DashboardTopExpense, Todo } from "./types";
 import { buildMonsterNyckel, distributeAmount, rankMonster, beloppsScore, scoreBeskrivning } from "./lib/konteringsforslagUtils";
 import { derivePeriodiseringPosts, derivePeriodiseringSlices } from "./lib/periodiseringUtils";
 
@@ -4505,10 +4505,10 @@ export async function getDashboardOverview(
 
   // To-do counts (obokförda / flaggade bankhändelser).
   const unpostedRow = await queryOne<{ count: number }>(
-    "SELECT COUNT(*) as count FROM bank_events WHERE is_posted = 0"
+    "SELECT COUNT(*) as count FROM bank_events WHERE is_posted = 0 AND is_irrelevant = false"
   );
   const flaggedRow = await queryOne<{ count: number }>(
-    "SELECT COUNT(*) as count FROM bank_events WHERE is_posted = 0 AND flagged = true"
+    "SELECT COUNT(*) as count FROM bank_events WHERE is_posted = 0 AND is_irrelevant = false AND flagged = true"
   );
 
   return {
@@ -4534,4 +4534,60 @@ export async function getDashboardOverview(
     topExpenses,
     ytdOutliers,
   };
+}
+
+// Fristående att göra-poster på översiktsvyn. Sorteras med tidigaste
+// förfallodatum först; passerade datum flaggas som akuta i UI.
+export async function getTodos(): Promise<Todo[]> {
+  const rows = await queryAll<{ id: number; description: string; due_date: string }>(
+    "SELECT id, description, due_date::text AS due_date FROM todos ORDER BY due_date ASC, id ASC"
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    description: row.description,
+    dueDate: row.due_date,
+  }));
+}
+
+export async function createTodo(description: string, dueDate: string): Promise<Todo> {
+  const trimmed = description.trim();
+  if (!trimmed) {
+    throw createActionError("VALIDATION", "Beskrivning krävs.");
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) {
+    throw createActionError("VALIDATION", "Ogiltigt datum.");
+  }
+  const row = await queryOne<{ id: number; description: string; due_date: string }>(
+    "INSERT INTO todos (description, due_date) VALUES ($1, $2) RETURNING id, description, due_date::text AS due_date",
+    [trimmed, dueDate]
+  );
+  if (!row) {
+    throw createActionError("DATABASE", "Kunde inte skapa att göra-post.");
+  }
+  revalidatePath("/");
+  return { id: row.id, description: row.description, dueDate: row.due_date };
+}
+
+export async function updateTodo(id: number, description: string, dueDate: string): Promise<Todo> {
+  const trimmed = description.trim();
+  if (!trimmed) {
+    throw createActionError("VALIDATION", "Beskrivning krävs.");
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) {
+    throw createActionError("VALIDATION", "Ogiltigt datum.");
+  }
+  const row = await queryOne<{ id: number; description: string; due_date: string }>(
+    "UPDATE todos SET description = $1, due_date = $2 WHERE id = $3 RETURNING id, description, due_date::text AS due_date",
+    [trimmed, dueDate, id]
+  );
+  if (!row) {
+    throw createActionError("NOT_FOUND", "Att göra-posten hittades inte.");
+  }
+  revalidatePath("/");
+  return { id: row.id, description: row.description, dueDate: row.due_date };
+}
+
+export async function deleteTodo(id: number): Promise<void> {
+  await query("DELETE FROM todos WHERE id = $1", [id]);
+  revalidatePath("/");
 }

@@ -272,3 +272,12 @@ export const customResultViewTypes = pgTable(
     index("idx_custom_view_types_view_id").on(table.viewId),
   ]
 );
+
+// Fristående att göra-poster på översiktsvyn: beskrivning + förfallodatum.
+// Passerat datum flaggas som akut i UI; ingen koppling till bokföringen.
+export const todos = pgTable("todos", {
+  id: serial("id").primaryKey(),
+  description: text("description").notNull(),
+  dueDate: date("due_date", { mode: "string" }).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});

@@ -284,3 +284,10 @@ export interface DashboardOverview {
   topExpenses: DashboardTopExpense[];
   ytdOutliers: BudgetOutlier[];
 }
+
+// Fristående att göra-post på översiktsvyn (beskrivning + förfallodatum)
+export interface Todo {
+  id: number;
+  description: string;
+  dueDate: string; // ISO-datum (YYYY-MM-DD)
+}

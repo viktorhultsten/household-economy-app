@@ -15,9 +15,10 @@ import {
   Tooltip,
   Legend,
 } from "recharts";
-import { DashboardOverview, RecurringItemStatus } from "./types";
-import { getDashboardOverview, getRecurringItemsStatus } from "./actions";
+import { DashboardOverview, RecurringItemStatus, Todo } from "./types";
+import { getDashboardOverview, getRecurringItemsStatus, getTodos, createTodo, updateTodo, deleteTodo } from "./actions";
 import PeriodSelector from "./components/PeriodSelector";
+import DateInput from "./components/DateInput";
 
 const MONTHS = [
   "Januari", "Februari", "Mars", "April", "Maj", "Juni",
@@ -85,6 +86,7 @@ export default function DashboardPage() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [data, setData] = useState<DashboardOverview | null>(null);
   const [recurring, setRecurring] = useState<RecurringItemStatus[]>([]);
+  const [todos, setTodos] = useState<Todo[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -105,6 +107,31 @@ export default function DashboardPage() {
       cancelled = true;
     };
   }, [year, month]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getTodos().then((items) => {
+      if (!cancelled) setTodos(items);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleAddTodo(description: string, dueDate: string) {
+    const created = await createTodo(description, dueDate);
+    setTodos((prev) => [...prev, created]);
+  }
+
+  async function handleUpdateTodo(id: number, description: string, dueDate: string) {
+    const updated = await updateTodo(id, description, dueDate);
+    setTodos((prev) => prev.map((t) => (t.id === id ? updated : t)));
+  }
+
+  async function handleDeleteTodo(id: number) {
+    setTodos((prev) => prev.filter((t) => t.id !== id));
+    await deleteTodo(id);
+  }
 
   const gridStroke = "#71717a";
   const axisTick = { fill: "#a1a1aa", fontSize: 11 };
@@ -151,6 +178,14 @@ export default function DashboardPage() {
               />
               <TodoCard unposted={data.todo.unposted} flagged={data.todo.flagged} />
             </div>
+
+            {/* Att göra-lista */}
+            <section className="rounded-lg bg-white p-5 shadow dark:bg-zinc-800">
+              <h2 className="mb-4 text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+                Att göra
+              </h2>
+              <TodoList todos={todos} onAdd={handleAddTodo} onUpdate={handleUpdateTodo} onDelete={handleDeleteTodo} />
+            </section>
 
             {/* Income statement chart */}
             <section className="rounded-lg bg-white p-5 shadow dark:bg-zinc-800">
@@ -363,6 +398,174 @@ function TodoCard({ unposted, flagged }: { unposted: number; flagged: number }) 
         {flagged} flaggade · Bokför →
       </p>
     </Link>
+  );
+}
+
+function todayISO(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function TodoList({
+  todos,
+  onAdd,
+  onUpdate,
+  onDelete,
+}: {
+  todos: Todo[];
+  onAdd: (description: string, dueDate: string) => Promise<void>;
+  onUpdate: (id: number, description: string, dueDate: string) => Promise<void>;
+  onDelete: (id: number) => Promise<void>;
+}) {
+  const [description, setDescription] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editDescription, setEditDescription] = useState("");
+  const [editDueDate, setEditDueDate] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const today = todayISO();
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!description.trim() || !dueDate || submitting) return;
+    setSubmitting(true);
+    try {
+      await onAdd(description, dueDate);
+      setDescription("");
+      setDueDate("");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function startEdit(todo: Todo) {
+    setEditingId(todo.id);
+    setEditDescription(todo.description);
+    setEditDueDate(todo.dueDate);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditDescription("");
+    setEditDueDate("");
+  }
+
+  async function handleSaveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (editingId === null || !editDescription.trim() || !editDueDate || savingEdit) return;
+    setSavingEdit(true);
+    try {
+      await onUpdate(editingId, editDescription, editDueDate);
+      cancelEdit();
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  return (
+    <div>
+      <form onSubmit={handleSubmit} className="mb-4 flex flex-wrap gap-2">
+        <input
+          type="text"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Vad ska göras?"
+          className="min-w-0 flex-1 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-50"
+        />
+        <DateInput value={dueDate} onChange={setDueDate} className="w-44" ariaLabel="Förfallodatum" />
+        <button
+          type="submit"
+          disabled={submitting || !description.trim() || !dueDate}
+          className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+        >
+          Lägg till
+        </button>
+      </form>
+
+      {todos.length === 0 ? (
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">Inget att göra just nu.</p>
+      ) : (
+        <ul className="divide-y divide-zinc-100 dark:divide-zinc-700/60">
+          {todos.map((todo) => {
+            if (editingId === todo.id) {
+              return (
+                <li key={todo.id} className="py-2.5">
+                  <form onSubmit={handleSaveEdit} className="flex flex-wrap gap-2">
+                    <input
+                      type="text"
+                      value={editDescription}
+                      onChange={(e) => setEditDescription(e.target.value)}
+                      placeholder="Vad ska göras?"
+                      autoFocus
+                      className="min-w-0 flex-1 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-50"
+                    />
+                    <DateInput value={editDueDate} onChange={setEditDueDate} className="w-44" ariaLabel="Förfallodatum" />
+                    <button
+                      type="submit"
+                      disabled={savingEdit || !editDescription.trim() || !editDueDate}
+                      className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+                    >
+                      Spara
+                    </button>
+                    <button
+                      type="button"
+                      onClick={cancelEdit}
+                      className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                    >
+                      Avbryt
+                    </button>
+                  </form>
+                </li>
+              );
+            }
+            const overdue = todo.dueDate < today;
+            return (
+              <li key={todo.id} className="flex items-center justify-between gap-3 py-2.5">
+                <div className="min-w-0">
+                  <p className="truncate text-sm text-zinc-900 dark:text-zinc-50">
+                    {todo.description}
+                  </p>
+                  <p
+                    className={`mt-0.5 text-xs tabular-nums ${
+                      overdue
+                        ? "font-semibold text-red-600 dark:text-red-400"
+                        : "text-zinc-500 dark:text-zinc-400"
+                    }`}
+                  >
+                    {overdue && (
+                      <span className="mr-1.5 inline-flex items-center rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-700 dark:bg-red-950/50 dark:text-red-300">
+                        Akut
+                      </span>
+                    )}
+                    {todo.dueDate}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button
+                    onClick={() => startEdit(todo)}
+                    className="rounded-md px-2 py-1 text-xs text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-50"
+                    aria-label="Redigera"
+                  >
+                    Redigera
+                  </button>
+                  <button
+                    onClick={() => onDelete(todo.id)}
+                    className="rounded-md px-2 py-1 text-xs text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-50"
+                    aria-label="Ta bort"
+                  >
+                    Klar
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
   );
 }
 

@@ -6,6 +6,7 @@ import { getAccounts, createVerifikat, updateVerifikat, isPeriodLocked, getBooki
 import AccountSelectorModal from "./AccountSelectorModal";
 import ConfirmModal from "./ConfirmModal";
 import KonteringsforslagCard from "./KonteringsforslagCard";
+import DateInput from "./DateInput";
 
 type PostInput = Omit<Post, "id" | "verifikatId">;
 
@@ -1017,13 +1018,13 @@ export default function VerifikatForm({
               <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
                 Datum
               </label>
-              <input
-                type="date"
+              <DateInput
                 value={date.toISOString().split("T")[0]}
-                onChange={(e) => setDate(new Date(e.target.value))}
+                onChange={(v) => {
+                  if (v) setDate(new Date(v));
+                }}
                 required
-                lang="sv-SE"
-                className="w-full rounded-md border border-zinc-300 px-3 py-2 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+                ariaLabel="Datum"
               />
             </div>
             <div>
@@ -1098,12 +1099,12 @@ export default function VerifikatForm({
                         <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
                           Måldatum (period att flytta till)
                         </label>
-                        <input
-                          type="date"
+                        <DateInput
                           value={targetDate.toISOString().split("T")[0]}
-                          onChange={(e) => setTargetDate(new Date(e.target.value))}
-                          lang="sv-SE"
-                          className="w-full rounded-md border border-zinc-300 px-3 py-2 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+                          onChange={(v) => {
+                            if (v) setTargetDate(new Date(v));
+                          }}
+                          ariaLabel="Måldatum"
                         />
                       </div>
                     </>

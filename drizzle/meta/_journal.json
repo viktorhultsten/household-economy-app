@@ -43,6 +43,13 @@
       "when": 1785948077830,
       "tag": "0005_fearless_starhawk",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785951519440,
+      "tag": "0006_fixed_zombie",
+      "breakpoints": true
     }
   ]
 }

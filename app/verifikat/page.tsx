@@ -6,6 +6,7 @@ import VerifikatForm from "../components/VerifikatForm";
 import AccountSelectorModal from "../components/AccountSelectorModal";
 import { Account } from "../types";
 import { getAccounts } from "../actions";
+import DateInput from "../components/DateInput";
 
 export default function VerifikatPage() {
   const [showManualVerifikatForm, setShowManualVerifikatForm] = useState(false);
@@ -190,14 +191,11 @@ export default function VerifikatPage() {
               <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
                 Från datum
               </label>
-              <input
-                type="date"
+              <DateInput
                 value={filterDateFrom}
-                onChange={(e) => {
-                  setFilterDateFrom(e.target.value);
-                }}
-                lang="sv-SE"
-                className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+                onChange={setFilterDateFrom}
+                className="w-full"
+                ariaLabel="Från datum"
               />
             </div>
 
@@ -206,14 +204,11 @@ export default function VerifikatPage() {
               <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
                 Till datum
               </label>
-              <input
-                type="date"
+              <DateInput
                 value={filterDateTo}
-                onChange={(e) => {
-                  setFilterDateTo(e.target.value);
-                }}
-                lang="sv-SE"
-                className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+                onChange={setFilterDateTo}
+                className="w-full"
+                ariaLabel="Till datum"
               />
             </div>
 
