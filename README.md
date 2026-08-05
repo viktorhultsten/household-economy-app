@@ -1,36 +1,56 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Privatekonomi — Bokföring
 
-## Getting Started
+En lokal [Next.js](https://nextjs.org)-app för privat ekonomihantering: importera
+bankhändelser från CSV, bokför dem med dubbel bokföring och läs ut resultat- och
+balansräkning. En användare, ingen autentisering. Se [CONTEXT.md](CONTEXT.md) för
+domänspråk och [docs/adr/](docs/adr/) för arkitekturbeslut.
 
-First, run the development server:
+## Kom igång
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Öppna [http://localhost:3000](http://localhost:3000) i webbläsaren.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Databasåtkomst styrs av `DATABASE_URL` i `.env` (Postgres). Standard pekar på
+prod-databasen `economy`; sätt `DEV_DATABASE_URL`/`DEV_DB_NAME` för att arbeta
+mot dev-databasen `economy_dev`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## npm-scripts
 
-## Learn More
+### Applikation
 
-To learn more about Next.js, take a look at the following resources:
+| Script | Beskrivning |
+| --- | --- |
+| `npm run dev` | Startar Next.js-utvecklingsservern med hot reload. |
+| `npm run build` | Bygger produktionsbundeln. |
+| `npm run start` | Startar en redan byggd produktionsserver. |
+| `npm run start:prod` | Bygger och startar produktionsservern i ett steg. |
+| `npm test` | Kör testsviten i `tests/` med Node:s test runner via `tsx`. |
+| `npm run lint` | Kör ESLint över kodbasen. |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Databas och migrationer
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Schemat definieras i [lib/schema.ts](lib/schema.ts). Migrationer genereras med
+Drizzle och appliceras via egna skript som först **försonar och baselinear** det
+pre-Drizzle-skapade prod-schemat (se
+[docs/adr/0004-production-migration-workflow.md](docs/adr/0004-production-migration-workflow.md)).
+Fullständigt prod-flöde: [docs/runbooks/prod-migration.md](docs/runbooks/prod-migration.md).
 
-## Deploy on Vercel
+| Script | Mål | Beskrivning |
+| --- | --- | --- |
+| `npm run db:generate` | — | Genererar en migrationsfil i `drizzle/` från diff mot schemat. |
+| `npm run db:migrate:test` | slängbar DB | Applicerar alla migrationer på en tom, temporär databas och bevisar att de är självständiga. |
+| `npm run db:migrate:dev` | `economy_dev` | Försonar, baselinear och migrerar dev-databasen. |
+| `npm run db:rehearse` | `economy_rehearsal` | Klonar prod (läsning endast) och repeterar hela migrationen med drift-kontroll mot det kanoniska schemat. Kör alltid före prod. |
+| `npm run db:migrate:prod` | `economy` (prod) | Försonar, baselinear och migrerar prod. Kräver interaktiv bekräftelse av databasnamnet. |
+| `npm run db:refresh` | `economy_dev` | Skriver över dev med en färsk kopia av prod via `pg_dump \| psql`. Prod behandlas strikt som läsbart och kopplas aldrig ner. |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### Underhåll och diagnostik
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Script | Beskrivning |
+| --- | --- |
+| `npm run cleanup:orphaned-events` | Hittar och rensar bankhändelser vars kopplade verifikat inte längre finns. |
+| `npm run cleanup:orphaned-transactions` | Hittar och rensar verifikat utan konteringsrader och avmarkerar deras bankhändelser. |
+| `npm run diagnose:imports` | Skriver ut en översikt över senaste importer och deras bankhändelser för felsökning. |
