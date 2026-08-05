@@ -210,10 +210,24 @@ export default function MallarPage() {
                           onClick={() => setShowAccountSelector(index)}
                           className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-left text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50 hover:bg-zinc-50 dark:hover:bg-zinc-600"
                         >
-                          {row.accountId === 0
-                            ? "Välj konto..."
-                            : accounts.find((a) => a.id === row.accountId)?.namn ||
-                              "Välj konto..."}
+                          {(() => {
+                            const selected =
+                              row.accountId === 0
+                                ? undefined
+                                : accounts.find((a) => a.id === row.accountId);
+                            if (!selected) return "Välj konto...";
+                            return (
+                              <>
+                                <span>{selected.namn}</span>
+                                {selected.group && (
+                                  <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                                    {" "}
+                                    · {selected.group.namn} ({selected.group.typ})
+                                  </span>
+                                )}
+                              </>
+                            );
+                          })()}
                         </button>
                         <div className="flex gap-2">
                           <select
