@@ -201,7 +201,12 @@ export default function VerifikatForm({
     setForslagDismissed(false);
     setForslag([]);
     setForslagLoaded(false);
-    getKonteringsforslag(bankEvent.description, bankEvent.amount, bankEvent.date).then(
+    getKonteringsforslag(
+      bankEvent.description,
+      bankEvent.amount,
+      bankEvent.date,
+      bankEvent.import?.accountId
+    ).then(
       (results) => {
         setForslag(results);
         setForslagLoaded(true);

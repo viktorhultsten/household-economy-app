@@ -2648,7 +2648,8 @@ export interface KonteringsforslagMonster {
 export async function getKonteringsforslag(
   description: string,
   amount: number,
-  date: Date
+  date: Date,
+  anchorAccountId?: number
 ): Promise<KonteringsforslagMonster[]> {
   if (!description || description.trim().length === 0) return [];
 
@@ -2754,6 +2755,7 @@ export async function getKonteringsforslag(
     monsterNyckel: string;
     bankAccountId: number;
     bankAccountName: string;
+    bankAccountType: string;
     motkonton: Array<{ accountId: number; accountName: string; isDebet: boolean }>;
     stodVerifikat: StodVerifikatData[];
     maxDescScore: number;
@@ -2799,6 +2801,7 @@ export async function getKonteringsforslag(
         monsterNyckel: nyckel,
         bankAccountId: bankPost.accountId,
         bankAccountName: bankPost.accountName,
+        bankAccountType: bankPost.accountType,
         motkonton,
         stodVerifikat: [],
         maxDescScore: 0,
@@ -2824,9 +2827,17 @@ export async function getKonteringsforslag(
   // Filter to patterns with a meaningful description match, then rank by
   // belopp-fit (primary), frequency (secondary), recency (tertiary).
   // Score-gap decides whether to show 1 clear winner or up to 3.
-  const filtered = [...patternMap.values()].filter(
-    (p) => p.maxDescScore >= 10
-  );
+  //
+  // Anchor-filtering: a förslag only makes sense if its tillgångs-/skuldkonto
+  // (ankaret) matches the nya bankhändelsens ankarkonto. When an anchor is
+  // known (import default / external skuldkonto) we require an exact match;
+  // otherwise we at least keep externa (skuldkonto-ankrade) mönster out of
+  // vanliga bankhändelser och tvärtom.
+  const filtered = [...patternMap.values()].filter((p) => {
+    if (p.maxDescScore < 10) return false;
+    if (anchorAccountId != null) return p.bankAccountId === anchorAccountId;
+    return p.bankAccountType !== "Skuld";
+  });
   if (filtered.length === 0) return [];
 
   const top3 = rankMonster(
