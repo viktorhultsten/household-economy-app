@@ -2,12 +2,13 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { AccountType, Account, BudgetComparison } from "../types";
+import { AccountType, Account, BudgetComparison, AccountAnalysis } from "../types";
 import {
   getAllAccountsBudgetComparison,
   getAccounts,
   getBudgetsForAccount,
   setBudgetsForYear,
+  getAccountAnalysis,
 } from "../actions";
 import AlertModal from "../components/AlertModal";
 
@@ -54,6 +55,12 @@ export default function BudgetPage() {
   const [loading, setLoading] = useState(true);
   const [alertMessage, setAlertMessage] = useState("");
 
+  // Kontoanalys state
+  const [analysisAccountId, setAnalysisAccountId] = useState<number | null>(null);
+  const [analysis, setAnalysis] = useState<AccountAnalysis | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisRefresh, setAnalysisRefresh] = useState(0);
+
   // Edit budget modal state
   const [showBudgetModal, setShowBudgetModal] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
@@ -64,6 +71,40 @@ export default function BudgetPage() {
   useEffect(() => {
     loadData();
   }, [year]);
+
+  useEffect(() => {
+    if (analysisAccountId === null) {
+      setAnalysis(null);
+      return;
+    }
+    let cancelled = false;
+    setAnalysisLoading(true);
+    getAccountAnalysis(analysisAccountId, editYear)
+      .then((data) => {
+        if (!cancelled) setAnalysis(data);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setAnalysis(null);
+          setAlertMessage(err instanceof Error ? err.message : "Kunde inte ladda kontoanalys");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setAnalysisLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [analysisAccountId, editYear, analysisRefresh]);
+
+  useEffect(() => {
+    if (!showBudgetModal) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") closeWorkspace();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [showBudgetModal]);
 
   async function loadData() {
     setLoading(true);
@@ -82,6 +123,7 @@ export default function BudgetPage() {
 
     setEditingAccount(account);
     setEditYear(year);
+    setAnalysisAccountId(accountId);
 
     // Load existing budgets for this account/year
     const existingBudgets = await getBudgetsForAccount(accountId, year);
@@ -99,14 +141,20 @@ export default function BudgetPage() {
     setSavingBudget(true);
     try {
       await setBudgetsForYear(editingAccount.id, editYear, monthlyBudgets);
-      setShowBudgetModal(false);
-      setEditingAccount(null);
       await loadData(); // Reload to show updated budgets
+      setAnalysisRefresh((n) => n + 1); // Refresh the analysis panel with new budget
     } catch (err) {
       setAlertMessage(err instanceof Error ? err.message : "Kunde inte spara budget");
     } finally {
       setSavingBudget(false);
     }
+  }
+
+  function closeWorkspace() {
+    setShowBudgetModal(false);
+    setEditingAccount(null);
+    setAnalysisAccountId(null);
+    setAnalysis(null);
   }
 
   function updateMonthlyBudget(monthIndex: number, value: string) {
@@ -277,25 +325,22 @@ export default function BudgetPage() {
         )}
       </main>
 
-      {/* Budget Editor Modal */}
+      {/* Kontoanalys + budget workspace */}
       {showBudgetModal && editingAccount && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white dark:bg-zinc-800 rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 px-6 py-4">
+          <div className="bg-white dark:bg-zinc-800 rounded-lg shadow-xl max-w-6xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 px-6 py-4 z-10">
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">
-                    Ställ in budget: {editingAccount.namn}
+                    {editingAccount.namn}
                   </h2>
                   <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-1">
                     {editingAccount.group?.namn} ({editingAccount.group?.typ})
                   </p>
                 </div>
                 <button
-                  onClick={() => {
-                    setShowBudgetModal(false);
-                    setEditingAccount(null);
-                  }}
+                  onClick={closeWorkspace}
                   className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
                 >
                   ✕
@@ -303,8 +348,90 @@ export default function BudgetPage() {
               </div>
             </div>
 
-            <div className="p-6">
-              {/* Year selector */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 p-6">
+              {/* Left: Analys */}
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400 mb-3">
+                  Analys {editYear}
+                </h3>
+                {analysisLoading ? (
+                  <p className="text-sm text-zinc-600 dark:text-zinc-400">Laddar analys...</p>
+                ) : analysis ? (
+                  <div className="overflow-x-auto rounded-md border border-zinc-200 dark:border-zinc-700">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900">
+                          <th className="px-3 py-2 text-left text-xs font-semibold text-zinc-900 dark:text-zinc-50">
+                            Månad
+                          </th>
+                          <th className="px-3 py-2 text-right text-xs font-semibold text-zinc-900 dark:text-zinc-50">
+                            Budget
+                          </th>
+                          <th className="px-3 py-2 text-right text-xs font-semibold text-zinc-900 dark:text-zinc-50">
+                            Utfall
+                          </th>
+                          <th className="px-3 py-2 text-right text-xs font-semibold text-zinc-900 dark:text-zinc-50">
+                            Differens
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-200 dark:divide-zinc-700">
+                        {analysis.months.map((m) => (
+                          <tr key={m.month} className="hover:bg-zinc-50 dark:hover:bg-zinc-700/50">
+                            <td className="px-3 py-2 text-sm text-zinc-900 dark:text-zinc-50">
+                              {MONTHS[m.month - 1].label}
+                            </td>
+                            <td className="px-3 py-2 text-right text-sm tabular-nums text-zinc-900 dark:text-zinc-50">
+                              {formatSwedishAmount(m.budget)}
+                            </td>
+                            <td className="px-3 py-2 text-right text-sm tabular-nums text-zinc-900 dark:text-zinc-50">
+                              {formatSwedishAmount(m.actual)}
+                            </td>
+                            <td
+                              className={`px-3 py-2 text-right text-sm font-medium tabular-nums ${
+                                m.variance >= 0
+                                  ? "text-green-600 dark:text-green-400"
+                                  : "text-red-600 dark:text-red-400"
+                              }`}
+                            >
+                              {formatSwedishAmount(m.variance)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="border-t-2 border-zinc-300 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-900 font-semibold">
+                          <td className="px-3 py-2 text-sm text-zinc-900 dark:text-zinc-50">Totalt</td>
+                          <td className="px-3 py-2 text-right text-sm tabular-nums text-zinc-900 dark:text-zinc-50">
+                            {formatSwedishAmount(analysis.totalBudget)}
+                          </td>
+                          <td className="px-3 py-2 text-right text-sm tabular-nums text-zinc-900 dark:text-zinc-50">
+                            {formatSwedishAmount(analysis.totalActual)}
+                          </td>
+                          <td
+                            className={`px-3 py-2 text-right text-sm tabular-nums ${
+                              analysis.totalVariance >= 0
+                                ? "text-green-600 dark:text-green-400"
+                                : "text-red-600 dark:text-red-400"
+                            }`}
+                          >
+                            {formatSwedishAmount(analysis.totalVariance)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-sm text-zinc-500 dark:text-zinc-400 italic">Ingen data.</p>
+                )}
+              </div>
+
+              {/* Right: Budgetverktyg */}
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400 mb-3">
+                  Ställ in budget
+                </h3>
+                {/* Year selector */}
               <div className="mb-4">
                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
                   År
@@ -377,17 +504,15 @@ export default function BudgetPage() {
                   </div>
                 ))}
               </div>
+              </div>
             </div>
 
             <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900">
               <button
-                onClick={() => {
-                  setShowBudgetModal(false);
-                  setEditingAccount(null);
-                }}
+                onClick={closeWorkspace}
                 className="rounded-md px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-200 dark:text-zinc-50 dark:hover:bg-zinc-700"
               >
-                Avbryt
+                Stäng
               </button>
               <button
                 onClick={saveBudget}

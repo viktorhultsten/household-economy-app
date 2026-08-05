@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { queryAll, queryOne, query, transaction as dbTransaction } from "@/lib/db";
-import { BankEvent, Verifikat, Post, Account, Group, Import, AccountType, PeriodLock, BookingTemplate, RecurringItem, RecurringItemStatus, Budget, BudgetComparison, CustomResultView, CustomResultViewWithDetails, DashboardOverview, DashboardMonth, DashboardMonthDetail, BudgetOutlier, DashboardTopExpense, Todo } from "./types";
+import { BankEvent, Verifikat, Post, Account, Group, Import, AccountType, PeriodLock, BookingTemplate, RecurringItem, RecurringItemStatus, Budget, BudgetComparison, CustomResultView, CustomResultViewWithDetails, DashboardOverview, DashboardMonth, DashboardMonthDetail, BudgetOutlier, DashboardTopExpense, Todo, AccountAnalysis, AccountAnalysisMonth } from "./types";
 import { buildMonsterNyckel, distributeAmount, rankMonster, beloppsScore, scoreBeskrivning } from "./lib/konteringsforslagUtils";
 import { derivePeriodiseringPosts, derivePeriodiseringSlices } from "./lib/periodiseringUtils";
 
@@ -3719,6 +3719,113 @@ export async function getAllAccountsBudgetComparison(
   });
 
   return comparisons;
+}
+
+// Kontoanalys: budget vs utfall vs differens month-by-month for a single account/year
+export async function getAccountAnalysis(
+  accountId: number,
+  year: number
+): Promise<AccountAnalysis> {
+  // Account metadata (name + type) drives sign convention and variance direction
+  const accountRow = await queryOne<{
+    id: number;
+    namn: string;
+    group_name: string;
+    group_type: string;
+  }>(
+    `
+    SELECT a.id, a.namn, g.namn as group_name, g.typ as group_type
+    FROM accounts a
+    JOIN groups g ON a.group_id = g.id
+    WHERE a.id = $1
+    `,
+    [accountId]
+  );
+
+  if (!accountRow) {
+    throw createActionError("NOT_FOUND", `Konto ${accountId} finns inte`);
+  }
+
+  const groupType = accountRow.group_type as AccountType;
+
+  // Net posting activity per month for this account within the year
+  const activityRows = await queryAll<{
+    month: number;
+    total_debet: number;
+    total_kredit: number;
+  }>(
+    `
+    SELECT
+      EXTRACT(MONTH FROM t.date::timestamp)::INTEGER as month,
+      COALESCE(SUM(p.debet), 0) as total_debet,
+      COALESCE(SUM(p.kredit), 0) as total_kredit
+    FROM posts p
+    JOIN transactions t ON t.id = p.transaction_id
+    WHERE p.account_id = $1
+      AND EXTRACT(YEAR FROM t.date::timestamp) = $2
+    GROUP BY EXTRACT(MONTH FROM t.date::timestamp)
+    `,
+    [accountId, year]
+  );
+
+  const actualByMonth = new Map<number, number>();
+  activityRows.forEach((row) => {
+    const debet = Number(row.total_debet);
+    const kredit = Number(row.total_kredit);
+    // Debit-balance accounts (Tillgång, Utgift) vs credit-balance (Skuld, Intäkt)
+    const actual =
+      groupType === "Tillgång" || groupType === "Utgift"
+        ? debet - kredit
+        : kredit - debet;
+    actualByMonth.set(row.month, actual);
+  });
+
+  // Budgets for the account/year
+  const budgetRows = await queryAll<{ month: number; amount: number }>(
+    "SELECT month, amount FROM budgets WHERE account_id = $1 AND year = $2",
+    [accountId, year]
+  );
+  const budgetByMonth = new Map<number, number>();
+  budgetRows.forEach((row) => {
+    budgetByMonth.set(row.month, Number(row.amount));
+  });
+
+  const months: AccountAnalysisMonth[] = [];
+  let totalBudget = 0;
+  let totalActual = 0;
+
+  for (let month = 1; month <= 12; month++) {
+    const budget = budgetByMonth.get(month) ?? 0;
+    const actual = actualByMonth.get(month) ?? 0;
+
+    // Good-sense variance: for costs (Utgift) and debt reduction (Skuld),
+    // spending less than budget is positive; otherwise more is positive.
+    const variance =
+      groupType === "Utgift" || groupType === "Skuld"
+        ? budget - actual
+        : actual - budget;
+
+    months.push({ month, budget, actual, variance });
+    totalBudget += budget;
+    totalActual += actual;
+  }
+
+  const totalVariance =
+    groupType === "Utgift" || groupType === "Skuld"
+      ? totalBudget - totalActual
+      : totalActual - totalBudget;
+
+  return {
+    accountId: accountRow.id,
+    accountName: accountRow.namn,
+    groupName: accountRow.group_name,
+    groupType,
+    year,
+    months,
+    totalBudget,
+    totalActual,
+    totalVariance,
+  };
 }
 
 // Get budget comparison for result view with R12 and YTD data

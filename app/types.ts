@@ -178,6 +178,27 @@ export interface YearlyBudget {
   monthlyAmounts: number[]; // Array of 12 numbers (index 0 = January, 11 = December)
 }
 
+// Per-month budget vs actual for a single account (kontoanalys)
+export interface AccountAnalysisMonth {
+  month: number; // 1-12
+  budget: number;
+  actual: number;
+  variance: number; // good-sense: positive = better than budget
+}
+
+// Full year budget/actual breakdown for one account
+export interface AccountAnalysis {
+  accountId: number;
+  accountName: string;
+  groupName: string;
+  groupType: AccountType;
+  year: number;
+  months: AccountAnalysisMonth[]; // always 12 entries, Jan..Dec
+  totalBudget: number;
+  totalActual: number;
+  totalVariance: number;
+}
+
 // Custom result view - allows filtering which accounts to show in result view
 export interface CustomResultView {
   id: number;
