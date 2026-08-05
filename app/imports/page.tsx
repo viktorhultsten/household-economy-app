@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Import, BankEvent } from "../types";
-import { getImports, getImportWithEvents, deleteImport, saveBankEvents } from "../actions";
+import { getImports, getImportWithEvents, deleteImport, saveBankEvents, unmarkBankEventIrrelevant } from "../actions";
 import ImportModal from "../components/ImportModal";
 import ConfirmModal from "../components/ConfirmModal";
 
@@ -55,10 +55,11 @@ export default function ImporterPage() {
   async function handleImport(
     parsedEvents: Omit<BankEvent, "id" | "isPosted" | "verifikatId">[],
     filename: string,
-    accountId?: number
+    accountId?: number,
+    isExternal?: boolean
   ) {
     // Save to database
-    await saveBankEvents(parsedEvents, filename, accountId);
+    await saveBankEvents(parsedEvents, filename, accountId, isExternal);
 
     // Reload imports
     await loadImports();
@@ -97,6 +98,13 @@ export default function ImporterPage() {
       setExpandedEvents([]);
     }
     setDeleteConfirm(null);
+  }
+
+  async function handleUndoIrrelevant(eventId: number) {
+    await unmarkBankEventIrrelevant(eventId);
+    setExpandedEvents((prev) =>
+      prev.map((e) => (e.id === eventId ? { ...e, isIrrelevant: false } : e))
+    );
   }
 
   if (loading) {
@@ -145,6 +153,11 @@ export default function ImporterPage() {
                         <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
                           {imp.filename}
                         </h2>
+                        {imp.isExternal && (
+                          <span className="px-2 py-0.5 text-xs font-medium rounded bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300">
+                            Extern
+                          </span>
+                        )}
                         <span className="text-sm text-zinc-600 dark:text-zinc-400">
                           {expandedImportId === imp.id ? "▼" : "▶"}
                         </span>
@@ -228,7 +241,7 @@ export default function ImporterPage() {
                               <tr
                                 key={event.id}
                                 className={
-                                  event.isPosted
+                                  event.isPosted || event.isIrrelevant
                                     ? "opacity-60"
                                     : "hover:bg-zinc-50 dark:hover:bg-zinc-700/50"
                                 }
@@ -249,15 +262,29 @@ export default function ImporterPage() {
                                   {formatSwedishAmount(event.amount)}
                                 </td>
                                 <td className="whitespace-nowrap px-6 py-4 text-center text-sm">
-                                  <span
-                                    className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${
-                                      event.isPosted
-                                        ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
-                                        : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
-                                    }`}
-                                  >
-                                    {event.isPosted ? "Bokförd" : "Ej bokförd"}
-                                  </span>
+                                  {event.isIrrelevant ? (
+                                    <div className="inline-flex items-center gap-2">
+                                      <span className="inline-flex rounded-full px-2 py-1 text-xs font-semibold bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300">
+                                        Irrelevant
+                                      </span>
+                                      <button
+                                        onClick={() => handleUndoIrrelevant(event.id)}
+                                        className="text-xs font-medium text-zinc-600 underline hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+                                      >
+                                        Ångra
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <span
+                                      className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${
+                                        event.isPosted
+                                          ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                                          : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
+                                      }`}
+                                    >
+                                      {event.isPosted ? "Bokförd" : "Ej bokförd"}
+                                    </span>
+                                  )}
                                 </td>
                               </tr>
                             ))}

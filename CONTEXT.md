@@ -90,6 +90,14 @@ Ett planerat belopp per konto och månad, jämförs mot faktiskt utfall. Handlar
 **Import**:
 En uppladdad CSV-fil (Icabanken) som gav upphov till en uppsättning bankhändelser. Bär filnamn, datumintervall och vilket tillgångskonto (bankkonto) händelserna hör till.
 
+**Extern import**:
+En import som avser ett privat konto som inte bokförs. Bankhändelserna bokförs mot ett valt **skuldkonto** i stället för ett bankkonto (tillgångskonto) — t.ex. privata köp som hushållsekonomin ska täcka. Verifikaten märks som externa i verifikatlistan.
+_Avoid_: Privatimport
+
+**Irrelevant bankhändelse**:
+En bankhändelse i en extern import som markerats som att den inte ska bokföras. Faller ur att göra-listan utan att ge upphov till ett verifikat. Reversibelt — ångras från importens händelselista.
+_Avoid_: Struntpost, Ignorerad
+
 **Mall**:
 En återanvändbar verifikatstruktur (förvalda konteringsrader med debet/kredit-sidor) för att snabba upp repetitiv bokföring.
 _Avoid_: Template

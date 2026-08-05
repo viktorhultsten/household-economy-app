@@ -5,7 +5,7 @@ import Link from "next/link";
 import { BankEvent } from "../types";
 import VerifikatForm from "../components/VerifikatForm";
 import BulkBokforingVy from "../components/BulkBokforingVy";
-import { getUnpostedBankEventsPaginated } from "../actions";
+import { getUnpostedBankEventsPaginated, markBankEventIrrelevant } from "../actions";
 
 const BATCH_SIZE = 25;
 
@@ -90,6 +90,14 @@ export default function BokforPage() {
     setSelectedEvent(updatedEvent);
     setEvents((prev) => prev.map((e) => (e.id === updatedEvent.id ? updatedEvent : e)));
   }, []);
+
+  const handleMarkIrrelevant = useCallback(async (eventId: number) => {
+    await markBankEventIrrelevant(eventId);
+    const windowSize = Math.max(BATCH_SIZE, events.length);
+    const { events: data, total: t } = await getUnpostedBankEventsPaginated(windowSize, 0);
+    setEvents(data);
+    setTotal(t);
+  }, [events.length]);
 
   const handleBulkOpen = useCallback(() => {
     setBulkQueue(events.filter((e) => !e.flagged).slice(0, BATCH_SIZE));
@@ -187,6 +195,18 @@ export default function BokforPage() {
                       <td className="px-6 py-4 text-sm text-zinc-900 dark:text-zinc-50">
                         <div>
                           {event.description}
+                          {event.import?.isExternal && (
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <span className="px-2 py-0.5 text-xs font-medium rounded bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300">
+                                Extern
+                              </span>
+                              {event.import.account?.namn && (
+                                <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                                  {event.import.account.namn}
+                                </span>
+                              )}
+                            </div>
+                          )}
                           {event.flagged && (
                             <div className="flex items-center gap-1.5 mt-0.5">
                               <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-amber-500">
@@ -210,9 +230,23 @@ export default function BokforPage() {
                         {formatSwedishAmount(event.amount)}
                       </td>
                       <td className="whitespace-nowrap px-6 py-4 text-right text-sm">
-                        <span className="inline-block px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
-                          Bokför →
-                        </span>
+                        <div className="flex items-center justify-end gap-2">
+                          {event.import?.isExternal && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleMarkIrrelevant(event.id);
+                              }}
+                              className="inline-block px-3 py-1.5 text-xs font-medium rounded-md border border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100 dark:border-orange-800 dark:bg-orange-900/20 dark:text-orange-300 dark:hover:bg-orange-900/40"
+                              title="Ta bort händelsen från att göra-listan utan att bokföra den"
+                            >
+                              Irrelevant
+                            </button>
+                          )}
+                          <span className="inline-block px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
+                            Bokför →
+                          </span>
+                        </div>
                       </td>
                     </tr>
                   ))}

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Account, BankEvent, Post, BookingTemplate, RecurringItemStatus, Verifikat } from "../types";
-import { getAccounts, createVerifikat, updateVerifikat, isPeriodLocked, getBookingTemplates, createBookingTemplate, getRecurringItemsStatus, linkVerifikatToRecurringItem, getRecurringItemForVerifikat, updateVerifikatRecurringItemLink, getKonteringsforslag, KonteringsforslagMonster, flagBankEvent, unflagBankEvent, getPeriodiseringskonto, createPeriodforskjutning, updatePeriodforskjutning, deletePeriodforskjutning, getPeriodforskjutningForHuvud, createPeriodisering, updatePeriodisering, deletePeriodisering, getPeriodiseringForHuvud, convertVerifikatToPeriodforskjutning, convertVerifikatToPeriodisering } from "../actions";
+import { getAccounts, createVerifikat, updateVerifikat, isPeriodLocked, getBookingTemplates, createBookingTemplate, getRecurringItemsStatus, linkVerifikatToRecurringItem, getRecurringItemForVerifikat, updateVerifikatRecurringItemLink, getKonteringsforslag, KonteringsforslagMonster, flagBankEvent, unflagBankEvent, markBankEventIrrelevant, getPeriodiseringskonto, createPeriodforskjutning, updatePeriodforskjutning, deletePeriodforskjutning, getPeriodforskjutningForHuvud, createPeriodisering, updatePeriodisering, deletePeriodisering, getPeriodiseringForHuvud, convertVerifikatToPeriodforskjutning, convertVerifikatToPeriodisering } from "../actions";
 import AccountSelectorModal from "./AccountSelectorModal";
 import ConfirmModal from "./ConfirmModal";
 import KonteringsforslagCard from "./KonteringsforslagCard";
@@ -152,6 +152,9 @@ export default function VerifikatForm({
   const [flagComment, setFlagComment] = useState(bankEvent?.flagComment ?? "");
   const [flagLoading, setFlagLoading] = useState(false);
   const isFlagged = bankEvent?.flagged ?? false;
+  // Irrelevant-markering är bara relevant för externa importer (bokförs mot skuldkonto).
+  const isExternalImport = bankEvent?.import?.isExternal ?? false;
+  const [irrelevantLoading, setIrrelevantLoading] = useState(false);
 
   const [pendingNavDirection, setPendingNavDirection] = useState<-1 | 1 | null>(null);
   const [pendingNavIndex, setPendingNavIndex] = useState<number | null>(null);
@@ -573,6 +576,19 @@ export default function VerifikatForm({
     }
   };
 
+  const handleMarkIrrelevant = async () => {
+    if (!bankEvent) return;
+    setIrrelevantLoading(true);
+    try {
+      await markBankEventIrrelevant(bankEvent.id);
+      // Händelsen försvinner ur att göra-listan; behandla som en lyckad åtgärd.
+      onSuccess();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Kunde inte markera som irrelevant");
+      setIrrelevantLoading(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -865,6 +881,19 @@ export default function VerifikatForm({
                 })}{" "}
                 kr
               </div>
+              {verifikatBankEvent.import?.isExternal && (
+                <div className="flex items-center gap-1.5 mt-2">
+                  <span className="px-2 py-0.5 text-xs font-medium rounded bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300">
+                    Extern
+                  </span>
+                  <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Bokförs mot skuldkonto
+                    {verifikatBankEvent.import.account?.namn
+                      ? `: ${verifikatBankEvent.import.account.namn}`
+                      : ""}
+                  </span>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1418,6 +1447,17 @@ export default function VerifikatForm({
                   {isFlagged
                     ? <span className="max-w-[16rem] truncate">{bankEvent.flagComment || "Flaggad"}</span>
                     : "Flagga"}
+                </button>
+              )}
+              {bankEvent && isExternalImport && !isEditing && !bulkNav && (
+                <button
+                  type="button"
+                  onClick={handleMarkIrrelevant}
+                  disabled={irrelevantLoading || loading}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-md border border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100 dark:border-orange-800 dark:bg-orange-900/20 dark:text-orange-300 dark:hover:bg-orange-900/40 disabled:opacity-50"
+                  title="Ta bort händelsen från att göra-listan utan att bokföra den"
+                >
+                  {irrelevantLoading ? "Markerar..." : "Markera som irrelevant"}
                 </button>
               )}
               {isHuvud && (

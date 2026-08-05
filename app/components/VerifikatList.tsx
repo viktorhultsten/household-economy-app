@@ -237,6 +237,11 @@ const VerifikatList = memo(function VerifikatList({
                           <span className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
                             {v.description}
                           </span>
+                          {v.isExternal && (
+                            <span className="px-2 py-0.5 text-xs font-medium rounded bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300" title="Extern transaktion – bokförd mot skuldkonto">
+                              Extern
+                            </span>
+                          )}
                           {v.recurringItems && v.recurringItems.length > 0 && (
                             <span className="px-2 py-0.5 text-xs font-medium rounded bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300" title={v.recurringItems.map(ri => ri.namn).join(", ")}>
                               Återkommande

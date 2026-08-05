@@ -16,6 +16,7 @@
     "db:migrate:test": "tsx scripts/migrate-test-db.ts",
     "db:rehearse": "tsx scripts/rehearse-prod-migration.ts",
     "db:clone": "tsx scripts/clone-prod.ts",
+    "db:refresh": "tsx scripts/refresh-dev-from-prod.ts",
     "cleanup:orphaned-events": "tsx scripts/cleanup-orphaned-events.ts",
     "cleanup:orphaned-transactions": "tsx scripts/cleanup-orphaned-transactions.ts",
     "diagnose:imports": "tsx scripts/diagnose-imports.ts"

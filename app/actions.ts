@@ -51,6 +51,7 @@ export async function getImports(): Promise<Import[]> {
     total_events: number;
     date_range_start: string;
     date_range_end: string;
+    is_external: boolean;
     posted_events: number;
   }>(
     `
@@ -59,7 +60,7 @@ export async function getImports(): Promise<Import[]> {
       COALESCE(SUM(CASE WHEN be.is_posted = 1 THEN 1 ELSE 0 END), 0) as posted_events
     FROM imports i
     LEFT JOIN bank_events be ON be.import_id = i.id
-    GROUP BY i.id, i.filename, i.imported_at, i.total_events, i.date_range_start, i.date_range_end, i.account_id
+    GROUP BY i.id, i.filename, i.imported_at, i.total_events, i.date_range_start, i.date_range_end, i.account_id, i.is_external
     ORDER BY i.imported_at DESC
     `
   );
@@ -71,6 +72,7 @@ export async function getImports(): Promise<Import[]> {
     totalEvents: row.total_events,
     dateRangeStart: new Date(row.date_range_start),
     dateRangeEnd: new Date(row.date_range_end),
+    isExternal: row.is_external ?? false,
     postedEvents: Number(row.posted_events),
   }));
 }
@@ -86,6 +88,7 @@ export async function getImportWithEvents(importId: number): Promise<{
     total_events: number;
     date_range_start: string;
     date_range_end: string;
+    is_external: boolean;
   }>("SELECT * FROM imports WHERE id = $1", [importId]);
 
   if (!importRow) return null;
@@ -98,6 +101,7 @@ export async function getImportWithEvents(importId: number): Promise<{
     is_posted: number;
     flagged: boolean;
     flag_comment: string | null;
+    is_irrelevant: boolean;
     transaction_id: number | null;
     import_id: number;
   }>("SELECT * FROM bank_events WHERE import_id = $1 ORDER BY date ASC", [importId]);
@@ -110,6 +114,7 @@ export async function getImportWithEvents(importId: number): Promise<{
       totalEvents: importRow.total_events,
       dateRangeStart: new Date(importRow.date_range_start),
       dateRangeEnd: new Date(importRow.date_range_end),
+      isExternal: importRow.is_external ?? false,
     },
     events: eventRows.map((row) => ({
       id: row.id,
@@ -119,6 +124,7 @@ export async function getImportWithEvents(importId: number): Promise<{
       isPosted: row.is_posted === 1,
       flagged: row.flagged ?? false,
       flagComment: row.flag_comment ?? undefined,
+      isIrrelevant: row.is_irrelevant ?? false,
       verifikatId: row.transaction_id ?? undefined,
       importId: row.import_id,
     })),
@@ -233,7 +239,7 @@ export async function getUnpostedBankEventsPaginated(
   offset: number = 0
 ): Promise<{ events: BankEvent[]; total: number }> {
   const countResult = await queryOne<{ count: number }>(
-    "SELECT COUNT(*) as count FROM bank_events WHERE is_posted = 0"
+    "SELECT COUNT(*) as count FROM bank_events WHERE is_posted = 0 AND is_irrelevant = false"
   );
   const total = Number(countResult?.count) || 0;
 
@@ -248,12 +254,20 @@ export async function getUnpostedBankEventsPaginated(
     transaction_id: number | null;
     import_id: number | null;
     import_account_id: number | null;
+    import_account_name: string | null;
+    import_account_group_id: number | null;
+    import_is_external: boolean | null;
   }>(
     `
-    SELECT be.*, i.account_id as import_account_id
+    SELECT be.*,
+      i.account_id as import_account_id,
+      i.is_external as import_is_external,
+      ia.namn as import_account_name,
+      ia.group_id as import_account_group_id
     FROM bank_events be
     LEFT JOIN imports i ON be.import_id = i.id
-    WHERE be.is_posted = 0
+    LEFT JOIN accounts ia ON ia.id = i.account_id
+    WHERE be.is_posted = 0 AND be.is_irrelevant = false
     ORDER BY be.date DESC, be.id DESC
     LIMIT $1 OFFSET $2
   `,
@@ -270,7 +284,20 @@ export async function getUnpostedBankEventsPaginated(
     flagComment: row.flag_comment ?? undefined,
     verifikatId: row.transaction_id ?? undefined,
     importId: row.import_id ?? undefined,
-    import: row.import_account_id ? { accountId: row.import_account_id } as Import : undefined,
+    import: row.import_account_id || row.import_is_external
+      ? ({
+          accountId: row.import_account_id ?? undefined,
+          isExternal: row.import_is_external ?? false,
+          account:
+            row.import_account_id && row.import_account_name
+              ? {
+                  id: row.import_account_id,
+                  namn: row.import_account_name,
+                  groupId: row.import_account_group_id ?? 0,
+                }
+              : undefined,
+        } as Import)
+      : undefined,
   }));
 
   return { events, total };
@@ -303,7 +330,8 @@ export async function unflagBankEvent(
 export async function saveBankEvents(
   events: Omit<BankEvent, "id" | "isPosted" | "verifikatId" | "importId">[],
   filename: string,
-  accountId?: number
+  accountId?: number,
+  isExternal: boolean = false
 ): Promise<void> {
   if (events.length === 0) return;
 
@@ -315,8 +343,8 @@ export async function saveBankEvents(
   await dbTransaction(async (client) => {
     // Create import record
     const importResult = await client.query<{ id: number }>(
-      "INSERT INTO imports (filename, total_events, date_range_start, date_range_end, account_id) VALUES ($1, $2, $3, $4, $5) RETURNING id",
-      [filename, events.length, dateRangeStart.toISOString(), dateRangeEnd.toISOString(), accountId || null]
+      "INSERT INTO imports (filename, total_events, date_range_start, date_range_end, account_id, is_external) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+      [filename, events.length, dateRangeStart.toISOString(), dateRangeEnd.toISOString(), accountId || null, isExternal]
     );
 
     const importId = importResult.rows[0].id;
@@ -330,6 +358,21 @@ export async function saveBankEvents(
     }
   });
 
+  revalidateMutationViews();
+}
+
+// Mark a bank event as irrelevant so it drops out of the att göra-listan without
+// being booked. Only meaningful for external imports; reversible via unmark.
+export async function markBankEventIrrelevant(id: number): Promise<void> {
+  await query(
+    "UPDATE bank_events SET is_irrelevant = true, flagged = false, flag_comment = NULL WHERE id = $1 AND is_posted = 0",
+    [id]
+  );
+  revalidateMutationViews();
+}
+
+export async function unmarkBankEventIrrelevant(id: number): Promise<void> {
+  await query("UPDATE bank_events SET is_irrelevant = false WHERE id = $1", [id]);
   revalidateMutationViews();
 }
 
@@ -2090,6 +2133,7 @@ type TransactionJoinRow = {
   be_flag_comment: string | null;
   be_transaction_id: number | null;
   be_import_id: number | null;
+  be_import_is_external: boolean | null;
 };
 
 const TRANSACTION_LIST_SELECT = `
@@ -2116,7 +2160,8 @@ const TRANSACTION_LIST_SELECT = `
     be.flagged as be_flagged,
     be.flag_comment as be_flag_comment,
     be.transaction_id as be_transaction_id,
-    be.import_id as be_import_id
+    be.import_id as be_import_id,
+    i.is_external as be_import_is_external
 `;
 
 async function mapVerifikatFromJoinRows(rows: TransactionJoinRow[]): Promise<Verifikat[]> {
@@ -2130,6 +2175,7 @@ async function mapVerifikatFromJoinRows(rows: TransactionJoinRow[]): Promise<Ver
         description: row.txn_description,
         bankEventId: row.txn_bank_event_id ?? undefined,
         periodiseringParentId: row.txn_periodisering_parent_id ?? undefined,
+        isExternal: row.be_import_is_external ?? false,
         bankEvent: row.be_id
           ? {
               id: row.be_id,
@@ -2197,6 +2243,7 @@ export async function getAllVerifikat(): Promise<Verifikat[]> {
     JOIN accounts a ON a.id = p.account_id
     JOIN groups g ON g.id = a.group_id
     LEFT JOIN bank_events be ON be.id = t.bank_event_id
+    LEFT JOIN imports i ON i.id = be.import_id
     ORDER BY t.date DESC, t.id DESC, p.id ASC
   `);
 
@@ -2319,6 +2366,7 @@ export async function getVerifikatPaginated(
     JOIN accounts a ON a.id = p.account_id
     JOIN groups g ON g.id = a.group_id
     LEFT JOIN bank_events be ON be.id = t.bank_event_id
+    LEFT JOIN imports i ON i.id = be.import_id
     ${orderBy}, p.id ASC
   `,
     params

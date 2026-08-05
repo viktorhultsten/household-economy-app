@@ -58,6 +58,9 @@ export const imports = pgTable("imports", {
   accountId: integer("account_id").references(() => accounts.id, {
     onDelete: "set null",
   }),
+  // Extern import: bokförs mot ett skuldkonto (privat konto som inte bokförs),
+  // till skillnad från en vanlig bankimport mot ett tillgångskonto.
+  isExternal: boolean("is_external").notNull().default(false),
 });
 
 export const verifikat = pgTable(
@@ -90,6 +93,9 @@ export const bankEvents = pgTable("bank_events", {
   isPosted: integer("is_posted").notNull().default(0),
   flagged: boolean("flagged").notNull().default(false),
   flagComment: text("flag_comment"),
+  // Markerad som irrelevant i en extern import: tas inte med i att göra-listan
+  // och bokförs aldrig. Kan ångras.
+  isIrrelevant: boolean("is_irrelevant").notNull().default(false),
   verifikatId: integer("transaction_id").references((): AnyPgColumn => verifikat.id),
   importId: integer("import_id").references(() => imports.id, {
     onDelete: "cascade",

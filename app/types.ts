@@ -27,6 +27,7 @@ export interface Import {
   accountId?: number;
   account?: Account;
   postedEvents?: number; // Count of events that have been posted/booked
+  isExternal?: boolean; // Extern import: bokförs mot ett skuldkonto, inte ett bankkonto
 }
 
 // Bank events from CSV import - raw bank movements
@@ -38,6 +39,7 @@ export interface BankEvent {
   isPosted: boolean;
   flagged?: boolean;
   flagComment?: string;
+  isIrrelevant?: boolean; // Markerad irrelevant i en extern import; utesluts ur att göra-listan
   verifikatId?: number;
   importId?: number;
   import?: Import; // Include import data to access default account
@@ -63,6 +65,7 @@ export interface Verifikat {
   recurringItems?: RecurringItem[]; // Associated recurring items
   periodiseringParentId?: number; // Set on the länkat verifikat, points to huvudverifikat
   periodisering?: PeriodiseringLink; // Resolved link info for display/click-through
+  isExternal?: boolean; // Härstammar från en extern import (bokförd mot skuldkonto)
 }
 
 // Individual post/entry in a verifikat

@@ -9,13 +9,15 @@ interface ImportModalProps {
   onImport: (
     events: ParseSwedishCSVResult["events"],
     filename: string,
-    accountId?: number
+    accountId?: number,
+    isExternal?: boolean
   ) => Promise<void> | void;
   onClose: () => void;
 }
 
 export default function ImportModal({ onImport, onClose }: ImportModalProps) {
-  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [allAccounts, setAllAccounts] = useState<Account[]>([]);
+  const [mode, setMode] = useState<"bank" | "external">("bank");
   const [selectedAccountId, setSelectedAccountId] = useState<number>(0);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isImporting, setIsImporting] = useState(false);
@@ -24,12 +26,15 @@ export default function ImportModal({ onImport, onClose }: ImportModalProps) {
   );
   const [fileReadError, setFileReadError] = useState<string | null>(null);
 
+  const isExternal = mode === "external";
+  const accounts = allAccounts.filter((acc) =>
+    acc.group?.typ === (isExternal ? "Skuld" : "Tillgång")
+  );
+
   useEffect(() => {
     async function loadAccounts() {
       const data = await getAccounts();
-      // Filter to only Tillgång accounts
-      const assetAccounts = data.filter((acc) => acc.group?.typ === "Tillgång");
-      setAccounts(assetAccounts);
+      setAllAccounts(data);
     }
     loadAccounts();
   }, []);
@@ -87,7 +92,8 @@ export default function ImportModal({ onImport, onClose }: ImportModalProps) {
       await onImport(
         previewResult.events,
         selectedFile.name,
-        selectedAccountId || undefined
+        selectedAccountId || undefined,
+        isExternal
       );
     } catch {
       setFileReadError("Kunde inte importera filen");
@@ -114,13 +120,38 @@ export default function ImportModal({ onImport, onClose }: ImportModalProps) {
         </div>
 
         <div className="p-6 space-y-4">
+          {/* Import mode toggle */}
+          <div className="inline-flex rounded-md border border-zinc-300 dark:border-zinc-600 p-0.5">
+            {(["bank", "external"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => {
+                  if (isImporting) return;
+                  setMode(m);
+                  setSelectedAccountId(0);
+                }}
+                disabled={isImporting}
+                className={`px-3 py-1.5 text-sm font-medium rounded transition-colors disabled:opacity-50 ${
+                  mode === m
+                    ? "bg-zinc-900 text-zinc-50 dark:bg-zinc-50 dark:text-zinc-900"
+                    : "text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700"
+                }`}
+              >
+                {m === "bank" ? "Bankimport" : "Extern import"}
+              </button>
+            ))}
+          </div>
+
           {/* Account Selector */}
           <div>
             <label
               htmlFor="modal-account-select"
               className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2"
             >
-              Standardkonto (tillgång) - valfritt
+              {isExternal
+                ? "Skuldkonto – obligatoriskt"
+                : "Standardkonto (tillgång) – valfritt"}
             </label>
             <select
               id="modal-account-select"
@@ -129,7 +160,9 @@ export default function ImportModal({ onImport, onClose }: ImportModalProps) {
               disabled={isImporting}
               className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <option value={0}>Inget standardkonto</option>
+              <option value={0}>
+                {isExternal ? "Välj skuldkonto" : "Inget standardkonto"}
+              </option>
               {accounts.map((account) => (
                 <option key={account.id} value={account.id}>
                   {account.namn} ({account.group?.namn})
@@ -137,7 +170,9 @@ export default function ImportModal({ onImport, onClose }: ImportModalProps) {
               ))}
             </select>
             <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-              Om valt kommer bankhändelser föreslå detta konto baserat på belopp (positiv = debet, negativ = kredit)
+              {isExternal
+                ? "Transaktionerna bokförs mot detta skuldkonto i stället för ett bankkonto. Enskilda händelser kan markeras som irrelevanta vid bokföring."
+                : "Om valt kommer bankhändelser föreslå detta konto baserat på belopp (positiv = debet, negativ = kredit)"}
             </p>
           </div>
 
@@ -218,7 +253,11 @@ export default function ImportModal({ onImport, onClose }: ImportModalProps) {
           </button>
           <button
             onClick={previewResult ? handleConfirmImport : handleParsePreview}
-            disabled={!selectedFile || isImporting}
+            disabled={
+              !selectedFile ||
+              isImporting ||
+              (isExternal && !!previewResult && selectedAccountId === 0)
+            }
             className="px-4 py-2 text-sm font-semibold rounded-md bg-zinc-900 text-zinc-50 hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isImporting
