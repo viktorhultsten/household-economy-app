@@ -14,11 +14,7 @@ export default function Navigation() {
     { href: "/balans", label: "Balans" },
     { href: "/budget", label: "Budget" },
     { href: "/periodiseringar", label: "Periodiseringar" },
-    { href: "/templates", label: "Mallar" },
     { href: "/recurring", label: "Återkommande" },
-    { href: "/imports", label: "Importer" },
-    { href: "/accounts", label: "Konton" },
-    { href: "/periods", label: "Perioder" },
     { href: "/settings", label: "Inställningar" },
   ];
 

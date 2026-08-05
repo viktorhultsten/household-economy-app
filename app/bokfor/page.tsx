@@ -137,6 +137,12 @@ export default function BokforPage() {
                 Bokför {Math.min(total, BATCH_SIZE)} bankhändelser
               </button>
             )}
+            <Link
+              href="/imports"
+              className="rounded-md bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-50 dark:hover:bg-zinc-600"
+            >
+              Importer
+            </Link>
             <button
               onClick={() => setShowManualVerifikatForm(true)}
               className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-zinc-50 hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
