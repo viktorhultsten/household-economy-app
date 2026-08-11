@@ -377,7 +377,7 @@ export async function unmarkBankEventIrrelevant(id: number): Promise<void> {
 }
 
 export async function deleteBankEvent(id: number): Promise<void> {
-  await query("DELETE FROM bank_events WHERE id = $1", [id]);
+  await query("DELETE FROM bank_events WHERE id = $1 AND is_posted = 0", [id]);
   revalidateMutationViews();
 }
 

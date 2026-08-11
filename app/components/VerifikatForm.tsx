@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Account, BankEvent, Post, BookingTemplate, RecurringItemStatus, Verifikat } from "../types";
-import { getAccounts, createVerifikat, updateVerifikat, isPeriodLocked, getBookingTemplates, createBookingTemplate, getRecurringItemsStatus, linkVerifikatToRecurringItem, getRecurringItemForVerifikat, updateVerifikatRecurringItemLink, getKonteringsforslag, KonteringsforslagMonster, flagBankEvent, unflagBankEvent, markBankEventIrrelevant, getPeriodiseringskonto, createPeriodforskjutning, updatePeriodforskjutning, deletePeriodforskjutning, getPeriodforskjutningForHuvud, createPeriodisering, updatePeriodisering, deletePeriodisering, getPeriodiseringForHuvud, convertVerifikatToPeriodforskjutning, convertVerifikatToPeriodisering } from "../actions";
+import { getAccounts, createVerifikat, updateVerifikat, isPeriodLocked, getBookingTemplates, createBookingTemplate, getRecurringItemsStatus, linkVerifikatToRecurringItem, getRecurringItemForVerifikat, updateVerifikatRecurringItemLink, getKonteringsforslag, KonteringsforslagMonster, flagBankEvent, unflagBankEvent, markBankEventIrrelevant, deleteBankEvent, getPeriodiseringskonto, createPeriodforskjutning, updatePeriodforskjutning, deletePeriodforskjutning, getPeriodforskjutningForHuvud, createPeriodisering, updatePeriodisering, deletePeriodisering, getPeriodiseringForHuvud, convertVerifikatToPeriodforskjutning, convertVerifikatToPeriodisering } from "../actions";
 import AccountSelectorModal from "./AccountSelectorModal";
+import BankEventSettingsModal from "./BankEventSettingsModal";
 import ConfirmModal from "./ConfirmModal";
 import KonteringsforslagCard from "./KonteringsforslagCard";
 import DateInput from "./DateInput";
@@ -156,6 +157,8 @@ export default function VerifikatForm({
   // Irrelevant-markering är bara relevant för externa importer (bokförs mot skuldkonto).
   const isExternalImport = bankEvent?.import?.isExternal ?? false;
   const [irrelevantLoading, setIrrelevantLoading] = useState(false);
+  // Undanstoppad inställningsdialog för att radera en oönskad bankhändelse (t.ex. dubblett).
+  const [showBankEventSettings, setShowBankEventSettings] = useState(false);
 
   const [pendingNavDirection, setPendingNavDirection] = useState<-1 | 1 | null>(null);
   const [pendingNavIndex, setPendingNavIndex] = useState<number | null>(null);
@@ -595,6 +598,13 @@ export default function VerifikatForm({
     }
   };
 
+  const handleDeleteBankEvent = async () => {
+    if (!bankEvent) return;
+    await deleteBankEvent(bankEvent.id);
+    // Raden är borta ur importen; behandla som en lyckad åtgärd (stänger + uppdaterar).
+    onSuccess();
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -865,14 +875,29 @@ export default function VerifikatForm({
                 </span>
               )}
             </h2>
-            <button
-              onClick={attemptClose}
-              className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
-            >
-              ✕
-            </button>
-          </div>
-          {verifikatBankEvent && (
+            <div className="flex items-center gap-1">
+              {bankEvent && !isEditing && !bulkNav && (
+                <button
+                  type="button"
+                  onClick={() => setShowBankEventSettings(true)}
+                  className="p-1 text-zinc-300 hover:text-zinc-600 dark:text-zinc-600 dark:hover:text-zinc-300"
+                  aria-label="Inställningar för bankhändelse"
+                  title="Inställningar för bankhändelse"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="3" />
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                  </svg>
+                </button>
+              )}
+              <button
+                onClick={attemptClose}
+                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+              >
+                ✕
+              </button>
+            </div>
+          </div>          {verifikatBankEvent && (
             <div className="mt-2 p-3 bg-zinc-50 dark:bg-zinc-900 rounded-md border border-zinc-200 dark:border-zinc-700">
               <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1">
                 Bankhändelse:
@@ -1651,6 +1676,14 @@ export default function VerifikatForm({
             setShowAccountSelector(null);
           }}
           onClose={() => setShowAccountSelector(null)}
+        />
+      )}
+
+      {showBankEventSettings && bankEvent && (
+        <BankEventSettingsModal
+          bankEvent={bankEvent}
+          onDelete={handleDeleteBankEvent}
+          onClose={() => setShowBankEventSettings(false)}
         />
       )}
 
