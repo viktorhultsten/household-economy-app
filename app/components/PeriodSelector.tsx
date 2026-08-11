@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
+
 interface PeriodSelectorProps {
   year: number;
   month: number;
@@ -7,23 +9,37 @@ interface PeriodSelectorProps {
 }
 
 const MONTHS = [
-  { value: 1, label: "Januari" },
-  { value: 2, label: "Februari" },
-  { value: 3, label: "Mars" },
-  { value: 4, label: "April" },
-  { value: 5, label: "Maj" },
-  { value: 6, label: "Juni" },
-  { value: 7, label: "Juli" },
-  { value: 8, label: "Augusti" },
-  { value: 9, label: "September" },
-  { value: 10, label: "Oktober" },
-  { value: 11, label: "November" },
-  { value: 12, label: "December" },
+  "Januari", "Februari", "Mars", "April", "Maj", "Juni",
+  "Juli", "Augusti", "September", "Oktober", "November", "December",
 ];
 
 export default function PeriodSelector({ year, month, onChange }: PeriodSelectorProps) {
-  const currentYear = new Date().getFullYear();
-  const years = Array.from({ length: 5 }, (_, i) => currentYear - 2 + i);
+  const [open, setOpen] = useState(false);
+  const [viewYear, setViewYear] = useState(year);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Synka årsvyn till valt år när popupen öppnas
+  useEffect(() => {
+    if (open) setViewYear(year);
+  }, [open, year]);
+
+  useEffect(() => {
+    if (!open) return;
+    function handlePointerDown(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [open]);
 
   function goPrevious() {
     if (month === 1) {
@@ -41,44 +57,99 @@ export default function PeriodSelector({ year, month, onChange }: PeriodSelector
     }
   }
 
+  function selectMonth(m: number) {
+    onChange(viewYear, m);
+    setOpen(false);
+  }
+
   return (
-    <div className="flex items-center gap-3">
-      <button
-        onClick={goPrevious}
-        className="px-3 py-2 text-sm font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-      >
-        ← Föregående månad
-      </button>
-      <div className="flex gap-3">
-        <select
-          value={month}
-          onChange={(e) => onChange(year, parseInt(e.target.value))}
-          className="rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+    <div ref={containerRef} className="relative inline-block">
+      <div className="inline-flex items-stretch rounded-md border border-zinc-300 bg-white text-sm dark:border-zinc-600 dark:bg-zinc-800">
+        <button
+          type="button"
+          onClick={goPrevious}
+          aria-label="Föregående månad"
+          className="flex items-center px-2.5 text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-50"
         >
-          {MONTHS.map((m) => (
-            <option key={m.value} value={m.value}>
-              {m.label}
-            </option>
-          ))}
-        </select>
-        <select
-          value={year}
-          onChange={(e) => onChange(parseInt(e.target.value), month)}
-          className="rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+          <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+            <path fillRule="evenodd" d="M12.79 5.23a.75.75 0 0 1 0 1.06L9.06 10l3.73 3.71a.75.75 0 1 1-1.06 1.06l-4.25-4.24a.75.75 0 0 1 0-1.06l4.25-4.24a.75.75 0 0 1 1.06 0Z" clipRule="evenodd" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          className="min-w-[9rem] border-x border-zinc-300 px-4 py-2 text-center font-medium text-zinc-900 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-50 dark:hover:bg-zinc-700"
         >
-          {years.map((y) => (
-            <option key={y} value={y}>
-              {y}
-            </option>
-          ))}
-        </select>
+          {MONTHS[month - 1]} {year}
+        </button>
+        <button
+          type="button"
+          onClick={goNext}
+          aria-label="Nästa månad"
+          className="flex items-center px-2.5 text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-50"
+        >
+          <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+            <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 0 1 0-1.06L10.94 10 7.21 6.29a.75.75 0 0 1 1.06-1.06l4.25 4.24a.75.75 0 0 1 0 1.06l-4.25 4.24a.75.75 0 0 1-1.06 0Z" clipRule="evenodd" />
+          </svg>
+        </button>
       </div>
-      <button
-        onClick={goNext}
-        className="px-3 py-2 text-sm font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-      >
-        Nästa månad →
-      </button>
+
+      {open && (
+        <div
+          role="dialog"
+          aria-label="Välj period"
+          className="absolute left-1/2 top-full z-20 mt-1 w-64 -translate-x-1/2 rounded-md border border-zinc-200 bg-white p-3 shadow-lg dark:border-zinc-600 dark:bg-zinc-800"
+        >
+          <div className="mb-2 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setViewYear((y) => y - 1)}
+              aria-label="Föregående år"
+              className="rounded p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-50"
+            >
+              <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+                <path fillRule="evenodd" d="M12.79 5.23a.75.75 0 0 1 0 1.06L9.06 10l3.73 3.71a.75.75 0 1 1-1.06 1.06l-4.25-4.24a.75.75 0 0 1 0-1.06l4.25-4.24a.75.75 0 0 1 1.06 0Z" clipRule="evenodd" />
+              </svg>
+            </button>
+            <span className="text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-50">
+              {viewYear}
+            </span>
+            <button
+              type="button"
+              onClick={() => setViewYear((y) => y + 1)}
+              aria-label="Nästa år"
+              className="rounded p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-50"
+            >
+              <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+                <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 0 1 0-1.06L10.94 10 7.21 6.29a.75.75 0 0 1 1.06-1.06l4.25 4.24a.75.75 0 0 1 0 1.06l-4.25 4.24a.75.75 0 0 1-1.06 0Z" clipRule="evenodd" />
+              </svg>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-3 gap-1">
+            {MONTHS.map((label, i) => {
+              const m = i + 1;
+              const selected = m === month && viewYear === year;
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => selectMonth(m)}
+                  className={`rounded px-2 py-1.5 text-sm transition-colors ${
+                    selected
+                      ? "bg-zinc-900 font-semibold text-white dark:bg-zinc-100 dark:text-zinc-900"
+                      : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                  }`}
+                >
+                  {label.slice(0, 3)}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
