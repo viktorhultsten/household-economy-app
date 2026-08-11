@@ -1610,11 +1610,13 @@ export async function getAccounts(): Promise<Account[]> {
     group_id: number;
     exclude_from_budget: number;
     is_periodisering_default: number;
+    reconciled_through: string | null;
     has_posts: number;
     group_namn: string;
     group_typ: string;
   }>(
     `SELECT a.id, a.namn, a.group_id, a.exclude_from_budget, a.is_periodisering_default,
+            a.reconciled_through::text as reconciled_through,
             CASE WHEN EXISTS (SELECT 1 FROM posts p WHERE p.account_id = a.id) THEN 1 ELSE 0 END as has_posts,
             g.namn as group_namn, g.typ as group_typ
      FROM accounts a
@@ -1628,6 +1630,7 @@ export async function getAccounts(): Promise<Account[]> {
     groupId: row.group_id,
     excludeFromBudget: row.exclude_from_budget === 1,
     isPeriodiseringDefault: row.is_periodisering_default === 1,
+    reconciledThrough: row.reconciled_through,
     hasPosts: row.has_posts === 1,
     group: {
       id: row.group_id,
@@ -1723,6 +1726,15 @@ const defaultUpdateAccountDependencies: UpdateAccountDependencies = {
     });
   },
 };
+
+// Sätter eller rensar klarmarkeringen (avstämt t.o.m.-datum) för ett konto.
+export async function setAccountReconciledThrough(
+  accountId: number,
+  date: string | null
+): Promise<void> {
+  await query("UPDATE accounts SET reconciled_through = $1 WHERE id = $2", [date, accountId]);
+  revalidateMutationViews();
+}
 
 // Returns the account marked as the default periodiseringskonto, or null.
 export async function getPeriodiseringskonto(): Promise<Account | null> {
@@ -2018,6 +2030,230 @@ export async function getAccountTransactionsForPeriod(
     postKredit: Number(row.post_kredit),
     postDescription: row.post_description,
   }));
+}
+
+export interface ReconciliationMatchPost {
+  verifikatId: number;
+  date: string;
+  verifikatDescription: string;
+  postDescription: string | null;
+  debet: number;
+  kredit: number;
+  // Radens bidrag till kontosaldot (tecknat efter kontotyp).
+  contribution: number;
+}
+
+export interface ReconciliationMatch {
+  posts: ReconciliationMatchPost[];
+  total: number;
+  // Antal dagar mellan tidigaste och senaste posten i kombinationen.
+  spreadDays: number;
+  // "sum": poster vars saldobidrag summerar till diffen (t.ex. dubbel-/felpost
+  // att ta bort). "flip": en enskild post bokförd på fel sida (debet/kredit),
+  // vars bidrag är halva diffen – att rätta genom att vända på sidan.
+  kind: "sum" | "flip";
+}
+
+export interface ReconciliationResult {
+  systemBalance: number;
+  realBalance: number;
+  diff: number;
+  reconciledThrough: string | null;
+  matches: ReconciliationMatch[];
+}
+
+// Avstämning: givet ett verkligt kontosaldo, hitta kombinationer av upp till
+// `maxPosts` bokförda konteringsrader på kontot vars saldobidrag exakt
+// motsvarar skillnaden mot systemets saldo (t.ex. en dubbel- eller felpost).
+// Poster t.o.m. kontots klarmarkeringsdatum utesluts som kandidater eftersom
+// saldot redan är avstämt fram till dess. Kombinationer där posterna ligger
+// nära varandra i tid rankas högst.
+export async function findReconciliationMatches(
+  accountId: number,
+  year: number,
+  month: number,
+  realBalance: number,
+  maxPosts = 3,
+  maxResults = 50
+): Promise<ReconciliationResult> {
+  const endDate = new Date(year, month, 0, 23, 59, 59);
+
+  const rows = await queryAll<{
+    transaction_id: number;
+    date: string;
+    verifikat_description: string;
+    post_description: string | null;
+    debet: string;
+    kredit: string;
+    group_type: string;
+    reconciled_through: string | null;
+  }>(
+    `
+    SELECT
+      t.id as transaction_id,
+      t.date::text as date,
+      t.description as verifikat_description,
+      p.description as post_description,
+      p.debet,
+      p.kredit,
+      g.typ as group_type,
+      a.reconciled_through::text as reconciled_through
+    FROM posts p
+    JOIN transactions t ON t.id = p.transaction_id
+    JOIN accounts a ON a.id = p.account_id
+    JOIN groups g ON g.id = a.group_id
+    WHERE p.account_id = $1
+      AND t.date <= $2
+    ORDER BY t.date DESC, t.id DESC
+  `,
+    [accountId, endDate.toISOString()]
+  );
+
+  const reconciledThrough = rows[0]?.reconciled_through ?? null;
+
+  // Bidrag i ören (heltal) för att undvika flyttalsfel vid summering.
+  const toOre = (kr: number) => Math.round(kr * 100);
+  const debitBalance = (typ: string) => typ === "Tillgång" || typ === "Utgift";
+
+  const allItems = rows.map((row) => {
+    const debet = Number(row.debet);
+    const kredit = Number(row.kredit);
+    const contributionOre = debitBalance(row.group_type)
+      ? toOre(debet) - toOre(kredit)
+      : toOre(kredit) - toOre(debet);
+    return {
+      verifikatId: row.transaction_id,
+      date: row.date,
+      verifikatDescription: row.verifikat_description,
+      postDescription: row.post_description,
+      debet,
+      kredit,
+      contributionOre,
+    };
+  });
+
+  // Systemsaldot omfattar alla poster; klarmarkeringen begränsar bara vilka
+  // poster som får ingå i en föreslagen kombination.
+  const systemBalanceOre = allItems.reduce((sum, it) => sum + it.contributionOre, 0);
+  const items = reconciledThrough
+    ? allItems.filter((it) => it.date > reconciledThrough)
+    : allItems;
+
+  const realBalanceOre = toOre(realBalance);
+  const targetOre = systemBalanceOre - realBalanceOre;
+
+  const dayMs = 24 * 60 * 60 * 1000;
+  const spreadOf = (indices: number[]): number => {
+    const times = indices.map((i) => Date.parse(items[i].date));
+    return (Math.max(...times) - Math.min(...times)) / dayMs;
+  };
+
+  const toMatch = (indices: number[], kind: "sum" | "flip" = "sum"): ReconciliationMatch => ({
+    posts: indices.map((i) => {
+      const it = items[i];
+      return {
+        verifikatId: it.verifikatId,
+        date: it.date,
+        verifikatDescription: it.verifikatDescription,
+        postDescription: it.postDescription,
+        debet: it.debet,
+        kredit: it.kredit,
+        contribution: it.contributionOre / 100,
+      };
+    }),
+    total: indices.reduce((sum, i) => sum + items[i].contributionOre, 0) / 100,
+    spreadDays: spreadOf(indices),
+    kind,
+  });
+
+  const n = items.length;
+  // Samla fler kandidater än vi returnerar så att tidssorteringen får verklig
+  // effekt innan listan kortas ner.
+  const genCap = Math.max(maxResults * 6, 300);
+  const matches: ReconciliationMatch[] = [];
+
+  // Felvänd bokföring: en post bokförd på fel sida bidrar med c men borde bidra
+  // med −c, vilket ger ett fel på exakt 2c. Hitta enskilda poster där 2·bidrag
+  // = diffen; att vända på debet/kredit rättar saldot. Genereras först så att de
+  // aldrig trängs ut av taket på antal summakandidater.
+  if (targetOre !== 0 && targetOre % 2 === 0) {
+    const halfTargetOre = targetOre / 2;
+    for (let i = 0; i < n && matches.length < genCap; i++) {
+      if (items[i].contributionOre === halfTargetOre) {
+        matches.push(toMatch([i], "flip"));
+      }
+    }
+  }
+
+  if (targetOre !== 0) {
+    // Storlek 1
+    for (let i = 0; i < n && matches.length < genCap; i++) {
+      if (items[i].contributionOre === targetOre) {
+        matches.push(toMatch([i]));
+      }
+    }
+
+    // Storlek 2 (hashkarta över tidigare rader → O(n))
+    if (maxPosts >= 2 && matches.length < genCap) {
+      const seen = new Map<number, number[]>();
+      for (let j = 0; j < n && matches.length < genCap; j++) {
+        const need = targetOre - items[j].contributionOre;
+        const prior = seen.get(need);
+        if (prior) {
+          for (const i of prior) {
+            matches.push(toMatch([i, j]));
+            if (matches.length >= genCap) break;
+          }
+        }
+        const key = items[j].contributionOre;
+        const bucket = seen.get(key);
+        if (bucket) bucket.push(j);
+        else seen.set(key, [j]);
+      }
+    }
+
+    // Storlek 3 (dubbel loop över par + uppslag av tredje rad)
+    if (maxPosts >= 3 && matches.length < genCap) {
+      const byValue = new Map<number, number[]>();
+      for (let k = 0; k < n; k++) {
+        const key = items[k].contributionOre;
+        const bucket = byValue.get(key);
+        if (bucket) bucket.push(k);
+        else byValue.set(key, [k]);
+      }
+      outer: for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+          const need = targetOre - items[i].contributionOre - items[j].contributionOre;
+          const thirds = byValue.get(need);
+          if (thirds) {
+            for (const k of thirds) {
+              if (k > j) {
+                matches.push(toMatch([i, j, k]));
+                if (matches.length >= genCap) break outer;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Rangordna: minst tidsspridning först, sedan färre poster, sedan senaste.
+  matches.sort((a, b) => {
+    if (a.spreadDays !== b.spreadDays) return a.spreadDays - b.spreadDays;
+    if (a.posts.length !== b.posts.length) return a.posts.length - b.posts.length;
+    const aLatest = Math.max(...a.posts.map((p) => Date.parse(p.date)));
+    const bLatest = Math.max(...b.posts.map((p) => Date.parse(p.date)));
+    return bLatest - aLatest;
+  });
+
+  return {
+    systemBalance: systemBalanceOre / 100,
+    realBalance: realBalanceOre / 100,
+    diff: targetOre / 100,
+    reconciledThrough,
+    matches: matches.slice(0, maxResults),
+  };
 }
 
 // Get all transactions with full details

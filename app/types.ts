@@ -12,6 +12,7 @@ export interface Account {
   groupId: number;
   excludeFromBudget?: boolean;
   isPeriodiseringDefault?: boolean;
+  reconciledThrough?: string | null;
   hasPosts?: boolean;
   group?: Group;
 }

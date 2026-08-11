@@ -39,6 +39,9 @@ export const accounts = pgTable(
       .references(() => groups.id),
     excludeFromBudget: integer("exclude_from_budget").notNull().default(0),
     isPeriodiseringDefault: integer("is_periodisering_default").notNull().default(0),
+    // Klarmarkering: kontot är avstämt t.o.m. detta datum; avstämningen
+    // ignorerar poster före datumet eftersom saldot är korrekt fram till dess.
+    reconciledThrough: date("reconciled_through", { mode: "string" }),
     createdAt: timestamp("created_at").defaultNow(),
   },
   (table) => [

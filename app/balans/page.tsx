@@ -3,9 +3,18 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { AccountType, Verifikat } from "../types";
-import { getAccountBalancesWithChangeBudget, getAccountTransactionsForPeriod, getVerifikat } from "../actions";
+import {
+  getAccountBalancesWithChangeBudget,
+  getAccountTransactionsForPeriod,
+  getVerifikat,
+  getAccounts,
+  findReconciliationMatches,
+  setAccountReconciledThrough,
+  type ReconciliationResult,
+} from "../actions";
 import VerifikatForm from "../components/VerifikatForm";
 import PeriodSelector from "../components/PeriodSelector";
+import DateInput from "../components/DateInput";
 
 interface AccountBalance {
   accountId: number;
@@ -92,6 +101,11 @@ export default function BalansPage() {
   const [transactions, setTransactions] = useState<AccountVerifikatEntry[]>([]);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
   const [selectedVerifikat, setSelectedVerifikat] = useState<Verifikat | null>(null);
+  const [realBalanceInput, setRealBalanceInput] = useState("");
+  const [reconResult, setReconResult] = useState<ReconciliationResult | null>(null);
+  const [reconLoading, setReconLoading] = useState(false);
+  const [reconciledMap, setReconciledMap] = useState<Record<number, string | null>>({});
+  const [klarInput, setKlarInput] = useState("");
 
   useEffect(() => {
     loadBalances();
@@ -108,7 +122,13 @@ export default function BalansPage() {
 
   async function loadBalances() {
     setLoading(true);
-    const data = await getAccountBalancesWithChangeBudget(year, month);
+    const [data, accountsData] = await Promise.all([
+      getAccountBalancesWithChangeBudget(year, month),
+      getAccounts(),
+    ]);
+    setReconciledMap(
+      Object.fromEntries(accountsData.map((a) => [a.id, a.reconciledThrough ?? null]))
+    );
     // Filter to only balance sheet accounts (Tillgång and Skuld)
     const balanceSheetData = data.filter(
       (balance) => balance.groupType === "Tillgång" || balance.groupType === "Skuld"
@@ -117,7 +137,14 @@ export default function BalansPage() {
     setLoading(false);
   }
 
+  function resetReconciliation() {
+    setRealBalanceInput("");
+    setReconResult(null);
+    setReconLoading(false);
+  }
+
   async function handleAccountClick(accountId: number) {
+    resetReconciliation();
     if (expandedAccountId === accountId) {
       setExpandedAccountId(null);
       setTransactions([]);
@@ -125,10 +152,42 @@ export default function BalansPage() {
     }
 
     setExpandedAccountId(accountId);
+    setKlarInput(reconciledMap[accountId] ?? "");
     setLoadingTransactions(true);
     const data = await getAccountTransactionsForPeriod(accountId, year, month);
     setTransactions(data);
     setLoadingTransactions(false);
+  }
+
+  async function handleSetReconciled(accountId: number) {
+    const date = klarInput || null;
+    await setAccountReconciledThrough(accountId, date);
+    setReconciledMap((m) => ({ ...m, [accountId]: date }));
+    if (reconResult) await handleReconcile(accountId);
+  }
+
+  async function handleClearReconciled(accountId: number) {
+    await setAccountReconciledThrough(accountId, null);
+    setReconciledMap((m) => ({ ...m, [accountId]: null }));
+    setKlarInput("");
+    if (reconResult) await handleReconcile(accountId);
+  }
+
+  function parseSwedishAmount(input: string): number | null {
+    const cleaned = input.trim().replace(/\s/g, "").replace(",", ".");
+    if (cleaned === "") return null;
+    const value = Number(cleaned);
+    return Number.isFinite(value) ? value : null;
+  }
+
+  async function handleReconcile(accountId: number) {
+    const parsed = parseSwedishAmount(realBalanceInput);
+    if (parsed === null) return;
+    setReconLoading(true);
+    setReconResult(null);
+    const result = await findReconciliationMatches(accountId, year, month, parsed);
+    setReconResult(result);
+    setReconLoading(false);
   }
 
   async function handleVerifikatClick(verifikatId: number) {
@@ -346,6 +405,151 @@ export default function BalansPage() {
                                 {/* Verifikat details */}
                                 {expandedAccountId === account.accountId && (
                                   <div className="mt-2 ml-4 border-l-2 border-zinc-200 dark:border-zinc-700 pl-4">
+                                    {/* Avstämning mot verkligt saldo */}
+                                    <div className="mb-3 rounded bg-zinc-50 dark:bg-zinc-900/50 p-3">
+                                      <div className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-2">
+                                        Stäm av mot verkligt saldo
+                                      </div>
+
+                                      {/* Klarmarkering: avstämt t.o.m. */}
+                                      <div className="mb-3 flex flex-wrap items-center gap-2">
+                                        <span className="text-xs text-zinc-600 dark:text-zinc-400">
+                                          Avstämt t.o.m.
+                                        </span>
+                                        <DateInput
+                                          value={klarInput}
+                                          onChange={setKlarInput}
+                                          className="w-36"
+                                          ariaLabel="Avstämt till och med datum"
+                                        />
+                                        <button
+                                          onClick={() => handleSetReconciled(account.accountId)}
+                                          disabled={klarInput === (reconciledMap[account.accountId] ?? "")}
+                                          className="rounded border border-zinc-300 dark:border-zinc-600 px-2 py-1 text-xs font-medium text-zinc-700 dark:text-zinc-200 disabled:opacity-40"
+                                        >
+                                          Klarmarkera
+                                        </button>
+                                        {reconciledMap[account.accountId] && (
+                                          <button
+                                            onClick={() => handleClearReconciled(account.accountId)}
+                                            className="rounded px-2 py-1 text-xs text-zinc-500 dark:text-zinc-400 underline"
+                                          >
+                                            Rensa
+                                          </button>
+                                        )}
+                                        {reconciledMap[account.accountId] && (
+                                          <span className="text-xs text-green-600 dark:text-green-400">
+                                            Poster t.o.m. {reconciledMap[account.accountId]} ignoreras
+                                          </span>
+                                        )}
+                                      </div>
+
+                                      <div className="flex items-center gap-2">
+                                        <input
+                                          type="text"
+                                          inputMode="decimal"
+                                          value={realBalanceInput}
+                                          onChange={(e) => setRealBalanceInput(e.target.value)}
+                                          onKeyDown={(e) => {
+                                            if (e.key === "Enter") {
+                                              e.preventDefault();
+                                              handleReconcile(account.accountId);
+                                            }
+                                          }}
+                                          placeholder="Verkligt saldo (kr)"
+                                          className="flex-1 rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1 text-xs tabular-nums text-zinc-900 dark:text-zinc-50"
+                                        />
+                                        <button
+                                          onClick={() => handleReconcile(account.accountId)}
+                                          disabled={reconLoading || parseSwedishAmount(realBalanceInput) === null}
+                                          className="rounded bg-zinc-900 dark:bg-zinc-100 px-3 py-1 text-xs font-medium text-white dark:text-zinc-900 disabled:opacity-40"
+                                        >
+                                          {reconLoading ? "Söker..." : "Stäm av"}
+                                        </button>
+                                      </div>
+
+                                      {reconResult && (
+                                        <div className="mt-3 text-xs">
+                                          <div className="flex justify-between text-zinc-600 dark:text-zinc-400">
+                                            <span>Systemets saldo</span>
+                                            <span className="tabular-nums">{formatSwedishAmount(reconResult.systemBalance)} kr</span>
+                                          </div>
+                                          <div className="flex justify-between text-zinc-600 dark:text-zinc-400">
+                                            <span>Verkligt saldo</span>
+                                            <span className="tabular-nums">{formatSwedishAmount(reconResult.realBalance)} kr</span>
+                                          </div>
+                                          <div className="flex justify-between font-semibold text-zinc-900 dark:text-zinc-50 border-t border-zinc-200 dark:border-zinc-700 mt-1 pt-1">
+                                            <span>Diff</span>
+                                            <span className={`tabular-nums ${getChangeColor(reconResult.diff)}`}>
+                                              {reconResult.diff >= 0 ? "+" : ""}{formatSwedishAmount(reconResult.diff)} kr
+                                            </span>
+                                          </div>
+
+                                          {reconResult.diff === 0 ? (
+                                            <p className="mt-2 text-green-600 dark:text-green-400">
+                                              Saldot stämmer.
+                                            </p>
+                                          ) : reconResult.matches.length === 0 ? (
+                                            <p className="mt-2 text-zinc-500 dark:text-zinc-400">
+                                              Inga kombinationer av upp till 3 poster – eller en felvänd post – matchar diffen exakt.
+                                            </p>
+                                          ) : (
+                                            <div className="mt-2">
+                                              <div className="text-zinc-700 dark:text-zinc-300 mb-1">
+                                                {reconResult.matches.length} möjlig{reconResult.matches.length === 1 ? "" : "a"} matchning{reconResult.matches.length === 1 ? "" : "ar"} (poster som förklarar diffen):
+                                              </div>
+                                              <div className="space-y-2">
+                                                {reconResult.matches.map((match, mi) => (
+                                                  <div
+                                                    key={mi}
+                                                    className="rounded border border-zinc-200 dark:border-zinc-700 p-2"
+                                                  >
+                                                    {match.kind === "flip" ? (
+                                                      <div className="text-[11px] text-amber-600 dark:text-amber-400 mb-1">
+                                                        Felvänd bokföring – bokförd på fel sida (debet/kredit). Att vända posten ändrar saldot med {(-2 * match.total) >= 0 ? "+" : ""}{formatSwedishAmount(-2 * match.total)} kr.
+                                                      </div>
+                                                    ) : match.posts.length > 1 ? (
+                                                      <div className="text-[11px] text-zinc-400 dark:text-zinc-500 mb-1">
+                                                        {match.spreadDays === 0
+                                                          ? "Samma dag"
+                                                          : `Spridning ${Math.round(match.spreadDays)} dagar`}
+                                                      </div>
+                                                    ) : null}
+                                                    {match.posts.map((p, pi) => (
+                                                      <button
+                                                        key={pi}
+                                                        onClick={() => handleVerifikatClick(p.verifikatId)}
+                                                        className="w-full text-left flex items-start justify-between gap-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded px-1 -mx-1 py-0.5 transition-colors"
+                                                      >
+                                                        <div className="flex-1">
+                                                          <div className="text-zinc-900 dark:text-zinc-50">{p.verifikatDescription}</div>
+                                                          {p.postDescription && (
+                                                            <div className="text-zinc-500 dark:text-zinc-400 italic">{p.postDescription}</div>
+                                                          )}
+                                                          <div className="text-zinc-400 dark:text-zinc-500">{p.date}</div>
+                                                        </div>
+                                                        <span className={`tabular-nums font-medium ${getChangeColor(p.contribution)}`}>
+                                                          {p.contribution >= 0 ? "+" : ""}{formatSwedishAmount(p.contribution)} kr
+                                                        </span>
+                                                      </button>
+                                                    ))}
+                                                    {match.posts.length > 1 && (
+                                                      <div className="flex justify-between border-t border-zinc-200 dark:border-zinc-700 mt-1 pt-1 font-semibold text-zinc-900 dark:text-zinc-50">
+                                                        <span>Summa</span>
+                                                        <span className="tabular-nums">
+                                                          {match.total >= 0 ? "+" : ""}{formatSwedishAmount(match.total)} kr
+                                                        </span>
+                                                      </div>
+                                                    )}
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+
                                     {loadingTransactions ? (
                                       <p className="text-xs text-zinc-500 dark:text-zinc-400 py-2">
                                         Laddar verifikat...
