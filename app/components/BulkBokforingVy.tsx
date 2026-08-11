@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { BankEvent, Verifikat } from "../types";
 import VerifikatForm from "./VerifikatForm";
 import { getVerifikat } from "../actions";
@@ -11,6 +11,11 @@ interface BulkBokforingVyProps {
 }
 
 export default function BulkBokforingVy({ queue, onClose }: BulkBokforingVyProps) {
+  // pendingIndex = where the user has navigated to (updates instantly for the
+  // position/segment UI). currentIndex = the event actually mounted+loaded into
+  // the form; it follows pendingIndex after a short debounce so paging quickly
+  // through many events only loads the one you land on, not every skipped event.
+  const [pendingIndex, setPendingIndex] = useState(0);
   const [currentIndex, setCurrentIndex] = useState(0);
   // bankEventId → verifikatId for booked events
   const [savedIds, setSavedIds] = useState<Map<number, number>>(new Map());
@@ -27,22 +32,28 @@ export default function BulkBokforingVy({ queue, onClose }: BulkBokforingVyProps
 
   const handleNavigate = useCallback(
     (direction: -1 | 1) => {
-      const newIndex = currentIndex + direction;
-      if (newIndex >= 0 && newIndex < queue.length) {
-        setCurrentIndex(newIndex);
-      }
+      setPendingIndex((i) => {
+        const next = i + direction;
+        return next >= 0 && next < queue.length ? next : i;
+      });
     },
-    [currentIndex, queue.length]
+    [queue.length]
   );
 
   const handleJump = useCallback(
     (index: number) => {
-      if (index >= 0 && index < queue.length) {
-        setCurrentIndex(index);
-      }
+      setPendingIndex((i) => (index >= 0 && index < queue.length ? index : i));
     },
     [queue.length]
   );
+
+  // Only load the event once the user settles on it. While paging rapidly the
+  // timer keeps resetting, so intermediate events are never mounted/loaded.
+  useEffect(() => {
+    if (pendingIndex === currentIndex) return;
+    const timer = setTimeout(() => setCurrentIndex(pendingIndex), 150);
+    return () => clearTimeout(timer);
+  }, [pendingIndex, currentIndex]);
 
   const handleFlagChange = useCallback((updated: BankEvent) => {
     setFlaggedIds((prev) => {
@@ -101,7 +112,7 @@ export default function BulkBokforingVy({ queue, onClose }: BulkBokforingVyProps
       onSuccess={handleSuccess}
       onFlagChange={handleFlagChange}
       bulkNav={{
-        currentIndex,
+        currentIndex: pendingIndex,
         total: queue.length,
         isSaved,
         onNavigate: handleNavigate,
