@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Verifikat } from "../types";
 import {
   getPeriodiseringarOversikt,
@@ -27,6 +27,8 @@ export default function PeriodiseringarPage() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [rows, setRows] = useState<PeriodiseringOversiktRad[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const hasLoadedRef = useRef(false);
   const [selectedVerifikat, setSelectedVerifikat] = useState<Verifikat | null>(null);
 
   useEffect(() => {
@@ -34,10 +36,16 @@ export default function PeriodiseringarPage() {
   }, [year, month]);
 
   async function load() {
-    setLoading(true);
+    if (hasLoadedRef.current) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     const data = await getPeriodiseringarOversikt(year, month);
     setRows(data);
     setLoading(false);
+    setRefreshing(false);
+    hasLoadedRef.current = true;
   }
 
   async function openHuvud(huvudId: number) {
@@ -51,7 +59,11 @@ export default function PeriodiseringarPage() {
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-900">
-      <main className="mx-auto max-w-6xl px-4 py-8">
+      <main
+        className={`mx-auto max-w-6xl px-4 py-8 transition-opacity duration-150 ${
+          refreshing ? "opacity-50" : "opacity-100"
+        }`}
+      >
         <div className="mb-8 flex items-center justify-between">
           <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">Periodiseringar</h1>
           <PeriodSelector

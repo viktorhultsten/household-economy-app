@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import {
   ResponsiveContainer,
@@ -88,11 +88,17 @@ export default function DashboardPage() {
   const [recurring, setRecurring] = useState<RecurringItemStatus[]>([]);
   const [todos, setTodos] = useState<Todo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const hasLoadedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      setLoading(true);
+      if (hasLoadedRef.current) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
       const [overview, recurringStatus] = await Promise.all([
         getDashboardOverview(year, month),
         getRecurringItemsStatus(year, month),
@@ -101,6 +107,8 @@ export default function DashboardPage() {
       setData(overview);
       setRecurring(recurringStatus);
       setLoading(false);
+      setRefreshing(false);
+      hasLoadedRef.current = true;
     }
     load();
     return () => {
@@ -158,7 +166,11 @@ export default function DashboardPage() {
         {loading || !data ? (
           <p className="text-zinc-600 dark:text-zinc-400">Laddar…</p>
         ) : (
-          <div className="space-y-6">
+          <div
+            className={`space-y-6 transition-opacity duration-150 ${
+              refreshing ? "opacity-50" : "opacity-100"
+            }`}
+          >
             {/* KPI cards */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <KpiCard

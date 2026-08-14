@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { AccountType, Verifikat } from "../types";
 import {
@@ -97,6 +97,8 @@ export default function BalansPage() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [balances, setBalances] = useState<AccountBalance[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const hasLoadedRef = useRef(false);
   const [expandedAccountId, setExpandedAccountId] = useState<number | null>(null);
   const [transactions, setTransactions] = useState<AccountVerifikatEntry[]>([]);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
@@ -121,7 +123,11 @@ export default function BalansPage() {
   }, [year, month]);
 
   async function loadBalances() {
-    setLoading(true);
+    if (hasLoadedRef.current) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     const [data, accountsData] = await Promise.all([
       getAccountBalancesWithChangeBudget(year, month),
       getAccounts(),
@@ -135,6 +141,8 @@ export default function BalansPage() {
     );
     setBalances(balanceSheetData);
     setLoading(false);
+    setRefreshing(false);
+    hasLoadedRef.current = true;
   }
 
   function resetReconciliation() {
@@ -272,7 +280,11 @@ export default function BalansPage() {
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-900">
-      <main className="mx-auto max-w-6xl px-4 py-8">
+      <main
+        className={`mx-auto max-w-6xl px-4 py-8 transition-opacity duration-150 ${
+          refreshing ? "opacity-50" : "opacity-100"
+        }`}
+      >
         <div className="mb-8 flex items-center justify-between">
           <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">
             Balans
@@ -550,16 +562,12 @@ export default function BalansPage() {
                                       )}
                                     </div>
 
-                                    {loadingTransactions ? (
-                                      <p className="text-xs text-zinc-500 dark:text-zinc-400 py-2">
-                                        Laddar verifikat...
-                                      </p>
-                                    ) : transactions.length === 0 ? (
-                                      <p className="text-xs text-zinc-500 dark:text-zinc-400 py-2">
-                                        Inga verifikat denna månad
-                                      </p>
-                                    ) : (
-                                      <div className="space-y-2 py-2">
+                                    {transactions.length > 0 ? (
+                                      <div
+                                        className={`space-y-2 py-2 transition-opacity duration-150 ${
+                                          loadingTransactions ? "opacity-50" : "opacity-100"
+                                        }`}
+                                      >
                                         {transactions.map((txn) => (
                                           <button
                                             key={txn.verifikatId}
@@ -596,6 +604,14 @@ export default function BalansPage() {
                                           </button>
                                         ))}
                                       </div>
+                                    ) : loadingTransactions ? (
+                                      <p className="text-xs text-zinc-500 dark:text-zinc-400 py-2">
+                                        Laddar verifikat...
+                                      </p>
+                                    ) : (
+                                      <p className="text-xs text-zinc-500 dark:text-zinc-400 py-2">
+                                        Inga verifikat denna månad
+                                      </p>
                                     )}
                                   </div>
                                 )}

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { AccountType, CustomResultView, Account, Group } from "../types";
 import {
@@ -81,6 +81,8 @@ export default function ResultatPage() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [balances, setBalances] = useState<AccountBalance[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const hasLoadedRef = useRef(false);
   const [expandedAccounts, setExpandedAccounts] = useState<Set<number>>(new Set());
   const [accountsHistory, setAccountsHistory] = useState<Map<number, MonthHistory[]>>(new Map());
   const [loadingAccounts, setLoadingAccounts] = useState<Set<number>>(new Set());
@@ -116,10 +118,16 @@ export default function ResultatPage() {
   }
 
   async function loadBalances() {
-    setLoading(true);
+    if (hasLoadedRef.current) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     const data = await getResultBudgetComparison(year, month);
     setBalances(data);
     setLoading(false);
+    setRefreshing(false);
+    hasLoadedRef.current = true;
   }
 
   async function handleAccountClick(accountId: number) {
@@ -252,7 +260,11 @@ export default function ResultatPage() {
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-900">
-      <main className="mx-auto max-w-6xl px-4 py-8">
+      <main
+        className={`mx-auto max-w-6xl px-4 py-8 transition-opacity duration-150 ${
+          refreshing ? "opacity-50" : "opacity-100"
+        }`}
+      >
         <div className="mb-8 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">

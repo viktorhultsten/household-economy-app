@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { AccountType, Account, BudgetComparison, AccountAnalysis } from "../types";
 import {
@@ -54,6 +54,8 @@ export default function BudgetPage() {
   const [comparisons, setComparisons] = useState<BudgetComparison[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const hasLoadedRef = useRef(false);
   const [alertMessage, setAlertMessage] = useState("");
 
   // Kontoanalys state
@@ -133,7 +135,11 @@ export default function BudgetPage() {
   }, [editingAccount, editYear]);
 
   async function loadData() {
-    setLoading(true);
+    if (hasLoadedRef.current) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     const [comparisonData, accountsData] = await Promise.all([
       getAllAccountsBudgetComparison(year, 12),
       getAccounts(),
@@ -141,6 +147,8 @@ export default function BudgetPage() {
     setComparisons(comparisonData);
     setAccounts(accountsData);
     setLoading(false);
+    setRefreshing(false);
+    hasLoadedRef.current = true;
   }
 
   function openBudgetEditor(accountId: number) {
@@ -224,7 +232,11 @@ export default function BudgetPage() {
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-900">
-      <main className="mx-auto max-w-6xl px-4 py-8">
+      <main
+        className={`mx-auto max-w-6xl px-4 py-8 transition-opacity duration-150 ${
+          refreshing ? "opacity-50" : "opacity-100"
+        }`}
+      >
         <div className="mb-8 flex items-center justify-between">
           <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">
             Budget
@@ -407,10 +419,14 @@ export default function BudgetPage() {
                     />
                   </div>
                 )}
-                {analysisLoading ? (
+                {analysisLoading && !analysis ? (
                   <p className="text-sm text-zinc-600 dark:text-zinc-400">Laddar analys...</p>
                 ) : analysis ? (
-                  <div className="overflow-x-auto rounded-md border border-zinc-200 dark:border-zinc-700">
+                  <div
+                    className={`overflow-x-auto rounded-md border border-zinc-200 dark:border-zinc-700 transition-opacity duration-150 ${
+                      analysisLoading ? "opacity-50" : "opacity-100"
+                    }`}
+                  >
                     <table className="w-full">
                       <thead>
                         <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900">
