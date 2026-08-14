@@ -116,6 +116,22 @@ export default function BudgetPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [showBudgetModal]);
 
+  useEffect(() => {
+    if (!editingAccount) return;
+    let cancelled = false;
+    getBudgetsForAccount(editingAccount.id, editYear).then((existingBudgets) => {
+      if (cancelled) return;
+      const amounts = Array(12).fill(0);
+      existingBudgets.forEach((budget) => {
+        amounts[budget.month - 1] = budget.amount;
+      });
+      setMonthlyBudgets(amounts);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [editingAccount, editYear]);
+
   async function loadData() {
     setLoading(true);
     const [comparisonData, accountsData] = await Promise.all([
@@ -127,21 +143,13 @@ export default function BudgetPage() {
     setLoading(false);
   }
 
-  async function openBudgetEditor(accountId: number) {
+  function openBudgetEditor(accountId: number) {
     const account = accounts.find((a) => a.id === accountId);
     if (!account) return;
 
     setEditingAccount(account);
     setEditYear(year);
     setAnalysisAccountId(accountId);
-
-    // Load existing budgets for this account/year
-    const existingBudgets = await getBudgetsForAccount(accountId, year);
-    const amounts = Array(12).fill(0);
-    existingBudgets.forEach((budget) => {
-      amounts[budget.month - 1] = budget.amount;
-    });
-    setMonthlyBudgets(amounts);
     setShowBudgetModal(true);
   }
 

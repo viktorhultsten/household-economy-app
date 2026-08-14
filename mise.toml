@@ -1,0 +1,5 @@
+[tools]
+# Node + bundled npm. Pinned to match the version already in use via nvm (24.19.0).
+node = "24"
+# Provides psql and pg_dump, used by db:refresh, db:migrate:* and db:rehearse.
+postgres = "17"
