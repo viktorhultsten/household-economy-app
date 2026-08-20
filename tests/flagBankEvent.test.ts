@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { flagBankEvent, unflagBankEvent, postVerifikat } from "../app/actions";
+import { flagBankEvent, unflagBankEvent, adjustBankEventAmount, postVerifikat } from "../app/actions";
 
 test("flagBankEvent lagrar flagga och kommentar", async () => {
   let capturedId: number | undefined;
@@ -40,6 +40,25 @@ test("unflagBankEvent rensar flagga", async () => {
   });
 
   assert.equal(capturedId, 7);
+});
+
+test("adjustBankEventAmount skriver över beloppet permanent", async () => {
+  let capturedId: number | undefined;
+  let capturedAmount: number | undefined;
+
+  await adjustBankEventAmount(7, 123.45, {
+    persistAdjust: async (id, amount) => {
+      capturedId = id;
+      capturedAmount = amount;
+    },
+  });
+
+  assert.equal(capturedId, 7);
+  assert.equal(capturedAmount, 123.45);
+});
+
+test("adjustBankEventAmount avvisar ogiltiga belopp", async () => {
+  await assert.rejects(() => adjustBankEventAmount(7, NaN, { persistAdjust: async () => {} }));
 });
 
 test("postVerifikat rensar flagga vid bokföring av bankhändelse", async () => {

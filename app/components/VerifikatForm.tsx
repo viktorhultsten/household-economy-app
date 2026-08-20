@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Account, BankEvent, Post, BookingTemplate, RecurringItemStatus, Verifikat } from "../types";
-import { getAccounts, createVerifikat, updateVerifikat, isPeriodLocked, getBookingTemplates, createBookingTemplate, getRecurringItemsStatus, linkVerifikatToRecurringItem, getRecurringItemForVerifikat, updateVerifikatRecurringItemLink, getKonteringsforslag, KonteringsforslagMonster, flagBankEvent, unflagBankEvent, markBankEventIrrelevant, deleteBankEvent, getPeriodiseringskonto, createPeriodforskjutning, updatePeriodforskjutning, deletePeriodforskjutning, getPeriodforskjutningForHuvud, createPeriodisering, updatePeriodisering, deletePeriodisering, getPeriodiseringForHuvud, convertVerifikatToPeriodforskjutning, convertVerifikatToPeriodisering } from "../actions";
+import { getAccounts, createVerifikat, updateVerifikat, isPeriodLocked, getBookingTemplates, createBookingTemplate, getRecurringItemsStatus, linkVerifikatToRecurringItem, getRecurringItemForVerifikat, updateVerifikatRecurringItemLink, getKonteringsforslag, KonteringsforslagMonster, flagBankEvent, unflagBankEvent, markBankEventIrrelevant, deleteBankEvent, adjustBankEventAmount, getPeriodiseringskonto, createPeriodforskjutning, updatePeriodforskjutning, deletePeriodforskjutning, getPeriodforskjutningForHuvud, createPeriodisering, updatePeriodisering, deletePeriodisering, getPeriodiseringForHuvud, convertVerifikatToPeriodforskjutning, convertVerifikatToPeriodisering } from "../actions";
 import AccountSelectorModal from "./AccountSelectorModal";
 import BankEventSettingsModal from "./BankEventSettingsModal";
 import ConfirmModal from "./ConfirmModal";
@@ -602,6 +602,14 @@ export default function VerifikatForm({
     if (!bankEvent) return;
     await deleteBankEvent(bankEvent.id);
     // Raden är borta ur importen; behandla som en lyckad åtgärd (stänger + uppdaterar).
+    onSuccess();
+  };
+
+  const handleAdjustBankEventAmount = async (amount: number) => {
+    if (!bankEvent) return;
+    await adjustBankEventAmount(bankEvent.id, amount);
+    // Beloppet i formuläret speglar det ursprungliga beloppet vid öppning; enklast
+    // och säkrast är att stänga och låta listan hämtas om med det rätta beloppet.
     onSuccess();
   };
 
@@ -1683,6 +1691,7 @@ export default function VerifikatForm({
         <BankEventSettingsModal
           bankEvent={bankEvent}
           onDelete={handleDeleteBankEvent}
+          onAdjustAmount={handleAdjustBankEventAmount}
           onClose={() => setShowBankEventSettings(false)}
         />
       )}

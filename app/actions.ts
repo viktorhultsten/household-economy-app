@@ -381,6 +381,25 @@ export async function deleteBankEvent(id: number): Promise<void> {
   revalidateMutationViews();
 }
 
+// Justerar beloppet på en obokförd bankhändelse permanent (t.ex. när banken i
+// efterhand ändrat ett preliminärt kortköp till sitt slutgiltiga belopp).
+// Går bara att göra innan bokföring; en redan bokförd händelse måste rättas via
+// avstämningen på Balans-sidan så att verifikatets poster hålls i synk.
+export async function adjustBankEventAmount(
+  id: number,
+  amount: number,
+  deps: { persistAdjust?: (id: number, amount: number) => Promise<void> } = {}
+): Promise<void> {
+  if (!Number.isFinite(amount)) {
+    throw createActionError("VALIDATION", "Beloppet måste vara ett giltigt tal");
+  }
+  const persist = deps.persistAdjust ?? ((eventId, amt) =>
+    query("UPDATE bank_events SET amount = $1 WHERE id = $2 AND is_posted = 0", [amt, eventId])
+  );
+  await persist(id, amount);
+  revalidateMutationViews();
+}
+
 // Verifikat (accounting entries)
 export async function getVerifikatLista(): Promise<Verifikat[]> {
   const transactions = await queryAll<{
