@@ -174,15 +174,28 @@ export default function KontonPage() {
     );
   }
 
-  // Group accounts by group name
-  const groupedAccounts = accounts.reduce((acc, account) => {
-    const groupName = account.group?.namn || "Ingen grupp";
-    if (!acc[groupName]) {
-      acc[groupName] = [];
+  // Group accounts by group id, keyed on all known groups so empty groups still show up
+  const accountsByGroupId = new Map<number, Account[]>();
+  const ungroupedAccounts: Account[] = [];
+  for (const account of accounts) {
+    if (account.group) {
+      const list = accountsByGroupId.get(account.group.id) ?? [];
+      list.push(account);
+      accountsByGroupId.set(account.group.id, list);
+    } else {
+      ungroupedAccounts.push(account);
     }
-    acc[groupName].push(account);
-    return acc;
-  }, {} as Record<string, Account[]>);
+  }
+
+  const groupSections: { grupp: string; groupId: number | null; accounts: Account[] }[] =
+    groups.map((group) => ({
+      grupp: group.namn,
+      groupId: group.id,
+      accounts: accountsByGroupId.get(group.id) ?? [],
+    }));
+  if (ungroupedAccounts.length > 0) {
+    groupSections.push({ grupp: "Ingen grupp", groupId: null, accounts: ungroupedAccounts });
+  }
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-900">
@@ -201,16 +214,15 @@ export default function KontonPage() {
           </div>
         </div>
 
-        {accounts.length === 0 ? (
+        {groupSections.length === 0 ? (
           <div className="rounded-lg bg-white shadow dark:bg-zinc-800 p-8 text-center">
             <p className="text-zinc-600 dark:text-zinc-400">
-              Inga konton ännu. Lägg till ett konto för att komma igång.
+              Inga grupper ännu. Skapa en grupp för att komma igång.
             </p>
           </div>
         ) : (
           <div className="space-y-6">
-            {Object.entries(groupedAccounts).map(([grupp, accounts]) => {
-              const groupId = groups.find((g) => g.namn === grupp)?.id ?? null;
+            {groupSections.map(({ grupp, groupId, accounts }) => {
               return (
               <div
                 key={grupp}
@@ -266,6 +278,11 @@ export default function KontonPage() {
                         Avbryt
                       </button>
                     </div>
+                  )}
+                  {accounts.length === 0 && addingToGroupId !== groupId && (
+                    <p className="px-6 py-4 text-sm text-zinc-500 dark:text-zinc-400">
+                      Inga konton i denna grupp än.
+                    </p>
                   )}
                   {accounts.map((account) => (
                     <div
