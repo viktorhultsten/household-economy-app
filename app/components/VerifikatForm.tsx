@@ -349,14 +349,23 @@ export default function VerifikatForm({
   const difference = totalDebet - totalKredit;
   const isBalanced = Math.abs(difference) < 0.01; // Allow small floating point errors
 
-  // When booking from a bank event, the balanced total must equal the bank
-  // event's amount (UI-only check, see docs/adr/0005). Prevents e.g. booking a
-  // 500 kr purchase as 120 kr.
+  // When booking from a bank event, at least one row must carry exactly the
+  // bank event's amount (UI-only check, see docs/adr/0005) — the rest of the
+  // verifikat is free to differ (e.g. a fee split into its own row). If the
+  // verifikat's total doesn't match the bank event's amount, that's only
+  // surfaced as a warning, not blocked.
   const bankEventAmount = verifikatBankEvent
     ? Math.abs(verifikatBankEvent.amount)
     : null;
   const amountMatchesBankEvent =
     bankEventAmount === null || Math.abs(totalDebet - bankEventAmount) < 0.01;
+  const atLeastOneRowMatchesBankEvent =
+    bankEventAmount === null ||
+    posts.some(
+      (post) =>
+        Math.abs(post.debet - bankEventAmount) < 0.01 ||
+        Math.abs(post.kredit - bankEventAmount) < 0.01
+    );
 
   // Every row that carries an amount must have an account selected.
   const allAmountRowsHaveAccount = posts.every(
@@ -622,12 +631,9 @@ export default function VerifikatForm({
       return;
     }
 
-    if (bankEventAmount !== null && !amountMatchesBankEvent) {
+    if (bankEventAmount !== null && !atLeastOneRowMatchesBankEvent) {
       setError(
-        `Summan (${totalDebet.toLocaleString("sv-SE", {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        })} kr) måste stämma med bankhändelsens belopp (${bankEventAmount.toLocaleString("sv-SE", {
+        `Minst en rad måste ha exakt samma belopp som bankhändelsen (${bankEventAmount.toLocaleString("sv-SE", {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
         })} kr)!`
@@ -1336,18 +1342,54 @@ export default function VerifikatForm({
 
             <div className="mt-3 flex items-center justify-between text-sm">
               <div className="flex gap-4">
-                <span className="text-zinc-600 dark:text-zinc-400">
-                  Debet: {totalDebet.toLocaleString("sv-SE", {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
-                </span>
-                <span className="text-zinc-600 dark:text-zinc-400">
-                  Kredit: {totalKredit.toLocaleString("sv-SE", {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
-                </span>
+                <div>
+                  <span className="text-zinc-600 dark:text-zinc-400">
+                    Debet: {totalDebet.toLocaleString("sv-SE", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </span>
+                  {!isBalanced && (
+                    <div
+                      className={`text-xs font-medium tabular-nums ${
+                        difference > 0
+                          ? "text-green-600 dark:text-green-400"
+                          : "text-red-600 dark:text-red-400"
+                      }`}
+                    >
+                      {difference > 0 ? "+" : "-"}
+                      {Math.abs(difference).toLocaleString("sv-SE", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}{" "}
+                      kr
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <span className="text-zinc-600 dark:text-zinc-400">
+                    Kredit: {totalKredit.toLocaleString("sv-SE", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </span>
+                  {!isBalanced && (
+                    <div
+                      className={`text-xs font-medium tabular-nums ${
+                        difference < 0
+                          ? "text-green-600 dark:text-green-400"
+                          : "text-red-600 dark:text-red-400"
+                      }`}
+                    >
+                      {difference < 0 ? "+" : "-"}
+                      {Math.abs(difference).toLocaleString("sv-SE", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}{" "}
+                      kr
+                    </div>
+                  )}
+                </div>
               </div>
               <span
                 className={`font-medium tabular-nums ${
@@ -1365,15 +1407,24 @@ export default function VerifikatForm({
               </span>
             </div>
 
-            {bankEventAmount !== null && isBalanced && !amountMatchesBankEvent && (
+            {bankEventAmount !== null && isBalanced && !atLeastOneRowMatchesBankEvent && (
               <div className="mt-2 rounded-md bg-red-50 dark:bg-red-900/20 px-3 py-2 text-sm text-red-800 dark:text-red-200">
-                Summan ({totalDebet.toLocaleString("sv-SE", {
+                Minst en rad måste ha exakt samma belopp som bankhändelsen ({bankEventAmount.toLocaleString("sv-SE", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })} kr).
+              </div>
+            )}
+
+            {bankEventAmount !== null && isBalanced && !amountMatchesBankEvent && (
+              <div className="mt-2 rounded-md bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">
+                ⚠️ Summan ({totalDebet.toLocaleString("sv-SE", {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
                 })} kr) stämmer inte med bankhändelsens belopp ({bankEventAmount.toLocaleString("sv-SE", {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
-                })} kr).
+                })} kr). Verifikatet kan ändå sparas — kontrollera att avvikelsen är avsiktlig.
               </div>
             )}
           </div>
@@ -1525,7 +1576,7 @@ export default function VerifikatForm({
               )}
               <button
                 type="submit"
-                disabled={!isBalanced || loading || !!periodLockWarning || !amountMatchesBankEvent || !allAmountRowsHaveAccount || !!periodiseringLockWarning || isPeriodiseringLankat || (periodMode !== "none" && !hasPeriodiseringskonto)}
+                disabled={!isBalanced || loading || !!periodLockWarning || !atLeastOneRowMatchesBankEvent || !allAmountRowsHaveAccount || !!periodiseringLockWarning || isPeriodiseringLankat || (periodMode !== "none" && !hasPeriodiseringskonto)}
                 className="px-4 py-2 text-sm font-semibold rounded-md bg-zinc-900 text-zinc-50 hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
               >
                 {loading
