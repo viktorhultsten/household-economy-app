@@ -191,6 +191,25 @@ export default function DashboardPage() {
               <TodoCard unposted={data.todo.unposted} flagged={data.todo.flagged} />
             </div>
 
+            {/* R12 snitt (rullande 12 månaders genomsnitt) */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <KpiCard
+                label="R12 snitt intäkter"
+                value={data.kpi.r12Intakter / 12}
+                sub="Genomsnitt per månad, senaste 12 mån"
+              />
+              <KpiCard
+                label="R12 snitt utgifter"
+                value={-data.kpi.r12Utgifter / 12}
+                sub="Genomsnitt per månad, senaste 12 mån"
+              />
+              <KpiCard
+                label="R12 snitt diff"
+                value={data.kpi.r12Resultat / 12}
+                sub="Genomsnitt per månad, senaste 12 mån"
+              />
+            </div>
+
             {/* Att göra-lista */}
             <section className="rounded-lg bg-white p-5 shadow dark:bg-zinc-800">
               <h2 className="mb-4 text-lg font-semibold text-zinc-900 dark:text-zinc-50">

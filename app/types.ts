@@ -284,6 +284,7 @@ export interface DashboardKpi {
   periodSparkvot: number; // resultat / intakter
   r12Resultat: number;
   r12Intakter: number;
+  r12Utgifter: number;
   r12Sparkvot: number;
   ytdResultat: number;
   ytdIntakter: number;

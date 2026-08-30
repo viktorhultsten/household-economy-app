@@ -4742,6 +4742,7 @@ export async function getDashboardOverview(
 
   let r12Resultat = 0;
   let r12Intakter = 0;
+  let r12Utgifter = 0;
   let ytdResultat = 0;
   let ytdIntakter = 0;
   let periodResultat = 0;
@@ -4855,6 +4856,7 @@ export async function getDashboardOverview(
 
     r12Resultat += resultat;
     r12Intakter += intakter;
+    r12Utgifter += utgifter;
     if (isYtd) {
       ytdResultat += resultat;
       ytdIntakter += intakter;
@@ -4923,6 +4925,7 @@ export async function getDashboardOverview(
       periodSparkvot: sparkvot(periodResultat, periodIntakter),
       r12Resultat,
       r12Intakter,
+      r12Utgifter,
       r12Sparkvot: sparkvot(r12Resultat, r12Intakter),
       ytdResultat,
       ytdIntakter,
