@@ -7,7 +7,7 @@ import AccountSelectorModal from "./AccountSelectorModal";
 import BankEventSettingsModal from "./BankEventSettingsModal";
 import ConfirmModal from "./ConfirmModal";
 import Link from "next/link";
-import KonteringsforslagCard from "./KonteringsforslagCard";
+import KonteringsforslagCard, { KonteringsforslagCardSkeleton, KonteringsforslagTomRuta } from "./KonteringsforslagCard";
 import KonteringsmallFormModal from "./KonteringsmallFormModal";
 import { MallIndata } from "../lib/konteringsmallSida";
 import { Konteringsforslag, KonteringsforslagKort } from "../lib/konteringsforslag";
@@ -172,7 +172,7 @@ export default function VerifikatForm({
   const [kreditInputs, setKreditInputs] = useState<{ [key: number]: string }>({});
 
   const [forslag, setForslag] = useState<Konteringsforslag | null>(null);
-  const [forslagDismissed, setForslagDismissed] = useState(false);
+  const [anvantForslag, setAnvantForslag] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadData() {
@@ -204,7 +204,7 @@ export default function VerifikatForm({
   useEffect(() => {
     if (isEditing || !bankEvent) return;
     let aktuell = true;
-    setForslagDismissed(false);
+    setAnvantForslag(null);
     setForslag(null);
     getKonteringsforslag(bankEvent.id).then((resultat) => {
       // Bulkbokföringen kan ha bläddrat vidare innan svaret kom
@@ -473,7 +473,7 @@ export default function VerifikatForm({
         });
       });
     }
-    setForslagDismissed(true);
+    setAnvantForslag(f.nyckel);
   };
 
   const sparaSomMall = async () => {
@@ -927,59 +927,34 @@ export default function VerifikatForm({
 
           {/* Konteringsförslag från konteringsmallar — scenariot avgör vad som visas */}
           {!isEditing && bankEvent && (
-            <>
+            <div className="mb-4">
+              <p className="flex items-center h-6 mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300 truncate">
+                {forslag?.scenario === "val" && forslag.forslag.length > 1
+                  ? "Händelser som den här bokförs på olika sätt — välj det som stämmer"
+                  : forslag?.scenario === "val"
+                    ? "Möjlig kontering"
+                    : "Konteringsförslag"}
+              </p>
               {forslag === null ? (
-                <div className="mb-4 h-28 rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 p-3 animate-pulse">
-                  <div className="mb-3 h-3 w-32 rounded bg-zinc-200 dark:bg-zinc-700" />
-                  <div className="mb-2 h-3 w-full rounded bg-zinc-200 dark:bg-zinc-700" />
-                  <div className="h-3 w-full rounded bg-zinc-200 dark:bg-zinc-700" />
+                <KonteringsforslagCardSkeleton />
+              ) : (forslag.scenario === "saker" || forslag.scenario === "val") &&
+                forslag.forslag.length > 0 ? (
+                <div className="flex gap-2 overflow-x-auto snap-x snap-mandatory pb-1 -mb-1">
+                  {[...forslag.forslag].sort((a, b) => b.andel - a.andel).map((f) => (
+                    <KonteringsforslagCard
+                      key={f.nyckel}
+                      forslag={f}
+                      saker={forslag.scenario === "saker"}
+                      currentDescription={bankEvent.description}
+                      anvant={anvantForslag === f.nyckel}
+                      onApply={() => applyForslag(f)}
+                    />
+                  ))}
                 </div>
               ) : (
-                <>
-                  {!forslagDismissed &&
-                    (forslag.scenario === "saker" || forslag.scenario === "val") &&
-                    forslag.forslag.length > 0 && (
-                      <div className="mb-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                            {forslag.scenario === "saker"
-                              ? "Konteringsförslag"
-                              : forslag.forslag.length === 1
-                                ? "Möjlig kontering"
-                                : "Händelser som den här bokförs på olika sätt — välj det som stämmer"}
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() => setForslagDismissed(true)}
-                            className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 text-lg leading-none"
-                            aria-label="Stäng förslag"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                        <div className="flex gap-3 flex-wrap">
-                          {forslag.forslag.map((f) => (
-                            <div key={f.nyckel} className="flex-1 min-w-[14rem]">
-                              <KonteringsforslagCard
-                                forslag={f}
-                                saker={forslag.scenario === "saker"}
-                                currentDescription={bankEvent.description}
-                                onApply={() => applyForslag(f)}
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                  {forslag.scenario === "splittrad" && (
-                    <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
-                      Händelser som den här bokförs på många olika sätt, så inget konteringsförslag ges.
-                    </p>
-                  )}
-
-                  {forslag.inaktiveradeMallar.length > 0 && (
-                    <p className="mb-4 text-xs text-zinc-500 dark:text-zinc-400">
+                <KonteringsforslagTomRuta>
+                  {forslag.inaktiveradeMallar.length > 0 ? (
+                    <>
                       Matchar den inaktiverade{" "}
                       {forslag.inaktiveradeMallar.length === 1 ? "konteringsmallen" : "konteringsmallarna"}{" "}
                       {forslag.inaktiveradeMallar.map((m, i) => (
@@ -994,11 +969,15 @@ export default function VerifikatForm({
                         </span>
                       ))}
                       , som inte ger några förslag.
-                    </p>
+                    </>
+                  ) : forslag.scenario === "splittrad" ? (
+                    "Händelser som den här bokförs på många olika sätt, så inget konteringsförslag ges."
+                  ) : (
+                    "Inget konteringsförslag — ingen konteringsmall matchar händelsen."
                   )}
-                </>
+                </KonteringsforslagTomRuta>
               )}
-            </>
+            </div>
           )}
 
           <div className="grid grid-cols-2 gap-4">
