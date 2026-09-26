@@ -59,11 +59,8 @@ saknas och applicerar sedan alla nya migrationer — allt idempotent.
 
 ### 4. Rulla ut appen
 
-Deploya den nya app-imagen efter att migrationen gått igenom:
-
-```bash
-docker compose up -d --build
-```
+Pusha till `main` först när migrationen gått igenom. Den nya versionen rullas då ut
+automatiskt, se [drift](drift.md).
 
 ## Om något går fel: återställ från backup
 

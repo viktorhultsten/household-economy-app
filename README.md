@@ -50,7 +50,8 @@ Fullständigt prod-flöde: [docs/runbooks/prod-migration.md](docs/runbooks/prod-
 ### Konteringsmallar
 
 Mallanalysen körs varje natt av tjänsten `mallanalys` i `docker-compose.yml`. Drift
-och felsökning: [docs/runbooks/mallanalys.md](docs/runbooks/mallanalys.md).
+och felsökning: [docs/runbooks/mallanalys.md](docs/runbooks/mallanalys.md). Hur nya
+versioner rullas ut automatiskt: [docs/runbooks/drift.md](docs/runbooks/drift.md).
 
 | Script | Mål | Beskrivning |
 | --- | --- | --- |

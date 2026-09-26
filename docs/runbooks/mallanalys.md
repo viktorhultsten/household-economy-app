@@ -28,9 +28,8 @@ länkar till mallarna), felet om den misslyckades och tidigare körningar.
 
 ## Driftsättning
 
-```bash
-docker compose up -d --build mallanalys
-```
+Tjänsten uppdateras automatiskt tillsammans med appen när `main` ändras, se
+[drift](drift.md).
 
 Tjänsten kräver att migrationen `0009_mallanalys_antal` är applicerad, så kör
 [prod-migration](prod-migration.md) först när den är ny.

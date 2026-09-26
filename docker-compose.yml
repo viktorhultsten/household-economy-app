@@ -1,25 +1,41 @@
+# Imagesen byggs av GitHub Actions vid varje push till main och uppdateras
+# automatiskt av watchtower. Se docs/runbooks/drift.md.
 services:
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: runner
+    image: ${IMAGE:-ghcr.io/viktorhultsten/household-economy-app}:main
     container_name: economy-app
     ports:
       - "3000:3000"
     environment:
       - DATABASE_URL=${DATABASE_URL}
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
     restart: unless-stopped
 
   # Nattlig mallanalys (issue 21). Se docs/runbooks/mallanalys.md.
   mallanalys:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: mallanalys
+    image: ${IMAGE:-ghcr.io/viktorhultsten/household-economy-app}-mallanalys:main
     container_name: economy-mallanalys
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - TZ=${TZ:-Europe/Stockholm}
       - MALLANALYS_TID=${MALLANALYS_TID:-03:00}
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+    restart: unless-stopped
+
+  # Hämtar nya images och startar om app och mallanalys när de ändrats.
+  # Bara containrar med etiketten ovan uppdateras. Inloggningen mot ghcr
+  # läses ur serverns Docker-konfiguration.
+  watchtower:
+    image: nickfedor/watchtower:latest
+    container_name: economy-watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${DOCKER_CONFIG_FIL:-${HOME}/.docker/config.json}:/config.json:ro
+    environment:
+      - WATCHTOWER_POLL_INTERVAL=${WATCHTOWER_POLL_INTERVAL:-300}
+      - WATCHTOWER_LABEL_ENABLE=true
+      - WATCHTOWER_CLEANUP=true
+      - TZ=${TZ:-Europe/Stockholm}
     restart: unless-stopped
