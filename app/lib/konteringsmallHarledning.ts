@@ -130,7 +130,11 @@ export type HarledningParametrar = typeof HARLEDNING_PARAMETRAR;
 
 // --- Observationer ---------------------------------------------------------
 
-interface Observation {
+/**
+ * En historisk bankhändelse som underlag: bokförd, med ankarrad och
+ * alternativ relativt ankarraden. Används även av sannolikhetsmodellen.
+ */
+export interface Observation {
   bankEventId: number;
   datum: string;
   ord: Set<string>;
@@ -158,7 +162,7 @@ export function ankarkontoFor(
   return tillgangar.length === 1 ? tillgangar[0] : null;
 }
 
-function tillObservationer(historik: HistoriskHandelse[], konton: Map<number, KontoInfo>) {
+export function tillObservationer(historik: HistoriskHandelse[], konton: Map<number, KontoInfo>) {
   const observationer: Observation[] = [];
   let uteslutna = 0;
   for (const h of historik) {
@@ -223,13 +227,14 @@ export function dagAvstand(
 }
 
 /** Nyckelorden normaliserade till ord, så att "ICA Maxi" kräver både "ica" och "maxi". */
-function nyckelordsOrd(nyckelord: string[] | null): string[] {
+export function nyckelordsOrd(nyckelord: string[] | null): string[] {
   return [...new Set((nyckelord ?? []).flatMap((n) => tokeniseAlpha(n)))].sort();
 }
 
-type Matchbar = Pick<Observation, "ord" | "beloppOre" | "datum" | "riktning" | "ankarAccountId">;
+export type Matchbar = Pick<Observation, "ord" | "beloppOre" | "datum" | "riktning" | "ankarAccountId">;
 
-function matchar(m: Matchning, o: Matchbar): boolean {
+/** Om en mall matchar en historisk observation (samma semantik som `matcharMall`). */
+export function matchar(m: Matchning, o: Matchbar): boolean {
   if (!nyckelordsOrd(m.nyckelord).every((n) => o.ord.has(n))) return false;
   if (m.ankarAccountId !== null && m.ankarAccountId !== o.ankarAccountId) return false;
   if (m.beloppMin !== null && o.beloppOre < Math.round(m.beloppMin * 100)) return false;
