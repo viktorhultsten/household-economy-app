@@ -17,7 +17,8 @@
     "db:refresh": "tsx scripts/refresh-dev-from-prod.ts",
     "cleanup:orphaned-events": "tsx scripts/cleanup-orphaned-events.ts",
     "cleanup:orphaned-transactions": "tsx scripts/cleanup-orphaned-transactions.ts",
-    "diagnose:imports": "tsx scripts/diagnose-imports.ts"
+    "diagnose:imports": "tsx scripts/diagnose-imports.ts",
+    "mallar:harled:dev": "tsx scripts/harled-konteringsmallar.ts"
   },
   "dependencies": {
     "drizzle-orm": "^0.44.2",
