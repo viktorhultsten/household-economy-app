@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Account, BankEvent, Post, BookingTemplate, RecurringItemStatus, Verifikat } from "../types";
-import { getAccounts, createVerifikat, updateVerifikat, isPeriodLocked, getBookingTemplates, createBookingTemplate, getRecurringItemsStatus, linkVerifikatToRecurringItem, getRecurringItemForVerifikat, updateVerifikatRecurringItemLink, getKonteringsforslag, KonteringsforslagMonster, flagBankEvent, unflagBankEvent, markBankEventIrrelevant, deleteBankEvent, adjustBankEventAmount, getPeriodiseringskonto, createPeriodforskjutning, updatePeriodforskjutning, deletePeriodforskjutning, getPeriodforskjutningForHuvud, createPeriodisering, updatePeriodisering, deletePeriodisering, getPeriodiseringForHuvud, convertVerifikatToPeriodforskjutning, convertVerifikatToPeriodisering } from "../actions";
+import { Account, BankEvent, Post, RecurringItemStatus, Verifikat } from "../types";
+import { getAccounts, createVerifikat, updateVerifikat, isPeriodLocked, getRecurringItemsStatus, linkVerifikatToRecurringItem, getRecurringItemForVerifikat, updateVerifikatRecurringItemLink, getKonteringsforslag, KonteringsforslagMonster, flagBankEvent, unflagBankEvent, markBankEventIrrelevant, deleteBankEvent, adjustBankEventAmount, getPeriodiseringskonto, createPeriodforskjutning, updatePeriodforskjutning, deletePeriodforskjutning, getPeriodforskjutningForHuvud, createPeriodisering, updatePeriodisering, deletePeriodisering, getPeriodiseringForHuvud, convertVerifikatToPeriodforskjutning, convertVerifikatToPeriodisering } from "../actions";
 import AccountSelectorModal from "./AccountSelectorModal";
 import BankEventSettingsModal from "./BankEventSettingsModal";
 import ConfirmModal from "./ConfirmModal";
@@ -75,7 +75,6 @@ export default function VerifikatForm({
   const canConvertToPeriodisering =
     isEditing && !isHuvud && !isPeriodiseringLankat && !!(verifikat?.bankEvent || bankEvent);
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [templates, setTemplates] = useState<BookingTemplate[]>([]);
   const [recurringItems, setRecurringItems] = useState<RecurringItemStatus[]>([]);
   const [recurringLoaded, setRecurringLoaded] = useState(false);
   const [selectedRecurringItemId, setSelectedRecurringItemId] = useState<number | null>(null);
@@ -144,8 +143,6 @@ export default function VerifikatForm({
   const [periodiseringLockWarning, setPeriodiseringLockWarning] = useState("");
   const [showPeriodiseringSaveConfirm, setShowPeriodiseringSaveConfirm] = useState(false);
   const [showPeriodiseringDeleteConfirm, setShowPeriodiseringDeleteConfirm] = useState(false);
-  const [showSaveTemplate, setShowSaveTemplate] = useState(false);
-  const [templateName, setTemplateName] = useState("");
   const [showAccountSelector, setShowAccountSelector] = useState<number | null>(null);
 
   // Flag state (only relevant when bankEvent is provided)
@@ -175,13 +172,11 @@ export default function VerifikatForm({
     async function loadData() {
       const year = date.getFullYear();
       const month = date.getMonth() + 1;
-      const [accountsData, templatesData, recurringItemsData] = await Promise.all([
+      const [accountsData, recurringItemsData] = await Promise.all([
         getAccounts(),
-        getBookingTemplates(),
         getRecurringItemsStatus(year, month),
       ]);
       setAccounts(accountsData);
-      setTemplates(templatesData);
       setRecurringItems(recurringItemsData);
       setRecurringLoaded(true);
 
@@ -454,43 +449,6 @@ export default function VerifikatForm({
     setPosts(newPosts);
   };
 
-  const loadTemplate = (templateId: number) => {
-    const template = templates.find((t) => t.id === templateId);
-    if (!template) return;
-
-    // Template loads account structure using isDebet flag to determine which side
-    // If there's a bank event, we can pre-fill the amounts based on the template structure
-    const newPosts = template.rows.map((row) => {
-      // Use isDebet flag from template to set up the correct side
-      if (bankEvent) {
-        // For bank events, put the amount on the correct side based on template
-        // Template structure stays the same regardless of positive/negative amount
-        // The sign of the amount determines which "type" of transaction it is
-        const amount = Math.abs(bankEvent.amount);
-
-        return {
-          accountId: row.accountId,
-          debet: row.isDebet ? amount : 0,
-          kredit: !row.isDebet ? amount : 0,
-          description: row.description || "",
-          verifikatId: 0,
-        };
-      } else {
-        // For manual verifikat, just set up the structure with 0s
-        // User will fill in amounts, but at least accounts are set
-        return {
-          accountId: row.accountId,
-          debet: 0,
-          kredit: 0,
-          description: row.description || "",
-          verifikatId: 0,
-        };
-      }
-    });
-
-    setPosts(newPosts);
-  };
-
   const applyForslag = (f: KonteringsforslagMonster) => {
     const newPosts = f.rader.map((r) => ({
       accountId: r.accountId,
@@ -511,38 +469,6 @@ export default function VerifikatForm({
       });
     }
     setForslagDismissed(true);
-  };
-
-  const saveAsTemplate = async () => {
-    if (!templateName.trim()) {
-      setError("Mallnamn måste anges");
-      return;
-    }
-
-    if (posts.some((p) => p.accountId === 0)) {
-      setError("Alla poster måste ha ett konto innan mall kan sparas");
-      return;
-    }
-
-    try {
-      const templateRows = posts.map((post) => ({
-        accountId: post.accountId,
-        isDebet: post.debet > 0,
-        description: post.description,
-      }));
-
-      await createBookingTemplate(templateName, templateRows);
-
-      // Reload templates
-      const templatesData = await getBookingTemplates();
-      setTemplates(templatesData);
-
-      setShowSaveTemplate(false);
-      setTemplateName("");
-      setError("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Kunde inte spara mall");
-    }
   };
 
   const addPost = () => {
@@ -1033,25 +959,6 @@ export default function VerifikatForm({
             </div>
           )}
 
-          {templates.length > 0 && (
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
-                Använd bokföringsmall
-              </label>
-              <select
-                onChange={(e) => loadTemplate(parseInt(e.target.value))}
-                className="w-full rounded-md border border-zinc-300 px-3 py-2 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
-              >
-                <option value="">Välj mall...</option>
-                {templates.map((template) => (
-                  <option key={template.id} value={template.id}>
-                    {template.namn}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
@@ -1456,50 +1363,8 @@ export default function VerifikatForm({
               ))}
             </div>
           )}
-          {showSaveTemplate && (
-            <div className="p-4 border border-zinc-200 dark:border-zinc-700 rounded-md bg-zinc-50 dark:bg-zinc-900">
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
-                Mallnamn
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={templateName}
-                  onChange={(e) => setTemplateName(e.target.value)}
-                  placeholder="T.ex. Hyra, Lön, etc."
-                  className="flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
-                />
-                <button
-                  type="button"
-                  onClick={saveAsTemplate}
-                  className="px-4 py-2 text-sm font-semibold rounded-md bg-zinc-900 text-zinc-50 hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
-                >
-                  Spara mall
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowSaveTemplate(false);
-                    setTemplateName("");
-                  }}
-                  className="px-4 py-2 text-sm font-medium text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-50"
-                >
-                  Avbryt
-                </button>
-              </div>
-            </div>
-          )}
-
           <div className="flex gap-3 justify-between">
             <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setShowSaveTemplate(!showSaveTemplate)}
-                className="px-4 py-2 text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
-                disabled={loading}
-              >
-                {showSaveTemplate ? "Dölj" : "Spara som mall"}
-              </button>
               {bulkNav && (
                 <div className="flex items-center gap-1.5 text-sm text-zinc-600 dark:text-zinc-400">
                   <button

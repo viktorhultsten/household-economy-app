@@ -97,26 +97,6 @@ CREATE TABLE IF NOT EXISTS period_locks (
   UNIQUE(year, month)
 );
 
--- Booking templates table
-CREATE TABLE IF NOT EXISTS booking_templates (
-  id SERIAL PRIMARY KEY,
-  namn TEXT NOT NULL UNIQUE,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Template rows table (entries in a template)
-CREATE TABLE IF NOT EXISTS template_rows (
-  id SERIAL PRIMARY KEY,
-  template_id INTEGER NOT NULL,
-  account_id INTEGER NOT NULL,
-  is_debet BOOLEAN NOT NULL,
-  description TEXT,
-  row_order INTEGER NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (template_id) REFERENCES booking_templates(id) ON DELETE CASCADE,
-  FOREIGN KEY (account_id) REFERENCES accounts(id)
-);
-
 -- Recurring items table (track expected recurring transactions)
 CREATE TABLE IF NOT EXISTS recurring_items (
   id SERIAL PRIMARY KEY,

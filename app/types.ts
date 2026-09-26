@@ -89,25 +89,6 @@ export interface PeriodLock {
   lockedBy?: string;
 }
 
-// Booking template for reusable transaction structures
-export interface BookingTemplate {
-  id: number;
-  namn: string;
-  createdAt: Date;
-  rows: TemplateRow[];
-}
-
-// Template row - defines structure for a post in a transaction
-export interface TemplateRow {
-  id: number;
-  templateId: number;
-  accountId: number;
-  account?: Account;
-  isDebet: boolean; // true = debit side, false = credit side
-  description?: string;
-  rowOrder: number;
-}
-
 // Recurring item - track expected recurring transactions
 export interface RecurringItem {
   id: number;

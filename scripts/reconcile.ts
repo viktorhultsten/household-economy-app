@@ -16,12 +16,16 @@ import { Pool } from "pg";
  *
  * Drift it corrects (discovered via `npm run db:rehearse`):
  *   A. Constraint names: Postgres auto-names (`*_fkey`/`*_key`) → Drizzle names
- *      (`*_fk`/`*_unique`).
+ *      (`*_fk`/`*_unique`). If both exist, the stale auto-named duplicate is dropped.
  *   B. `TEXT` date columns → real `date`.
  *   C. Missing `NOT NULL` on `accounts.exclude_from_budget`, `bank_events.is_posted`.
  *   D. Stale `posts_check` (double precision) → `posts_debet_kredit_check`.
  *   E. Dead columns from the removed period-shift feature (issue 01).
  *   F. Re-create the account-type check so it renders like Drizzle's.
+ *
+ * The old booking-template tables are dropped by migration 0008 (ADR-0010), so
+ * they are deliberately absent from the rename list: the `::regclass` lookup
+ * would fail on a re-run once the tables are gone.
  */
 export async function reconcilePreDrizzle(pool: Pool): Promise<void> {
   await pool.query(RECONCILE_SQL);
@@ -62,12 +66,9 @@ BEGIN
       ('imports','imports_account_id_fkey','imports_account_id_accounts_id_fk'),
       ('posts','posts_transaction_id_fkey','posts_transaction_id_transactions_id_fk'),
       ('posts','posts_account_id_fkey','posts_account_id_accounts_id_fk'),
-      ('template_rows','template_rows_template_id_fkey','template_rows_template_id_booking_templates_id_fk'),
-      ('template_rows','template_rows_account_id_fkey','template_rows_account_id_accounts_id_fk'),
       ('transaction_recurring_items','transaction_recurring_items_transaction_id_fkey','transaction_recurring_items_transaction_id_transactions_id_fk'),
       ('transaction_recurring_items','transaction_recurring_items_recurring_item_id_fkey','transaction_recurring_items_recurring_item_id_recurring_items_id_fk'),
       ('transactions','transactions_bank_event_id_fkey','transactions_bank_event_id_bank_events_id_fk'),
-      ('booking_templates','booking_templates_namn_key','booking_templates_namn_unique'),
       ('budgets','budgets_account_id_year_month_key','budgets_account_id_year_month_unique'),
       ('custom_result_view_accounts','custom_result_view_accounts_view_id_account_id_key','custom_result_view_accounts_view_id_account_id_unique'),
       ('custom_result_view_groups','custom_result_view_groups_view_id_group_id_key','custom_result_view_groups_view_id_group_id_unique'),
@@ -86,6 +87,12 @@ BEGIN
       WHERE conname = r.newname AND conrelid = ('public.' || quote_ident(r.tbl))::regclass
     ) THEN
       EXECUTE format('ALTER TABLE public.%I RENAME CONSTRAINT %I TO %I', r.tbl, r.oldname, r.newname);
+    ELSIF EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conname = r.oldname AND conrelid = ('public.' || quote_ident(r.tbl))::regclass
+    ) THEN
+      -- Both names exist (a duplicate was added by hand): drop the stale one.
+      EXECUTE format('ALTER TABLE public.%I DROP CONSTRAINT %I', r.tbl, r.oldname);
     END IF;
   END LOOP;
 

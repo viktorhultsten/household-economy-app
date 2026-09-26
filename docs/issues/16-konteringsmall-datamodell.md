@@ -1,6 +1,6 @@
 # 16 — Konteringsmall: datamodell och borttagning av gamla mallar
 
-Status: Ej påbörjad
+Status: Klar
 
 ## What to build
 
@@ -17,11 +17,11 @@ Rena typer och omvandlingar (mall ↔ konteringsrader för en given bankhändels
 
 ## Acceptance criteria
 
-- [ ] Migration för mall, alternativ, ändringslogg och körningslogg (körs via prod-runbooken)
-- [ ] Befintliga bokföringsmallar raderas, gamla tabeller och gammalt mall-UI tas bort
-- [ ] `getBookingSuggestion` borttagen
-- [ ] Ren funktion som omvandlar ett konteringsalternativ till konteringsrader för en bankhändelse: ankarraden får hela beloppet, motkontona fördelas enligt andel med öres-rest på största raden, och sidorna vänds vid spegling
-- [ ] Test som täcker omvandlingen, inklusive split, spegling och balansinvariant (debet = kredit)
+- [x] Migration för mall, alternativ, ändringslogg och körningslogg (körs via prod-runbooken)
+- [x] Befintliga bokföringsmallar raderas, gamla tabeller och gammalt mall-UI tas bort
+- [x] `getBookingSuggestion` borttagen
+- [x] Ren funktion som omvandlar ett konteringsalternativ till konteringsrader för en bankhändelse: ankarraden får hela beloppet, motkontona fördelas enligt andel med öres-rest på största raden, och sidorna vänds vid spegling
+- [x] Test som täcker omvandlingen, inklusive split, spegling och balansinvariant (debet = kredit)
 
 ## Blocked by
 
