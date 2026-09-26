@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { ar, arGiltigtDatum, idag, manad } from "../lib/datum";
 
 // Native <input type="date"> visar datum – både textformatet och kalender-
 // popupen – enligt webbläsarens UI-locale, inte sidans lang-attribut. Det ger
@@ -16,8 +17,6 @@ interface DateInputProps {
   ariaLabel?: string;
 }
 
-const ISO_RE = /^\d{4}-\d{2}-\d{2}$/;
-
 const MANADER = [
   "Januari", "Februari", "Mars", "April", "Maj", "Juni",
   "Juli", "Augusti", "September", "Oktober", "November", "December",
@@ -25,12 +24,6 @@ const MANADER = [
 
 // Måndag först
 const VECKODAGAR = ["Må", "Ti", "On", "To", "Fr", "Lö", "Sö"];
-
-function isValidISO(value: string): boolean {
-  if (!ISO_RE.test(value)) return false;
-  const d = new Date(`${value}T00:00:00`);
-  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
-}
 
 function toISO(year: number, month: number, day: number): string {
   const m = String(month + 1).padStart(2, "0");
@@ -64,9 +57,9 @@ export default function DateInput({
   // Synka kalendern till valt datum (eller idag) när den öppnas
   useEffect(() => {
     if (!open) return;
-    const base = isValidISO(text) ? new Date(`${text}T00:00:00`) : new Date();
-    setViewYear(base.getFullYear());
-    setViewMonth(base.getMonth());
+    const base = arGiltigtDatum(text) ? text : idag();
+    setViewYear(ar(base));
+    setViewMonth(manad(base) - 1);
   }, [open, text]);
 
   useEffect(() => {
@@ -90,7 +83,7 @@ export default function DateInput({
   function handleTextChange(e: React.ChangeEvent<HTMLInputElement>) {
     const next = e.target.value;
     setText(next);
-    if (next === "" || isValidISO(next)) onChange(next);
+    if (next === "" || arGiltigtDatum(next)) onChange(next);
   }
 
   function selectDay(day: number) {
@@ -106,8 +99,7 @@ export default function DateInput({
     setViewMonth(d.getMonth());
   }
 
-  const now = new Date();
-  const todayISO = toISO(now.getFullYear(), now.getMonth(), now.getDate());
+  const todayISO = idag();
   const leading = mondayFirstWeekday(viewYear, viewMonth, 1);
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
   const cells: (number | null)[] = [

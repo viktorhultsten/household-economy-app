@@ -10,7 +10,7 @@ test("postVerifikat avvisar obalanserat skapande", async () => {
     postVerifikat(
       {
         mode: "create",
-        date: new Date("2026-01-15"),
+        date: "2026-01-15",
         description: "Obalanserat skapande",
         posts: [
           { accountId: 1, debet: 100, kredit: 0 },
@@ -41,7 +41,7 @@ test("postVerifikat avvisar obalanserad ändring", async () => {
       {
         mode: "update",
         id: 42,
-        date: new Date("2026-01-15"),
+        date: "2026-01-15",
         description: "Obalanserad ändring",
         posts: [
           { accountId: 1, debet: 250, kredit: 0 },
@@ -50,7 +50,7 @@ test("postVerifikat avvisar obalanserad ändring", async () => {
       },
       {
         checkPeriodLockForDate: async () => undefined,
-        getTransactionDateById: async () => new Date("2026-01-15"),
+        getTransactionDateById: async () => "2026-01-15",
         persistCreate: async () => 1,
         persistUpdate: async () => {
           didPersistUpdate = true;

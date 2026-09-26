@@ -9,6 +9,7 @@ import {
 } from "../actions";
 import VerifikatForm from "../components/VerifikatForm";
 import PeriodSelector from "../components/PeriodSelector";
+import { Datum, ar as datumAr, manad as datumManad } from "../lib/datum";
 
 function formatSwedishAmount(amount: number): string {
   return amount.toLocaleString("sv-SE", {
@@ -17,8 +18,12 @@ function formatSwedishAmount(amount: number): string {
   });
 }
 
-function formatMonth(date: Date): string {
-  return date.toLocaleDateString("sv-SE", { year: "numeric", month: "short" });
+function formatMonth(d: Datum): string {
+  return new Date(Date.UTC(datumAr(d), datumManad(d) - 1, 1)).toLocaleDateString("sv-SE", {
+    year: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  });
 }
 
 export default function PeriodiseringarPage() {

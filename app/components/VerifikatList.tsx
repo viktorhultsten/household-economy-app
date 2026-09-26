@@ -9,10 +9,6 @@ import KontoNamn from "./KontoNamn";
 
 const BATCH_SIZE = 25;
 
-function formatSwedishDate(date: Date): string {
-  return date.toLocaleDateString("sv-SE");
-}
-
 function formatSwedishAmount(amount: number): string {
   return amount.toLocaleString("sv-SE", {
     minimumFractionDigits: 2,
@@ -233,7 +229,7 @@ const VerifikatList = memo(function VerifikatList({
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-1">
                           <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                            {formatSwedishDate(v.date)}
+                            {v.date}
                           </span>
                           <span className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
                             {v.description}

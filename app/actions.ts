@@ -25,6 +25,14 @@ import {
 } from "./lib/konteringsmallSida";
 import { Konteringsmall, Konteringsrad, MallStatus, alternativNyckel } from "./lib/konteringsmallUtils";
 import { derivePeriodiseringPosts, derivePeriodiseringSlices } from "./lib/periodiseringUtils";
+import {
+  Datum,
+  ar as datumAr,
+  manad as datumManad,
+  datum as nyttDatum,
+  laggTillManader,
+  sistaIManad,
+} from "./lib/datum";
 
 type ActionErrorCategory = "VALIDATION" | "NOT_FOUND" | "CONFLICT" | "LOCKED_PERIOD" | "DATABASE";
 
@@ -89,8 +97,8 @@ export async function getImports(): Promise<Import[]> {
     filename: row.filename,
     importedAt: new Date(row.imported_at),
     totalEvents: row.total_events,
-    dateRangeStart: new Date(row.date_range_start),
-    dateRangeEnd: new Date(row.date_range_end),
+    dateRangeStart: row.date_range_start,
+    dateRangeEnd: row.date_range_end,
     isExternal: row.is_external ?? false,
     postedEvents: Number(row.posted_events),
   }));
@@ -131,13 +139,13 @@ export async function getImportWithEvents(importId: number): Promise<{
       filename: importRow.filename,
       importedAt: new Date(importRow.imported_at),
       totalEvents: importRow.total_events,
-      dateRangeStart: new Date(importRow.date_range_start),
-      dateRangeEnd: new Date(importRow.date_range_end),
+      dateRangeStart: importRow.date_range_start,
+      dateRangeEnd: importRow.date_range_end,
       isExternal: importRow.is_external ?? false,
     },
     events: eventRows.map((row) => ({
       id: row.id,
-      date: new Date(row.date),
+      date: row.date,
       description: row.description,
       amount: Number(row.amount),
       isPosted: row.is_posted === 1,
@@ -168,11 +176,10 @@ export async function deleteImport(id: number): Promise<void> {
 
   // Check if any bank events are in locked periods
   for (const event of bankEvents) {
-    const eventDate = new Date(event.date);
-    const isLocked = await isPeriodLocked(eventDate);
+    const isLocked = await isPeriodLocked(event.date);
     if (isLocked) {
-      const year = eventDate.getFullYear();
-      const month = eventDate.getMonth() + 1;
+      const year = datumAr(event.date);
+      const month = datumManad(event.date);
       throw createActionError(
         "LOCKED_PERIOD",
         `Kan inte ta bort import. Perioden ${year}-${String(month).padStart(
@@ -241,7 +248,7 @@ export async function getBankEvents(): Promise<BankEvent[]> {
 
   return rows.map((row) => ({
     id: row.id,
-    date: new Date(row.date),
+    date: row.date,
     description: row.description,
     amount: Number(row.amount),
     isPosted: row.is_posted === 1,
@@ -288,7 +295,7 @@ const UNPOSTED_BANK_EVENTS_SQL = `
 function toBankEvent(row: BankEventRow): BankEvent {
   return {
     id: row.id,
-    date: new Date(row.date),
+    date: row.date,
     description: row.description,
     amount: Number(row.amount),
     isPosted: row.is_posted === 1,
@@ -363,15 +370,15 @@ export async function saveBankEvents(
   if (events.length === 0) return;
 
   // Calculate date range
-  const dates = events.map((e) => e.date.getTime());
-  const dateRangeStart = new Date(Math.min(...dates));
-  const dateRangeEnd = new Date(Math.max(...dates));
+  const dates = events.map((e) => e.date).sort();
+  const dateRangeStart = dates[0];
+  const dateRangeEnd = dates[dates.length - 1];
 
   await dbTransaction(async (client) => {
     // Create import record
     const importResult = await client.query<{ id: number }>(
       "INSERT INTO imports (filename, total_events, date_range_start, date_range_end, account_id, is_external) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
-      [filename, events.length, dateRangeStart.toISOString(), dateRangeEnd.toISOString(), accountId || null, isExternal]
+      [filename, events.length, dateRangeStart, dateRangeEnd, accountId || null, isExternal]
     );
 
     const importId = importResult.rows[0].id;
@@ -380,7 +387,7 @@ export async function saveBankEvents(
     for (const evt of events) {
       await client.query(
         "INSERT INTO bank_events (date, description, amount, import_id) VALUES ($1, $2, $3, $4)",
-        [evt.date.toISOString(), evt.description, evt.amount, importId]
+        [evt.date, evt.description, evt.amount, importId]
       );
     }
   });
@@ -465,7 +472,7 @@ export async function getVerifikatLista(): Promise<Verifikat[]> {
 
     result.push({
       id: txn.id,
-      date: new Date(txn.date),
+      date: txn.date,
       description: txn.description,
       bankEventId: txn.bank_event_id ?? undefined,
       posts: posts.map((p) => ({
@@ -513,7 +520,7 @@ type VerifikatPostInput = {
 
 type CreateVerifikatCommand = {
   mode: "create";
-  date: Date;
+  date: Datum;
   description: string;
   bankEventId?: number;
   posts: VerifikatPostInput[];
@@ -522,7 +529,7 @@ type CreateVerifikatCommand = {
 type UpdateVerifikatCommand = {
   mode: "update";
   id: number;
-  date: Date;
+  date: Datum;
   description: string;
   posts: VerifikatPostInput[];
 };
@@ -530,8 +537,8 @@ type UpdateVerifikatCommand = {
 type PostVerifikatCommand = CreateVerifikatCommand | UpdateVerifikatCommand;
 
 type PostVerifikatDependencies = {
-  checkPeriodLockForDate: (date: Date) => Promise<void>;
-  getTransactionDateById: (id: number) => Promise<Date | null>;
+  checkPeriodLockForDate: (date: Datum) => Promise<void>;
+  getTransactionDateById: (id: number) => Promise<Datum | null>;
   persistCreate: (command: CreateVerifikatCommand) => Promise<number>;
   persistUpdate: (command: UpdateVerifikatCommand) => Promise<void>;
 };
@@ -543,14 +550,14 @@ const defaultPostVerifikatDependencies: PostVerifikatDependencies = {
       "SELECT date FROM transactions WHERE id = $1",
       [id]
     );
-    return currentTxn ? new Date(currentTxn.date) : null;
+    return currentTxn ? currentTxn.date : null;
   },
   persistCreate: async (command: CreateVerifikatCommand) => {
     return dbTransaction(async (client) => {
       const result = await client.query<{ id: number }>(
         "INSERT INTO transactions (date, description, bank_event_id) VALUES ($1, $2, $3) RETURNING id",
         [
-          command.date.toISOString(),
+          command.date,
           command.description,
           command.bankEventId ?? null,
         ]
@@ -578,7 +585,7 @@ const defaultPostVerifikatDependencies: PostVerifikatDependencies = {
   persistUpdate: async (command: UpdateVerifikatCommand) => {
     await dbTransaction(async (client) => {
       await client.query("UPDATE transactions SET date = $1, description = $2 WHERE id = $3", [
-        command.date.toISOString(),
+        command.date,
         command.description,
         command.id,
       ]);
@@ -632,9 +639,7 @@ export async function postVerifikat(
 
   await dependencies.checkPeriodLockForDate(currentTxnDate);
 
-  const currentDateKey = currentTxnDate.toISOString().slice(0, 10);
-  const nextDateKey = command.date.toISOString().slice(0, 10);
-  if (nextDateKey !== currentDateKey) {
+  if (command.date !== currentTxnDate) {
     await dependencies.checkPeriodLockForDate(command.date);
   }
 
@@ -657,7 +662,7 @@ export async function deleteVerifikat(id: number): Promise<void> {
   await assertNotPeriodiseringMember(id, txn.periodisering_parent_id);
 
   // Check if period is locked
-  await checkPeriodLock(new Date(txn.date));
+  await checkPeriodLock(txn.date);
 
   // Unmark any linked bank event
   await query(
@@ -679,27 +684,12 @@ export async function deleteVerifikat(id: number): Promise<void> {
 export type PeriodforskjutningInput = {
   bankEventId: number;
   description: string;
-  bankDate: Date; // Huvudverifikatets datum = bankhändelsens datum
-  targetDate: Date; // Länkat verifikats datum
+  bankDate: Datum; // Huvudverifikatets datum = bankhändelsens datum
+  targetDate: Datum; // Länkat verifikats datum
   anchorAccountId: number; // Konteringsraden som ligger kvar på bankdatumet
   posts: VerifikatPostInput[]; // Den logiska konteringen (balanserad)
   recurringItemId?: number | null; // Kopplas till det länkade verifikatet
 };
-
-function sameDay(a: Date, b: Date): boolean {
-  return a.toISOString().slice(0, 10) === b.toISOString().slice(0, 10);
-}
-
-// Add `months` calendar months to a date, keeping the day-of-month but clamping
-// to the target month's last day (so 31 jan + 1 månad → 28/29 feb, not 3 mars).
-function addMonthsUTC(date: Date, months: number): Date {
-  const target = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, 1));
-  const lastDay = new Date(
-    Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)
-  ).getUTCDate();
-  target.setUTCDate(Math.min(date.getUTCDate(), lastDay));
-  return target;
-}
 
 // The pg-like client passed to the transaction() callback.
 type TxClient = Parameters<Parameters<typeof dbTransaction>[0]>[0];
@@ -754,7 +744,7 @@ export async function createPeriodforskjutning(input: PeriodforskjutningInput): 
     );
   }
 
-  if (sameDay(input.bankDate, input.targetDate)) {
+  if (input.bankDate === input.targetDate) {
     throw createActionError(
       "VALIDATION",
       "Måldatumet måste skilja sig från bankhändelsens datum."
@@ -773,7 +763,7 @@ export async function createPeriodforskjutning(input: PeriodforskjutningInput): 
   const huvudId = await dbTransaction(async (client) => {
     const huvud = await client.query<{ id: number }>(
       "INSERT INTO transactions (date, description, bank_event_id, periodisering_kind) VALUES ($1, $2, $3, 'forskjutning') RETURNING id",
-      [input.bankDate.toISOString(), input.description, input.bankEventId]
+      [input.bankDate, input.description, input.bankEventId]
     );
     const huvudTxnId = huvud.rows[0].id;
     await insertPosts(client, huvudTxnId, huvudPosts);
@@ -785,7 +775,7 @@ export async function createPeriodforskjutning(input: PeriodforskjutningInput): 
 
     const lankat = await client.query<{ id: number }>(
       "INSERT INTO transactions (date, description, periodisering_parent_id) VALUES ($1, $2, $3) RETURNING id",
-      [input.targetDate.toISOString(), input.description, huvudTxnId]
+      [input.targetDate, input.description, huvudTxnId]
     );
     const lankatTxnId = lankat.rows[0].id;
     await insertPosts(client, lankatTxnId, lankatPosts);
@@ -833,7 +823,7 @@ export async function updatePeriodforskjutning(
     );
   }
 
-  if (sameDay(input.bankDate, input.targetDate)) {
+  if (input.bankDate === input.targetDate) {
     throw createActionError(
       "VALIDATION",
       "Måldatumet måste skilja sig från bankhändelsens datum."
@@ -847,8 +837,8 @@ export async function updatePeriodforskjutning(
   );
 
   // Both months in the existing pair and the new target month must be unlocked.
-  await checkPeriodLock(new Date(huvud.date));
-  await checkPeriodLock(new Date(child.date));
+  await checkPeriodLock(huvud.date);
+  await checkPeriodLock(child.date);
   await checkPeriodLock(input.bankDate);
   await checkPeriodLock(input.targetDate);
 
@@ -856,7 +846,7 @@ export async function updatePeriodforskjutning(
     // Rewrite huvud (keeps its bank event link).
     await client.query(
       "UPDATE transactions SET date = $1, description = $2 WHERE id = $3",
-      [input.bankDate.toISOString(), input.description, huvudId]
+      [input.bankDate, input.description, huvudId]
     );
     await client.query("DELETE FROM posts WHERE transaction_id = $1", [huvudId]);
     await insertPosts(client, huvudId, huvudPosts);
@@ -865,7 +855,7 @@ export async function updatePeriodforskjutning(
     await client.query("DELETE FROM transactions WHERE id = $1", [child.id]);
     const lankat = await client.query<{ id: number }>(
       "INSERT INTO transactions (date, description, periodisering_parent_id) VALUES ($1, $2, $3) RETURNING id",
-      [input.targetDate.toISOString(), input.description, huvudId]
+      [input.targetDate, input.description, huvudId]
     );
     const lankatTxnId = lankat.rows[0].id;
     await insertPosts(client, lankatTxnId, lankatPosts);
@@ -899,8 +889,8 @@ export async function deletePeriodforskjutning(huvudId: number): Promise<void> {
     throw createActionError("VALIDATION", "Verifikatet är inte en periodisering.");
   }
 
-  await checkPeriodLock(new Date(huvud.date));
-  await checkPeriodLock(new Date(child.date));
+  await checkPeriodLock(huvud.date);
+  await checkPeriodLock(child.date);
 
   await dbTransaction(async (client) => {
     await client.query(
@@ -919,8 +909,8 @@ export type PeriodforskjutningDetails = {
   huvudId: number;
   bankEventId?: number;
   description: string;
-  bankDate: Date;
-  targetDate: Date;
+  bankDate: Datum;
+  targetDate: Datum;
   anchorAccountId: number;
   periodiseringskontoId: number;
   posts: Post[];
@@ -1013,8 +1003,8 @@ export async function getPeriodforskjutningForHuvud(
     huvudId: huvud.id,
     bankEventId: huvud.bank_event_id ?? undefined,
     description: huvud.description,
-    bankDate: new Date(huvud.date),
-    targetDate: new Date(child.date),
+    bankDate: huvud.date,
+    targetDate: child.date,
     anchorAccountId: anchorRow?.account_id ?? -1,
     periodiseringskontoId,
     posts: logicalPosts,
@@ -1030,7 +1020,7 @@ export async function getPeriodforskjutningForHuvud(
 export type PeriodiseringInput = {
   bankEventId: number;
   description: string;
-  bankDate: Date; // Huvudverifikatets datum = bankhändelsens datum; första slicen ligger i denna månad
+  bankDate: Datum; // Huvudverifikatets datum = bankhändelsens datum; första slicen ligger i denna månad
   antalManader: number; // Antal månader att fördela över
   anchorAccountId: number; // Konteringsraden som ligger kvar på bankdatumet
   posts: VerifikatPostInput[]; // Den logiska konteringen (balanserad)
@@ -1054,7 +1044,7 @@ export async function createPeriodisering(input: PeriodiseringInput): Promise<nu
     input.antalManader
   );
 
-  const sliceDates = slices.map((_, i) => addMonthsUTC(input.bankDate, i));
+  const sliceDates = slices.map((_, i) => laggTillManader(input.bankDate, i));
 
   await checkPeriodLock(input.bankDate);
   for (const d of sliceDates) {
@@ -1064,7 +1054,7 @@ export async function createPeriodisering(input: PeriodiseringInput): Promise<nu
   const huvudId = await dbTransaction(async (client) => {
     const huvud = await client.query<{ id: number }>(
       "INSERT INTO transactions (date, description, bank_event_id, periodisering_kind) VALUES ($1, $2, $3, 'periodisering') RETURNING id",
-      [input.bankDate.toISOString(), input.description, input.bankEventId]
+      [input.bankDate, input.description, input.bankEventId]
     );
     const huvudTxnId = huvud.rows[0].id;
     await insertPosts(client, huvudTxnId, huvudPosts);
@@ -1077,7 +1067,7 @@ export async function createPeriodisering(input: PeriodiseringInput): Promise<nu
     for (let i = 0; i < slices.length; i++) {
       const lankat = await client.query<{ id: number }>(
         "INSERT INTO transactions (date, description, periodisering_parent_id) VALUES ($1, $2, $3) RETURNING id",
-        [sliceDates[i].toISOString(), input.description, huvudTxnId]
+        [sliceDates[i], input.description, huvudTxnId]
       );
       await insertPosts(client, lankat.rows[0].id, slices[i]);
     }
@@ -1137,7 +1127,7 @@ export async function convertVerifikatToPeriodforskjutning(
     );
   }
 
-  if (sameDay(input.bankDate, input.targetDate)) {
+  if (input.bankDate === input.targetDate) {
     throw createActionError(
       "VALIDATION",
       "Måldatumet måste skilja sig från bankhändelsens datum."
@@ -1150,7 +1140,7 @@ export async function convertVerifikatToPeriodforskjutning(
     periodiseringskonto.id
   );
 
-  await checkPeriodLock(new Date(source.date));
+  await checkPeriodLock(source.date);
   await checkPeriodLock(input.bankDate);
   await checkPeriodLock(input.targetDate);
 
@@ -1164,7 +1154,7 @@ export async function convertVerifikatToPeriodforskjutning(
 
     const huvud = await client.query<{ id: number }>(
       "INSERT INTO transactions (date, description, bank_event_id, periodisering_kind) VALUES ($1, $2, $3, 'forskjutning') RETURNING id",
-      [input.bankDate.toISOString(), input.description, source.bankEventId]
+      [input.bankDate, input.description, source.bankEventId]
     );
     const huvudTxnId = huvud.rows[0].id;
     await insertPosts(client, huvudTxnId, huvudPosts);
@@ -1176,7 +1166,7 @@ export async function convertVerifikatToPeriodforskjutning(
 
     const lankat = await client.query<{ id: number }>(
       "INSERT INTO transactions (date, description, periodisering_parent_id) VALUES ($1, $2, $3) RETURNING id",
-      [input.targetDate.toISOString(), input.description, huvudTxnId]
+      [input.targetDate, input.description, huvudTxnId]
     );
     const lankatTxnId = lankat.rows[0].id;
     await insertPosts(client, lankatTxnId, lankatPosts);
@@ -1218,9 +1208,9 @@ export async function convertVerifikatToPeriodisering(
     input.antalManader
   );
 
-  const sliceDates = slices.map((_, i) => addMonthsUTC(input.bankDate, i));
+  const sliceDates = slices.map((_, i) => laggTillManader(input.bankDate, i));
 
-  await checkPeriodLock(new Date(source.date));
+  await checkPeriodLock(source.date);
   await checkPeriodLock(input.bankDate);
   for (const d of sliceDates) {
     await checkPeriodLock(d);
@@ -1236,7 +1226,7 @@ export async function convertVerifikatToPeriodisering(
 
     const huvud = await client.query<{ id: number }>(
       "INSERT INTO transactions (date, description, bank_event_id, periodisering_kind) VALUES ($1, $2, $3, 'periodisering') RETURNING id",
-      [input.bankDate.toISOString(), input.description, source.bankEventId]
+      [input.bankDate, input.description, source.bankEventId]
     );
     const huvudTxnId = huvud.rows[0].id;
     await insertPosts(client, huvudTxnId, huvudPosts);
@@ -1249,7 +1239,7 @@ export async function convertVerifikatToPeriodisering(
     for (let i = 0; i < slices.length; i++) {
       const lankat = await client.query<{ id: number }>(
         "INSERT INTO transactions (date, description, periodisering_parent_id) VALUES ($1, $2, $3) RETURNING id",
-        [sliceDates[i].toISOString(), input.description, huvudTxnId]
+        [sliceDates[i], input.description, huvudTxnId]
       );
       await insertPosts(client, lankat.rows[0].id, slices[i]);
     }
@@ -1297,12 +1287,12 @@ export async function updatePeriodisering(
     input.antalManader
   );
 
-  const sliceDates = slices.map((_, i) => addMonthsUTC(input.bankDate, i));
+  const sliceDates = slices.map((_, i) => laggTillManader(input.bankDate, i));
 
   // Every month in the existing span and the new span must be unlocked.
-  await checkPeriodLock(new Date(huvud.date));
+  await checkPeriodLock(huvud.date);
   for (const c of children) {
-    await checkPeriodLock(new Date(c.date));
+    await checkPeriodLock(c.date);
   }
   await checkPeriodLock(input.bankDate);
   for (const d of sliceDates) {
@@ -1313,7 +1303,7 @@ export async function updatePeriodisering(
     // Rewrite huvud (keeps its bank event link).
     await client.query(
       "UPDATE transactions SET date = $1, description = $2 WHERE id = $3",
-      [input.bankDate.toISOString(), input.description, huvudId]
+      [input.bankDate, input.description, huvudId]
     );
     await client.query("DELETE FROM posts WHERE transaction_id = $1", [huvudId]);
     await insertPosts(client, huvudId, huvudPosts);
@@ -1326,7 +1316,7 @@ export async function updatePeriodisering(
     for (let i = 0; i < slices.length; i++) {
       const lankat = await client.query<{ id: number }>(
         "INSERT INTO transactions (date, description, periodisering_parent_id) VALUES ($1, $2, $3) RETURNING id",
-        [sliceDates[i].toISOString(), input.description, huvudId]
+        [sliceDates[i], input.description, huvudId]
       );
       await insertPosts(client, lankat.rows[0].id, slices[i]);
     }
@@ -1353,9 +1343,9 @@ export async function deletePeriodisering(huvudId: number): Promise<void> {
     throw createActionError("VALIDATION", "Verifikatet är inte en periodisering.");
   }
 
-  await checkPeriodLock(new Date(huvud.date));
+  await checkPeriodLock(huvud.date);
   for (const c of children) {
-    await checkPeriodLock(new Date(c.date));
+    await checkPeriodLock(c.date);
   }
 
   await dbTransaction(async (client) => {
@@ -1375,7 +1365,7 @@ export type PeriodiseringDetails = {
   huvudId: number;
   bankEventId?: number;
   description: string;
-  bankDate: Date;
+  bankDate: Datum;
   antalManader: number;
   anchorAccountId: number;
   periodiseringskontoId: number;
@@ -1490,7 +1480,7 @@ export async function getPeriodiseringForHuvud(
     huvudId: huvud.id,
     bankEventId: huvud.bank_event_id ?? undefined,
     description: huvud.description,
-    bankDate: new Date(huvud.date),
+    bankDate: huvud.date,
     antalManader: children.length,
     anchorAccountId: anchorRow?.account_id ?? -1,
     periodiseringskontoId,
@@ -1507,8 +1497,8 @@ export type PeriodiseringOversiktRad = {
   total: number;
   avdraget: number;
   kvar: number;
-  startDate: Date;
-  slutDate: Date;
+  startDate: Datum;
+  slutDate: Datum;
   antalManader: number;
 };
 
@@ -1516,10 +1506,8 @@ export async function getPeriodiseringarOversikt(
   year: number,
   month: number
 ): Promise<PeriodiseringOversiktRad[]> {
-  const periodStart = new Date(Date.UTC(year, month - 1, 1));
-  const periodEnd = new Date(Date.UTC(year, month, 0));
-  const periodEndKey = periodEnd.toISOString().slice(0, 10);
-  const periodStartKey = periodStart.toISOString().slice(0, 10);
+  const periodStartKey = nyttDatum(year, month, 1);
+  const periodEndKey = sistaIManad(periodStartKey);
 
   const huvudRows = await queryAll<{ id: number; description: string }>(
     "SELECT id, description FROM transactions WHERE periodisering_kind = 'periodisering'"
@@ -1599,13 +1587,13 @@ export async function getPeriodiseringarOversikt(
       total: Math.round(total * 100) / 100,
       avdraget: Math.round(avdraget * 100) / 100,
       kvar: Math.round((total - avdraget) * 100) / 100,
-      startDate: new Date(start),
-      slutDate: new Date(slut),
+      startDate: start.slice(0, 10),
+      slutDate: slut.slice(0, 10),
       antalManader: own.length,
     });
   }
 
-  rows.sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
+  rows.sort((a, b) => a.startDate.localeCompare(b.startDate));
   return rows;
 }
 
@@ -1834,9 +1822,8 @@ export async function getAccountBalances(
   groupType: AccountType;
   balance: number;
 }[]> {
-  // Calculate start and end dates for the month
-  const startDate = new Date(year, month - 1, 1);
-  const endDate = new Date(year, month, 0, 23, 59, 59);
+  const startDate = nyttDatum(year, month, 1);
+  const endDate = sistaIManad(startDate);
 
   const rows = await queryAll<{
     account_id: number;
@@ -1877,7 +1864,7 @@ export async function getAccountBalances(
     GROUP BY a.id, a.namn, g.id, g.namn, g.typ
     ORDER BY g.typ, g.namn, a.namn
   `,
-    [endDate.toISOString(), startDate.toISOString()]
+    [endDate, startDate]
   );
 
   return rows.map((row) => {
@@ -2033,14 +2020,14 @@ export async function getAccountTransactionsForPeriod(
   month: number
 ): Promise<{
   verifikatId: number;
-  date: Date;
+  date: Datum;
   description: string;
   postDebet: number;
   postKredit: number;
   postDescription: string | null;
 }[]> {
-  const startDate = new Date(year, month - 1, 1);
-  const endDate = new Date(year, month, 0, 23, 59, 59);
+  const startDate = nyttDatum(year, month, 1);
+  const endDate = sistaIManad(startDate);
 
   const rows = await queryAll<{
     transaction_id: number;
@@ -2065,12 +2052,12 @@ export async function getAccountTransactionsForPeriod(
       AND t.date <= $3
     ORDER BY t.date DESC, t.id DESC
   `,
-    [accountId, startDate.toISOString(), endDate.toISOString()]
+    [accountId, startDate, endDate]
   );
 
   return rows.map((row) => ({
     verifikatId: row.transaction_id,
-    date: new Date(row.date),
+    date: row.date,
     description: row.description,
     postDebet: Number(row.post_debet),
     postKredit: Number(row.post_kredit),
@@ -2122,7 +2109,7 @@ export async function findReconciliationMatches(
   maxPosts = 3,
   maxResults = 50
 ): Promise<ReconciliationResult> {
-  const endDate = new Date(year, month, 0, 23, 59, 59);
+  const endDate = sistaIManad(nyttDatum(year, month, 1));
 
   const rows = await queryAll<{
     transaction_id: number;
@@ -2152,7 +2139,7 @@ export async function findReconciliationMatches(
       AND t.date <= $2
     ORDER BY t.date DESC, t.id DESC
   `,
-    [accountId, endDate.toISOString()]
+    [accountId, endDate]
   );
 
   const reconciledThrough = rows[0]?.reconciled_through ?? null;
@@ -2307,10 +2294,10 @@ export async function findReconciliationMatches(
 // map from verifikat id to its role and its counterpart (for click-through).
 async function resolvePeriodiseringLinks(
   transactionIds: number[]
-): Promise<Map<number, { role: "huvud" | "lankat"; kind: "forskjutning" | "periodisering"; motpartVerifikatId: number; motpartDate: Date }>> {
+): Promise<Map<number, { role: "huvud" | "lankat"; kind: "forskjutning" | "periodisering"; motpartVerifikatId: number; motpartDate: Datum }>> {
   const result = new Map<
     number,
-    { role: "huvud" | "lankat"; kind: "forskjutning" | "periodisering"; motpartVerifikatId: number; motpartDate: Date }
+    { role: "huvud" | "lankat"; kind: "forskjutning" | "periodisering"; motpartVerifikatId: number; motpartDate: Datum }
   >();
   if (transactionIds.length === 0) return result;
 
@@ -2340,7 +2327,7 @@ async function resolvePeriodiseringLinks(
         role: "huvud",
         kind,
         motpartVerifikatId: row.child_id,
-        motpartDate: new Date(row.child_date),
+        motpartDate: row.child_date,
       });
     }
     if (loaded.has(row.child_id)) {
@@ -2348,7 +2335,7 @@ async function resolvePeriodiseringLinks(
         role: "lankat",
         kind,
         motpartVerifikatId: row.parent_id,
-        motpartDate: new Date(row.parent_date),
+        motpartDate: row.parent_date,
       });
     }
   }
@@ -2453,7 +2440,7 @@ async function mapVerifikatFromJoinRows(rows: TransactionJoinRow[]): Promise<Ver
     if (!verifikatMap.has(row.txn_id)) {
       verifikatMap.set(row.txn_id, {
         id: row.txn_id,
-        date: new Date(row.txn_date),
+        date: row.txn_date,
         description: row.txn_description,
         bankEventId: row.txn_bank_event_id ?? undefined,
         periodiseringParentId: row.txn_periodisering_parent_id ?? undefined,
@@ -2461,7 +2448,7 @@ async function mapVerifikatFromJoinRows(rows: TransactionJoinRow[]): Promise<Ver
         bankEvent: row.be_id
           ? {
               id: row.be_id,
-              date: new Date(row.be_date!),
+              date: row.be_date!,
               description: row.be_description!,
               amount: Number(row.be_amount),
               isPosted: row.be_is_posted === 1,
@@ -2744,7 +2731,7 @@ export async function getVerifikat(id: number): Promise<Verifikat | null> {
 
   return {
     id: txnRow.id,
-    date: new Date(txnRow.date),
+    date: txnRow.date,
     description: txnRow.description,
     bankEventId: txnRow.bank_event_id ?? undefined,
     periodiseringParentId: txnRow.periodisering_parent_id ?? undefined,
@@ -3147,7 +3134,7 @@ export async function forifyllKonteringsmall(
 export async function updateVerifikat(
   id: number,
   data: {
-    date: Date;
+    date: Datum;
     description: string;
     posts: Array<{
       id?: number;
@@ -3194,9 +3181,9 @@ export async function getPeriodLocks(): Promise<PeriodLock[]> {
   }));
 }
 
-export async function isPeriodLocked(date: Date): Promise<boolean> {
-  const year = date.getFullYear();
-  const month = date.getMonth() + 1;
+export async function isPeriodLocked(date: Datum): Promise<boolean> {
+  const year = datumAr(date);
+  const month = datumManad(date);
 
   const lock = await queryOne(
     "SELECT id FROM period_locks WHERE year = $1 AND month = $2",
@@ -3230,11 +3217,11 @@ export async function unlockPeriod(year: number, month: number): Promise<void> {
 }
 
 // Helper function to check if a transaction date is in a locked period
-async function checkPeriodLock(date: Date): Promise<void> {
+async function checkPeriodLock(date: Datum): Promise<void> {
   const isLocked = await isPeriodLocked(date);
   if (isLocked) {
-    const year = date.getFullYear();
-    const month = date.getMonth() + 1;
+    const year = datumAr(date);
+    const month = datumManad(date);
     throw createActionError(
       "LOCKED_PERIOD",
       `Kan inte ändra verifikat. Perioden ${year}-${String(month).padStart(2, "0")} är låst.`
@@ -3302,10 +3289,10 @@ export async function getRecurringItemsStatus(
   const activeItems = items.filter((item) => item.activeMonths.includes(month));
 
   // Calculate start and end dates for current and previous period
-  const currentStart = new Date(year, month - 1, 1);
-  const currentEnd = new Date(year, month, 0, 23, 59, 59);
-  const previousStart = new Date(year, month - 2, 1);
-  const previousEnd = new Date(year, month - 1, 0, 23, 59, 59);
+  const currentStart = nyttDatum(year, month, 1);
+  const currentEnd = sistaIManad(currentStart);
+  const previousStart = laggTillManader(currentStart, -1);
+  const previousEnd = sistaIManad(previousStart);
 
   const statuses: RecurringItemStatus[] = [];
 
@@ -3324,7 +3311,7 @@ export async function getRecurringItemsStatus(
       WHERE tri.recurring_item_id = $1
         AND t.date >= $2 AND t.date <= $3
       GROUP BY tri.transaction_id`,
-      [item.id, currentStart.toISOString(), currentEnd.toISOString()]
+      [item.id, currentStart, currentEnd]
     );
 
     // Get previous period transactions
@@ -3341,7 +3328,7 @@ export async function getRecurringItemsStatus(
       WHERE tri.recurring_item_id = $1
         AND t.date >= $2 AND t.date <= $3
       GROUP BY tri.transaction_id`,
-      [item.id, previousStart.toISOString(), previousEnd.toISOString()]
+      [item.id, previousStart, previousEnd]
     );
 
     const currentPeriodCount = currentTransactions.length;
@@ -3380,7 +3367,7 @@ export async function getRecurringItemsStatus(
 
     const recentUsages = recentRows.map((r) => ({
       verifikatId: r.transaction_id,
-      date: new Date(r.date),
+      date: r.date,
       description: r.description,
       amount: Number(r.total_amount),
     }));

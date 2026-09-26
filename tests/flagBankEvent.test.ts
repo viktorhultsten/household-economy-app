@@ -67,7 +67,7 @@ test("postVerifikat rensar flagga vid bokföring av bankhändelse", async () => 
   await postVerifikat(
     {
       mode: "create",
-      date: new Date("2026-03-15"),
+      date: "2026-03-15",
       description: "Flaggad händelse bokförd",
       bankEventId: 42,
       posts: [

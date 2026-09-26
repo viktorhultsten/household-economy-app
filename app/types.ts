@@ -1,3 +1,5 @@
+import type { Datum } from "./lib/datum";
+
 export type AccountType = "Intäkt" | "Utgift" | "Tillgång" | "Skuld";
 
 export interface Group {
@@ -23,8 +25,8 @@ export interface Import {
   filename: string;
   importedAt: Date;
   totalEvents: number;
-  dateRangeStart: Date;
-  dateRangeEnd: Date;
+  dateRangeStart: Datum;
+  dateRangeEnd: Datum;
   accountId?: number;
   account?: Account;
   postedEvents?: number; // Count of events that have been posted/booked
@@ -34,7 +36,7 @@ export interface Import {
 // Bank events from CSV import - raw bank movements
 export interface BankEvent {
   id: number;
-  date: Date;
+  date: Datum;
   description: string;
   amount: number;
   isPosted: boolean;
@@ -52,13 +54,13 @@ export interface PeriodiseringLink {
   role: "huvud" | "lankat";
   kind: "forskjutning" | "periodisering";
   motpartVerifikatId: number;
-  motpartDate: Date;
+  motpartDate: Datum;
 }
 
 // Accounting verifikat with balanced posts (double-entry bookkeeping unit)
 export interface Verifikat {
   id: number;
-  date: Date;
+  date: Datum;
   description: string;
   bankEventId?: number;
   bankEvent?: BankEvent; // Include full bank event for displaying original description
@@ -101,7 +103,7 @@ export interface RecurringItem {
 // A verifikat that used a recurring item (for context in the sidebar)
 export interface RecurringItemUsage {
   verifikatId: number;
-  date: Date;
+  date: Datum;
   description: string;
   amount: number;
 }

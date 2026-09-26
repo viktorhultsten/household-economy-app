@@ -16,10 +16,6 @@ import {
 
 const BATCH_SIZE = 25;
 
-function formatSwedishDate(date: Date): string {
-  return date.toLocaleDateString("sv-SE");
-}
-
 function formatSwedishAmount(amount: number): string {
   return amount.toLocaleString("sv-SE", {
     minimumFractionDigits: 2,
@@ -254,7 +250,7 @@ export default function BokforPage() {
                       <td className="whitespace-nowrap px-6 py-4 text-sm text-zinc-600 dark:text-zinc-400">
                         <div className="flex items-center gap-3">
                           <ForslagStatusPrick status={statusar?.[event.id] ?? null} />
-                          {formatSwedishDate(event.date)}
+                          {event.date}
                         </div>
                       </td>
                       <td className="px-6 py-4 text-sm text-zinc-900 dark:text-zinc-50">

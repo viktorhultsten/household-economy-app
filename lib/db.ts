@@ -1,4 +1,9 @@
-import { Pool } from "pg";
+import { Pool, types } from "pg";
+
+// Dagdatum (`date`) läses som text, "YYYY-MM-DD", och aldrig som `Date` — en
+// `Date` är en tidpunkt vars dag beror på tidszonen. Se app/lib/datum.ts.
+const DATE_OID = 1082;
+types.setTypeParser(DATE_OID, (value: string) => value);
 
 type QueryResultRow = Record<string, unknown>;
 type QueryResult<T extends QueryResultRow = QueryResultRow> = {

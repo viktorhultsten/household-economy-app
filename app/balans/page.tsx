@@ -15,6 +15,7 @@ import {
 import VerifikatForm from "../components/VerifikatForm";
 import PeriodSelector from "../components/PeriodSelector";
 import DateInput from "../components/DateInput";
+import type { Datum } from "../lib/datum";
 
 interface AccountBalance {
   accountId: number;
@@ -34,7 +35,7 @@ interface AccountBalance {
 
 interface AccountVerifikatEntry {
   verifikatId: number;
-  date: Date;
+  date: Datum;
   description: string;
   postDebet: number;
   postKredit: number;
@@ -46,10 +47,6 @@ function formatSwedishAmount(amount: number): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
-}
-
-function formatSwedishDate(date: Date): string {
-  return date.toLocaleDateString("sv-SE");
 }
 
 function getTypeColor(type: AccountType): string {
@@ -585,7 +582,7 @@ export default function BalansPage() {
                                                   </div>
                                                 )}
                                                 <div className="text-zinc-400 dark:text-zinc-500 mt-0.5">
-                                                  {formatSwedishDate(txn.date)}
+                                                  {txn.date}
                                                 </div>
                                               </div>
                                               <div className="font-medium tabular-nums text-zinc-900 dark:text-zinc-50">

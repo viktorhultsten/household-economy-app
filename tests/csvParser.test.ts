@@ -20,8 +20,8 @@ test("parseSwedishCSV returnerar events och rapporterar skippade rader", () => {
   assert.equal(result.events[0].amount, 12345.67);
   assert.equal(result.events[1].amount, -1234.5);
 
-  assert.equal(result.events[0].date.toISOString().slice(0, 10), "2026-01-31");
-  assert.equal(result.events[1].date.toISOString().slice(0, 10), "2026-03-05");
+  assert.equal(result.events[0].date, "2026-01-31");
+  assert.equal(result.events[1].date, "2026-03-05");
 
   assert.deepEqual(
     result.skippedRows.map((row) => ({ lineNumber: row.lineNumber, reason: row.reason })),

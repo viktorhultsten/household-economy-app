@@ -13,18 +13,19 @@ import { MallIndata } from "../lib/konteringsmallSida";
 import { Konteringsforslag, KonteringsforslagKort, forslagStatus } from "../lib/konteringsforslag";
 import { Forloppskarta, KoPilar, SegmentStatus, VyVaxlare } from "./BulkNavigering";
 import DateInput from "./DateInput";
+import { Datum, ar as datumAr, idag, manad as datumManad } from "../lib/datum";
 
 type PostInput = Omit<Post, "id" | "verifikatId">;
 
 // Serialize the editable state so we can detect unsaved changes (dirty state)
 function serializeFormState(
-  date: Date,
+  date: Datum,
   description: string,
   posts: PostInput[],
   recurringItemId: number | null
 ) {
   return JSON.stringify({
-    date: date.toISOString().slice(0, 10),
+    date,
     description,
     posts: posts.map((p) => ({
       accountId: p.accountId,
@@ -90,7 +91,7 @@ export default function VerifikatForm({
   const initialRecurringItemId = (!verifikat && initialForslag?.recurringItem?.id) || null;
   const [selectedRecurringItemId, setSelectedRecurringItemId] = useState<number | null>(initialRecurringItemId);
 
-  const initialDate = verifikat?.date || bankEvent?.date || new Date();
+  const initialDate: Datum = verifikat?.date || bankEvent?.date || idag();
   const initialDescription = verifikat?.description || bankEvent?.description || "";
   const initialPosts = useMemo<PostInput[]>(() => {
     // If editing, use existing posts
@@ -156,7 +157,7 @@ export default function VerifikatForm({
 
   // Periodförskjutning / periodisering state (see docs/adr/0008, 0009)
   const [periodMode, setPeriodMode] = useState<"none" | "forskjutning" | "periodisering">("none");
-  const [targetDate, setTargetDate] = useState<Date>(initialDate);
+  const [targetDate, setTargetDate] = useState<Datum>(initialDate);
   const [antalManader, setAntalManader] = useState(6);
   const [anchorAccountId, setAnchorAccountId] = useState<number>(
     bankEvent?.import?.accountId ?? 0
@@ -193,8 +194,8 @@ export default function VerifikatForm({
 
   useEffect(() => {
     async function loadData() {
-      const year = date.getFullYear();
-      const month = date.getMonth() + 1;
+      const year = datumAr(date);
+      const month = datumManad(date);
       const [accountsData, recurringItemsData] = await Promise.all([
         getAccounts(),
         getRecurringItemsStatus(year, month),
@@ -236,8 +237,8 @@ export default function VerifikatForm({
     async function checkPeriodLock() {
       const isLocked = await isPeriodLocked(date);
       if (isLocked) {
-        const year = date.getFullYear();
-        const month = date.getMonth() + 1;
+        const year = datumAr(date);
+        const month = datumManad(date);
         setPeriodLockWarning(
           `Perioden ${year}-${String(month).padStart(2, "0")} är låst. Du kan inte spara verifikat i denna period.`
         );
@@ -627,7 +628,7 @@ export default function VerifikatForm({
       }
       if (
         periodMode === "forskjutning" &&
-        targetDate.toISOString().slice(0, 10) === date.toISOString().slice(0, 10)
+        targetDate === date
       ) {
         setError("Måldatumet måste skilja sig från bankhändelsens datum.");
         return;
@@ -1017,9 +1018,9 @@ export default function VerifikatForm({
                 Datum
               </label>
               <DateInput
-                value={date.toISOString().split("T")[0]}
+                value={date}
                 onChange={(v) => {
-                  if (v) setDate(new Date(v));
+                  if (v) setDate(v);
                 }}
                 required
                 ariaLabel="Datum"
@@ -1098,9 +1099,9 @@ export default function VerifikatForm({
                           Måldatum (period att flytta till)
                         </label>
                         <DateInput
-                          value={targetDate.toISOString().split("T")[0]}
+                          value={targetDate}
                           onChange={(v) => {
-                            if (v) setTargetDate(new Date(v));
+                            if (v) setTargetDate(v);
                           }}
                           ariaLabel="Måldatum"
                         />
@@ -1605,7 +1606,7 @@ export default function VerifikatForm({
                           className="flex items-baseline justify-between gap-2 text-xs text-zinc-600 dark:text-zinc-400"
                         >
                           <span className="tabular-nums shrink-0 text-zinc-500 dark:text-zinc-500">
-                            {usage.date.toLocaleDateString("sv-SE")}
+                            {usage.date}
                           </span>
                           <span className="truncate flex-1 min-w-0">
                             {usage.description}

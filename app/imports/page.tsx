@@ -7,10 +7,6 @@ import { getImports, getImportWithEvents, deleteImport, saveBankEvents, unmarkBa
 import ImportModal from "../components/ImportModal";
 import ConfirmModal from "../components/ConfirmModal";
 
-function formatSwedishDate(date: Date): string {
-  return date.toLocaleDateString("sv-SE");
-}
-
 function formatSwedishDateTime(date: Date): string {
   return date.toLocaleString("sv-SE", {
     year: "numeric",
@@ -176,8 +172,8 @@ export default function ImporterPage() {
                         </div>
                         <div>
                           <span className="font-medium">Datumspann:</span>{" "}
-                          {formatSwedishDate(imp.dateRangeStart)} -{" "}
-                          {formatSwedishDate(imp.dateRangeEnd)}
+                          {imp.dateRangeStart} -{" "}
+                          {imp.dateRangeEnd}
                         </div>
                       </div>
                     </div>
@@ -236,7 +232,7 @@ export default function ImporterPage() {
                           </thead>
                           <tbody className="divide-y divide-zinc-200 dark:divide-zinc-700">
                             {[...expandedEvents]
-                              .sort((a, b) => b.date.getTime() - a.date.getTime())
+                              .sort((a, b) => b.date.localeCompare(a.date))
                               .map((event) => (
                               <tr
                                 key={event.id}
@@ -247,7 +243,7 @@ export default function ImporterPage() {
                                 }
                               >
                                 <td className="whitespace-nowrap px-6 py-4 text-sm text-zinc-600 dark:text-zinc-400">
-                                  {formatSwedishDate(event.date)}
+                                  {event.date}
                                 </td>
                                 <td className="px-6 py-4 text-sm text-zinc-900 dark:text-zinc-50">
                                   {event.description}
