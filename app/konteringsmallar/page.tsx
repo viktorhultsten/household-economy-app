@@ -11,6 +11,7 @@ import {
   getMallanalysKorningar,
   getRecurringItems,
   inaktiveraKonteringsmall,
+  korMallanalysNu,
   lasUppKonteringsmall,
   raderaKonteringsmall,
 } from "../actions";
@@ -89,6 +90,7 @@ export default function KonteringsmallarPage() {
   const [bekraftelse, setBekraftelse] = useState<Bekraftelse | null>(null);
   const [fel, setFel] = useState("");
   const [markerad, setMarkerad] = useState<number | null>(null);
+  const [korAnalysPagar, setKorAnalysPagar] = useState(false);
 
   const visa = useCallback((data: Siddata) => {
     setMallar(data.mallar);
@@ -152,6 +154,18 @@ export default function KonteringsmallarPage() {
         await ladda();
       },
     });
+
+  // Utfallet, även ett misslyckande, syns i panelen när sidan laddats om.
+  const korAnalys = async () => {
+    setKorAnalysPagar(true);
+    try {
+      await korMallanalysNu();
+    } catch (err) {
+      setFel(felmeddelande(err, "Mallanalysen kunde inte köras"));
+    }
+    await ladda();
+    setKorAnalysPagar(false);
+  };
 
   const kortProps = (m: KonteringsmallVy): MallKortProps => ({
     mall: m,
@@ -229,7 +243,7 @@ export default function KonteringsmallarPage() {
           historiken; låsta mallar ändras bara av dig.
         </p>
 
-        <MallanalysPanel korningar={korningar} />
+        <MallanalysPanel korningar={korningar} onKor={korAnalys} kor={korAnalysPagar} />
 
         <section className="mb-10">
           <h2 className="mb-3 text-lg font-semibold text-zinc-900 dark:text-zinc-50">

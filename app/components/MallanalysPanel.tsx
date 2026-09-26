@@ -81,17 +81,44 @@ function TidigareKorning({ korning }: { korning: MallanalysKorning }) {
   );
 }
 
-/** Senaste mallanalysen, vad den kom fram till och tidigare körningar. */
-export default function MallanalysPanel({ korningar }: { korningar: MallanalysKorning[] }) {
+function KorKnapp({ onKor, kor }: { onKor: () => void; kor: boolean }) {
+  return (
+    <button
+      onClick={onKor}
+      disabled={kor}
+      className="ml-auto rounded-md bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 hover:bg-zinc-200 disabled:cursor-wait disabled:opacity-60 dark:bg-zinc-700 dark:text-zinc-50 dark:hover:bg-zinc-600"
+    >
+      {kor ? "Kör…" : "Kör nu"}
+    </button>
+  );
+}
+
+/**
+ * Senaste mallanalysen, vad den kom fram till och tidigare körningar.
+ * `onKor` kör en analys direkt; `kor` är sann medan den pågår.
+ */
+export default function MallanalysPanel({
+  korningar,
+  onKor,
+  kor,
+}: {
+  korningar: MallanalysKorning[];
+  onKor: () => void;
+  kor: boolean;
+}) {
   const [visaHistorik, setVisaHistorik] = useState(false);
   const [senaste, ...tidigare] = korningar;
 
   if (!senaste) {
     return (
       <section className="mb-10 rounded-lg bg-white p-5 shadow dark:bg-zinc-800">
-        <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Mallanalys</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Mallanalys</h2>
+          <KorKnapp onKor={onKor} kor={kor} />
+        </div>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          Mallanalysen har inte körts ännu. Den körs varje natt och härleder mallar ur historiken.
+          Mallanalysen har inte körts ännu. Den körs varje natt och härleder mallar ur historiken, eller
+          direkt med Kör nu.
         </p>
       </section>
     );
@@ -104,6 +131,7 @@ export default function MallanalysPanel({ korningar }: { korningar: MallanalysKo
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Mallanalys</h2>
         <StatusEtikett status={senaste.status} />
+        <KorKnapp onKor={onKor} kor={kor} />
       </div>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
         {senaste.status === "pagar" ? "Pågår sedan" : "Senast körd"} {senaste.startad}

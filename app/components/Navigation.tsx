@@ -15,7 +15,6 @@ export default function Navigation() {
     { href: "/budget", label: "Budget" },
     { href: "/periodiseringar", label: "Periodiseringar" },
     { href: "/recurring", label: "Återkommande" },
-    { href: "/konteringsmallar", label: "Mallar" },
     { href: "/settings", label: "Inställningar" },
   ];
 

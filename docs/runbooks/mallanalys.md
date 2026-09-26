@@ -44,9 +44,15 @@ Konfiguration (miljövariabler i `docker-compose.yml`, kan sättas i `.env`):
 | `TZ` | `Europe/Stockholm` | Tidszonen klockslaget och statistikens datum tolkas i. |
 
 Tjänsten kör inte vid start, bara vid klockslaget. Missas en natt (t.ex. för att
-maskinen var avstängd) körs nästa natt som vanligt, eller kör manuellt.
+maskinen var avstängd) körs nästa natt som vanligt, eller kör manuellt. Efter en
+ny installation är mallarna tomma tills första körningen, så kör den manuellt.
 
 ## Manuell körning
+
+Enklast är knappen **Kör nu** i panelen Mallanalys på mallsidan
+(Inställningar → Mallar). Den kör analysen i appen mot samma databas.
+
+Från kommandoraden:
 
 ```bash
 npm run mallar:analys:dev    # mot dev-databasen economy_dev

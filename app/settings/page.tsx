@@ -14,9 +14,15 @@ export default function InstallningarPage() {
             Hantera
           </h2>
           <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-4">
-            Hantera konton och perioder.
+            Hantera mallar, konton och perioder.
           </p>
           <div className="flex flex-wrap gap-3">
+            <Link
+              href="/konteringsmallar"
+              className="inline-block px-4 py-2 text-sm font-medium rounded-md transition-colors bg-zinc-100 text-zinc-900 hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-50 dark:hover:bg-zinc-600"
+            >
+              Mallar
+            </Link>
             <Link
               href="/accounts"
               className="inline-block px-4 py-2 text-sm font-medium rounded-md transition-colors bg-zinc-100 text-zinc-900 hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-50 dark:hover:bg-zinc-600"

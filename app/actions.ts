@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { queryAll, queryOne, query, transaction as dbTransaction, getDatabase } from "@/lib/db";
 import { hamtaHistorik, hamtaKonton, hamtaMallar } from "@/lib/konteringsmallData";
+import { Korningsutfall, korMallanalys } from "@/lib/mallanalys";
 import { BankEvent, Verifikat, Post, Account, Group, Import, AccountType, PeriodLock, RecurringItem, RecurringItemStatus, Budget, BudgetComparison, CustomResultView, CustomResultViewWithDetails, DashboardOverview, DashboardMonth, DashboardMonthDetail, BudgetOutlier, DashboardTopExpense, Todo, AccountAnalysis, AccountAnalysisMonth } from "./types";
 import { byggKonteringsforslag, Konteringsforslag } from "./lib/konteringsforslag";
 import { formaterare, tillObservationer } from "./lib/konteringsmallHarledning";
@@ -2871,6 +2872,20 @@ export async function getMallanalysKorningar(antal = 30): Promise<MallanalysKorn
       .filter((a) => a.korningId === k.id)
       .map(({ id, mallId, mallnamn, mallStatus, andring }) => ({ id, mallId, mallnamn, mallStatus, andring })),
   }));
+}
+
+/**
+ * Kör mallanalysen direkt, som den nattliga körningen. Pågår redan en körning
+ * loggas den här som misslyckad; utfallet syns i körningsloggen.
+ */
+export async function korMallanalysNu(): Promise<Korningsutfall> {
+  // Dagens datum i samma tidszon som den nattliga tjänsten.
+  const idag = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: process.env.TZ || "Europe/Stockholm",
+  }).format(new Date());
+  const utfall = await korMallanalys(getDatabase(), idag);
+  revalidatePath("/konteringsmallar");
+  return utfall;
 }
 
 /**
