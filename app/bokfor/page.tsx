@@ -5,7 +5,14 @@ import Link from "next/link";
 import { BankEvent } from "../types";
 import VerifikatForm from "../components/VerifikatForm";
 import BulkBokforingVy from "../components/BulkBokforingVy";
-import { getUnpostedBankEventsPaginated, markBankEventIrrelevant } from "../actions";
+import ForslagStatusPrick from "../components/ForslagStatusPrick";
+import { ForslagStatus, KonteringsforslagKort } from "../lib/konteringsforslag";
+import {
+  getBankhandelseStatusar,
+  getSakraBankhandelser,
+  getUnpostedBankEventsPaginated,
+  markBankEventIrrelevant,
+} from "../actions";
 
 const BATCH_SIZE = 25;
 
@@ -29,11 +36,28 @@ export default function BokforPage() {
   const [showManualVerifikatForm, setShowManualVerifikatForm] = useState(false);
   const [showBulkVy, setShowBulkVy] = useState(false);
   const [bulkQueue, setBulkQueue] = useState<BankEvent[]>([]);
+  // Satt när kön består av säkra händelser att godkänna.
+  const [sakraForslag, setSakraForslag] = useState<Map<number, KonteringsforslagKort> | undefined>();
+  const [oppnarSakra, setOppnarSakra] = useState(false);
+  // Appens bedömning per obokförd händelse; null medan den körs.
+  const [statusar, setStatusar] = useState<Record<number, ForslagStatus> | null>(null);
+  const [antalSakra, setAntalSakra] = useState(0);
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const loadingRef = useRef(false);
 
   const hasMore = events.length < total;
+
+  // Bedömningen hänger på historiken, så den körs om efter varje ändring.
+  const laddaStatusar = useCallback(async () => {
+    const { status, antalSakra: n } = await getBankhandelseStatusar();
+    setStatusar(status);
+    setAntalSakra(n);
+  }, []);
+
+  useEffect(() => {
+    laddaStatusar();
+  }, [laddaStatusar]);
 
   // Initial load
   useEffect(() => {
@@ -84,12 +108,14 @@ export default function BokforPage() {
     const { events: data, total: t } = await getUnpostedBankEventsPaginated(windowSize, 0);
     setEvents(data);
     setTotal(t);
-  }, [events.length]);
+    laddaStatusar();
+  }, [events.length, laddaStatusar]);
 
   const handleFlagChange = useCallback(async (updatedEvent: BankEvent) => {
     setSelectedEvent(updatedEvent);
     setEvents((prev) => prev.map((e) => (e.id === updatedEvent.id ? updatedEvent : e)));
-  }, []);
+    laddaStatusar();
+  }, [laddaStatusar]);
 
   const handleMarkIrrelevant = useCallback(async (eventId: number) => {
     await markBankEventIrrelevant(eventId);
@@ -97,21 +123,42 @@ export default function BokforPage() {
     const { events: data, total: t } = await getUnpostedBankEventsPaginated(windowSize, 0);
     setEvents(data);
     setTotal(t);
-  }, [events.length]);
+    laddaStatusar();
+  }, [events.length, laddaStatusar]);
 
   const handleBulkOpen = useCallback(() => {
+    setSakraForslag(undefined);
     setBulkQueue(events.filter((e) => !e.flagged).slice(0, BATCH_SIZE));
     setShowBulkVy(true);
   }, [events]);
 
+  // Kön hämtas på nytt vid öppning, så att den speglar aktuell bedömning.
+  const handleSakraOpen = useCallback(async () => {
+    setOppnarSakra(true);
+    try {
+      const sakra = await getSakraBankhandelser(BATCH_SIZE);
+      if (sakra.length === 0) {
+        laddaStatusar();
+        return;
+      }
+      setSakraForslag(new Map(sakra.map((s) => [s.event.id, s.forslag])));
+      setBulkQueue(sakra.map((s) => s.event));
+      setShowBulkVy(true);
+    } finally {
+      setOppnarSakra(false);
+    }
+  }, [laddaStatusar]);
+
   const handleBulkClose = useCallback(async () => {
     setShowBulkVy(false);
     setBulkQueue([]);
+    setSakraForslag(undefined);
     const windowSize = Math.max(BATCH_SIZE, events.length);
     const { events: data, total: t } = await getUnpostedBankEventsPaginated(windowSize, 0);
     setEvents(data);
     setTotal(t);
-  }, [events.length]);
+    laddaStatusar();
+  }, [events.length, laddaStatusar]);
 
   if (initialLoading) {
     return (
@@ -129,6 +176,15 @@ export default function BokforPage() {
             Bankhändelser
           </h1>
           <div className="flex items-center gap-3">
+            {antalSakra > 0 && (
+              <button
+                onClick={handleSakraOpen}
+                disabled={oppnarSakra}
+                className="rounded-md bg-green-700 px-4 py-2 text-sm font-semibold text-white hover:bg-green-800 disabled:opacity-60 dark:bg-green-600 dark:hover:bg-green-500"
+              >
+                Godkänn {Math.min(antalSakra, BATCH_SIZE)} säkra
+              </button>
+            )}
             {total > 0 && (
               <button
                 onClick={handleBulkOpen}
@@ -196,7 +252,10 @@ export default function BokforPage() {
                       className="hover:bg-zinc-50 dark:hover:bg-zinc-700/50 cursor-pointer"
                     >
                       <td className="whitespace-nowrap px-6 py-4 text-sm text-zinc-600 dark:text-zinc-400">
-                        {formatSwedishDate(event.date)}
+                        <div className="flex items-center gap-3">
+                          <ForslagStatusPrick status={statusar?.[event.id] ?? null} />
+                          {formatSwedishDate(event.date)}
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-sm text-zinc-900 dark:text-zinc-50">
                         <div>
@@ -290,6 +349,7 @@ export default function BokforPage() {
       {showBulkVy && (
         <BulkBokforingVy
           queue={bulkQueue}
+          sakraForslag={sakraForslag}
           onClose={handleBulkClose}
         />
       )}

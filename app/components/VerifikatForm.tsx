@@ -10,7 +10,8 @@ import Link from "next/link";
 import KonteringsforslagCard, { KonteringsforslagCardSkeleton, KonteringsforslagTomRuta } from "./KonteringsforslagCard";
 import KonteringsmallFormModal from "./KonteringsmallFormModal";
 import { MallIndata } from "../lib/konteringsmallSida";
-import { Konteringsforslag, KonteringsforslagKort } from "../lib/konteringsforslag";
+import { Konteringsforslag, KonteringsforslagKort, forslagStatus } from "../lib/konteringsforslag";
+import { Forloppskarta, KoPilar, SegmentStatus, VyVaxlare } from "./BulkNavigering";
 import DateInput from "./DateInput";
 
 type PostInput = Omit<Post, "id" | "verifikatId">;
@@ -41,8 +42,10 @@ interface BulkNavProps {
   isSaved: boolean;
   onNavigate: (direction: -1 | 1) => void;
   onSaved: (verifikatId: number) => Promise<void>;
-  segments: Array<"saved" | "flagged" | "pending">;
+  segments: SegmentStatus[];
   onJump: (index: number) => void;
+  /** Växla till den förenklade vyn — bara när säkra händelser godkänns. */
+  onVaxlaVy?: () => void;
 }
 
 interface VerifikatFormProps {
@@ -53,6 +56,8 @@ interface VerifikatFormProps {
   onFlagChange?: (updated: BankEvent) => void;
   bulkNav?: BulkNavProps;
   onOpenVerifikat?: (verifikatId: number) => void;
+  /** Förslag som fyller formuläret från start, som om det valts. */
+  initialForslag?: KonteringsforslagKort;
 }
 
 export default function VerifikatForm({
@@ -63,6 +68,7 @@ export default function VerifikatForm({
   onFlagChange,
   bulkNav,
   onOpenVerifikat,
+  initialForslag,
 }: VerifikatFormProps) {
   const isEditing = !!verifikat;
   const verifikatBankEvent = verifikat?.bankEvent || bankEvent;
@@ -81,7 +87,8 @@ export default function VerifikatForm({
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [recurringItems, setRecurringItems] = useState<RecurringItemStatus[]>([]);
   const [recurringLoaded, setRecurringLoaded] = useState(false);
-  const [selectedRecurringItemId, setSelectedRecurringItemId] = useState<number | null>(null);
+  const initialRecurringItemId = (!verifikat && initialForslag?.recurringItem?.id) || null;
+  const [selectedRecurringItemId, setSelectedRecurringItemId] = useState<number | null>(initialRecurringItemId);
 
   const initialDate = verifikat?.date || bankEvent?.date || new Date();
   const initialDescription = verifikat?.description || bankEvent?.description || "";
@@ -93,6 +100,15 @@ export default function VerifikatForm({
         debet: Number(post.debet) || 0,
         kredit: Number(post.kredit) || 0,
         description: post.description || "",
+      }));
+    }
+
+    if (initialForslag) {
+      return initialForslag.rader.map((r) => ({
+        accountId: r.accountId,
+        debet: r.debet,
+        kredit: r.kredit,
+        description: "",
       }));
     }
 
@@ -118,14 +134,14 @@ export default function VerifikatForm({
         description: "",
       },
     ];
-  }, [bankEvent, verifikat]);
+  }, [bankEvent, verifikat, initialForslag]);
 
   const [date, setDate] = useState(initialDate);
   const [description, setDescription] = useState(initialDescription);
   const [posts, setPosts] = useState<PostInput[]>(initialPosts);
   // Baseline snapshot for dirty detection; updated once async edit data loads
   const [baseline, setBaseline] = useState(() =>
-    serializeFormState(initialDate, initialDescription, initialPosts, null)
+    serializeFormState(initialDate, initialDescription, initialPosts, initialRecurringItemId)
   );
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
@@ -166,6 +182,7 @@ export default function VerifikatForm({
 
   const [pendingNavDirection, setPendingNavDirection] = useState<-1 | 1 | null>(null);
   const [pendingNavIndex, setPendingNavIndex] = useState<number | null>(null);
+  const [pendingVaxlaVy, setPendingVaxlaVy] = useState(false);
 
   // Store raw input strings for debit/credit fields to allow typing commas
   const [debetInputs, setDebetInputs] = useState<{ [key: number]: string }>({});
@@ -204,7 +221,7 @@ export default function VerifikatForm({
   useEffect(() => {
     if (isEditing || !bankEvent) return;
     let aktuell = true;
-    setAnvantForslag(null);
+    setAnvantForslag(initialForslag?.nyckel ?? null);
     setForslag(null);
     getKonteringsforslag(bankEvent.id).then((resultat) => {
       // Bulkbokföringen kan ha bläddrat vidare innan svaret kom
@@ -213,7 +230,7 @@ export default function VerifikatForm({
     return () => {
       aktuell = false;
     };
-  }, [bankEvent, isEditing]);
+  }, [bankEvent, isEditing, initialForslag]);
 
   useEffect(() => {
     async function checkPeriodLock() {
@@ -396,6 +413,15 @@ export default function VerifikatForm({
       setShowCloseConfirm(true);
     } else {
       bulkNav?.onJump(index);
+    }
+  };
+
+  const attemptVaxlaVy = () => {
+    if (isDirty) {
+      setPendingVaxlaVy(true);
+      setShowCloseConfirm(true);
+    } else {
+      bulkNav?.onVaxlaVy?.();
     }
   };
 
@@ -833,6 +859,11 @@ export default function VerifikatForm({
               )}
             </h2>
             <div className="flex items-center gap-1">
+              {bulkNav?.onVaxlaVy && (
+                <div className="mr-3">
+                  <VyVaxlare vy="vanlig" onVaxla={attemptVaxlaVy} />
+                </div>
+              )}
               {bankEvent && !isEditing && !bulkNav && (
                 <button
                   type="button"
@@ -944,7 +975,7 @@ export default function VerifikatForm({
                     <KonteringsforslagCard
                       key={f.nyckel}
                       forslag={f}
-                      saker={forslag.scenario === "saker"}
+                      saker={forslagStatus(forslag) === "saker"}
                       currentDescription={bankEvent.description}
                       anvant={anvantForslag === f.nyckel}
                       onApply={() => applyForslag(f)}
@@ -952,7 +983,7 @@ export default function VerifikatForm({
                   ))}
                 </div>
               ) : (
-                <KonteringsforslagTomRuta>
+                <KonteringsforslagTomRuta ton={forslagStatus(forslag) === "val" ? "val" : "neutral"}>
                   {forslag.inaktiveradeMallar.length > 0 ? (
                     <>
                       Matchar den inaktiverade{" "}
@@ -1360,29 +1391,12 @@ export default function VerifikatForm({
 
           {/* Sammanfattningssektion — alltid längst ner */}
           <div className="shrink-0 border-t border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-6 py-4 space-y-4">
-          {bulkNav && bulkNav.segments.length > 1 && (
-            <div className="flex gap-0.5" role="group" aria-label="Förloppskarta">
-              {bulkNav.segments.map((status, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => attemptJump(i)}
-                  aria-label={`Gå till händelse ${i + 1}`}
-                  aria-current={i === bulkNav.currentIndex ? "true" : undefined}
-                  className={[
-                    "flex-1 min-w-[6px] h-2 rounded-sm transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-700 dark:focus-visible:ring-zinc-300",
-                    status === "saved"
-                      ? "bg-green-500"
-                      : status === "flagged"
-                      ? "bg-white border border-zinc-300 dark:bg-zinc-300 dark:border-zinc-400"
-                      : "bg-amber-400",
-                    i === bulkNav.currentIndex
-                      ? "ring-2 ring-zinc-700 dark:ring-zinc-100 ring-offset-1 ring-offset-white dark:ring-offset-zinc-800"
-                      : "opacity-70 hover:opacity-100",
-                  ].join(" ")}
-                />
-              ))}
-            </div>
+          {bulkNav && (
+            <Forloppskarta
+              segments={bulkNav.segments}
+              currentIndex={bulkNav.currentIndex}
+              onJump={attemptJump}
+            />
           )}
           <div className="flex gap-3 justify-between">
             <div className="flex items-center gap-3">
@@ -1405,29 +1419,12 @@ export default function VerifikatForm({
                 </Link>
               )}
               {bulkNav && (
-                <div className="flex items-center gap-1.5 text-sm text-zinc-600 dark:text-zinc-400">
-                  <button
-                    type="button"
-                    onClick={() => attemptNavigate(-1)}
-                    disabled={bulkNav.currentIndex === 0 || loading}
-                    className="px-2 py-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed text-lg leading-none"
-                    aria-label="Föregående händelse"
-                  >
-                    ‹
-                  </button>
-                  <span className="tabular-nums select-none">
-                    {bulkNav.currentIndex + 1} av {bulkNav.total}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => attemptNavigate(1)}
-                    disabled={bulkNav.currentIndex === bulkNav.total - 1 || loading}
-                    className="px-2 py-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed text-lg leading-none"
-                    aria-label="Nästa händelse"
-                  >
-                    ›
-                  </button>
-                </div>
+                <KoPilar
+                  currentIndex={bulkNav.currentIndex}
+                  total={bulkNav.total}
+                  disabled={loading}
+                  onNavigate={attemptNavigate}
+                />
               )}
             </div>
             <div className="flex gap-3">
@@ -1751,16 +1748,27 @@ export default function VerifikatForm({
         <ConfirmModal
           title="Kasta osparade ändringar?"
           message={
-            pendingNavDirection !== null || pendingNavIndex !== null
+            pendingVaxlaVy
+              ? "Du har osparade ändringar. Vill du byta till den förenklade vyn utan att spara?"
+              : pendingNavDirection !== null || pendingNavIndex !== null
               ? "Du har osparade ändringar. Vill du bläddra vidare utan att spara?"
               : "Du har ändringar som inte sparats. Vill du stänga utan att spara?"
           }
-          confirmText={pendingNavDirection !== null || pendingNavIndex !== null ? "Bläddra vidare" : "Stäng utan att spara"}
+          confirmText={
+            pendingVaxlaVy
+              ? "Byt vy"
+              : pendingNavDirection !== null || pendingNavIndex !== null
+              ? "Bläddra vidare"
+              : "Stäng utan att spara"
+          }
           cancelText="Fortsätt redigera"
           variant="warning"
           onConfirm={() => {
             setShowCloseConfirm(false);
-            if (pendingNavDirection !== null) {
+            if (pendingVaxlaVy) {
+              setPendingVaxlaVy(false);
+              bulkNav?.onVaxlaVy?.();
+            } else if (pendingNavDirection !== null) {
               const dir = pendingNavDirection;
               setPendingNavDirection(null);
               bulkNav?.onNavigate(dir);
@@ -1776,6 +1784,7 @@ export default function VerifikatForm({
             setShowCloseConfirm(false);
             setPendingNavDirection(null);
             setPendingNavIndex(null);
+            setPendingVaxlaVy(false);
           }}
         />
       )}

@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { byggKonteringsforslag, ForslagKontext } from "../app/lib/konteringsforslag";
+import {
+  byggKonteringsforslag,
+  byggKonteringsforslagForAlla,
+  ForslagKontext,
+  forslagStatus,
+} from "../app/lib/konteringsforslag";
 import { tokeniseAlpha } from "../app/lib/konteringsforslagUtils";
 import { HistoriskHandelse, KontoInfo, tillObservationer } from "../app/lib/konteringsmallHarledning";
 import { Bankhandelse } from "../app/lib/konteringsmallSannolikhet";
@@ -171,6 +176,61 @@ test("okänt ankarkonto: ankarraden lämnas utan konto", () => {
 test("belopp noll: inga förslag", () => {
   const r = byggKonteringsforslag(handelse(0), kontext([mall(1, [MAT])], historik(20, MAT)));
   assert.equal(r.scenario, "okand");
+});
+
+// --- forslagStatus ---
+
+test("status: säker blir grön", () => {
+  const r = byggKonteringsforslag(handelse(), kontext([mall(1, [MAT])], historik(20, MAT)));
+  assert.equal(forslagStatus(r), "saker");
+});
+
+test("status: val och splittrad blir blå", () => {
+  const val = byggKonteringsforslag(
+    handelse(),
+    kontext([mall(1, [MAT, HUSHALL])], [...historik(10, MAT), ...historik(10, HUSHALL)])
+  );
+  assert.equal(forslagStatus(val), "val");
+
+  const konton = [MAT, HUSHALL, 12, 13, 14];
+  const splittrad = byggKonteringsforslag(handelse(), kontext([mall(1, konton)], konton.flatMap((k) => historik(4, k))));
+  assert.equal(splittrad.scenario, "splittrad");
+  assert.equal(forslagStatus(splittrad), "val");
+});
+
+test("status: okänd och inaktiverad mall blir grå", () => {
+  const okand = byggKonteringsforslag(handelse(), kontext([mall(1, [MAT], { nyckelord: ["willys"] })], historik(20, MAT)));
+  assert.equal(forslagStatus(okand), "okand");
+  const inaktiverad = byggKonteringsforslag(
+    handelse(),
+    kontext([mall(1, [MAT], { status: "inaktiverad" })], historik(20, MAT))
+  );
+  assert.equal(forslagStatus(inaktiverad), "okand");
+});
+
+test("status: säkert förslag utan ankarkonto kan inte godkännas och blir blått", () => {
+  const r = byggKonteringsforslag(handelse(-250, null), kontext([mall(1, [MAT])], historik(20, MAT)));
+  assert.equal(r.scenario, "saker");
+  assert.equal(forslagStatus(r), "val");
+});
+
+test("status: gissning blir blå", () => {
+  const r = byggKonteringsforslag(handelse(80), kontext([mall(1, [MAT])], historik(20, MAT)));
+  assert.equal(forslagStatus(r), "val");
+});
+
+// --- byggKonteringsforslagForAlla ---
+
+test("flera händelser bedöms som var för sig", () => {
+  const k = kontext([mall(1, [MAT]), mall(2, [HUSHALL], { nyckelord: ["clas"] })], historik(20, MAT));
+  const handelser = [
+    { id: 101, ...handelse() },
+    { id: 102, ...handelse(80) },
+    { id: 103, ...handelse(), beskrivning: "Okänd butik" },
+  ];
+  const alla = byggKonteringsforslagForAlla(handelser, k);
+  assert.equal(alla.size, 3);
+  for (const h of handelser) assert.deepEqual(alla.get(h.id), byggKonteringsforslag(h, k));
 });
 
 // --- tokeniseAlpha ---

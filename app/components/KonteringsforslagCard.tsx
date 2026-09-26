@@ -225,14 +225,25 @@ export function KonteringsforslagCardSkeleton() {
   );
 }
 
-/** Ruta i kortets storlek med ett meddelande, när inget förslag ges. */
-export function KonteringsforslagTomRuta({ children }: { children: React.ReactNode }) {
+/**
+ * Ruta i kortets storlek med ett meddelande, när inget förslag ges. Blå när
+ * användaren behöver avgöra själv (splittrad), annars grå.
+ */
+export function KonteringsforslagTomRuta({
+  ton = "neutral",
+  children,
+}: {
+  ton?: "val" | "neutral";
+  children: React.ReactNode;
+}) {
+  const kort = ton === "val" ? TON.val.kort : TON.laddar.kort;
+  const text = ton === "val" ? "text-blue-800 dark:text-blue-200" : "text-zinc-500 dark:text-zinc-400";
   return (
-    <div className={`${KORTBREDD} relative rounded-md border px-3 py-2 ${TON.laddar.kort}`}>
+    <div className={`${KORTBREDD} relative rounded-md border px-3 py-2 ${kort}`}>
       <div className="invisible" aria-hidden>
         <SkelettInnehall />
       </div>
-      <div className="absolute inset-0 flex items-center justify-center px-4 text-center text-sm text-zinc-500 dark:text-zinc-400">
+      <div className={`absolute inset-0 flex items-center justify-center px-4 text-center text-sm ${text}`}>
         <div>{children}</div>
       </div>
     </div>

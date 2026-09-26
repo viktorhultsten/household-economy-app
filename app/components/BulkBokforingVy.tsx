@@ -3,14 +3,21 @@
 import { useState, useCallback, useEffect } from "react";
 import { BankEvent, Verifikat } from "../types";
 import VerifikatForm from "./VerifikatForm";
+import ForenkladBokforing from "./ForenkladBokforing";
+import { KonteringsforslagKort } from "../lib/konteringsforslag";
 import { getVerifikat } from "../actions";
 
 interface BulkBokforingVyProps {
   queue: BankEvent[];
+  /**
+   * Säkra förslag per bankhändelse. Satt när säkra händelser godkänns: då
+   * finns den förenklade vyn och en växlare mot den vanliga.
+   */
+  sakraForslag?: Map<number, KonteringsforslagKort>;
   onClose: () => void;
 }
 
-export default function BulkBokforingVy({ queue, onClose }: BulkBokforingVyProps) {
+export default function BulkBokforingVy({ queue, sakraForslag, onClose }: BulkBokforingVyProps) {
   // pendingIndex = where the user has navigated to (updates instantly for the
   // position/segment UI). currentIndex = the event actually mounted+loaded into
   // the form; it follows pendingIndex after a short debounce so paging quickly
@@ -26,9 +33,14 @@ export default function BulkBokforingVy({ queue, onClose }: BulkBokforingVyProps
     () => new Set(queue.filter((e) => e.flagged).map((e) => e.id))
   );
 
+  // Vyvalet gäller hela kön och finns kvar vid bläddring.
+  const [vy, setVy] = useState<"forenklad" | "vanlig">("forenklad");
+
   const currentEvent = queue[currentIndex];
   const isSaved = savedIds.has(currentEvent.id);
   const currentVerifikat = isSaved ? savedVerifikat.get(currentEvent.id) : undefined;
+  // En redan bokförd händelse visas alltid i den vanliga vyn.
+  const currentForslag = isSaved ? undefined : sakraForslag?.get(currentEvent.id);
 
   const handleNavigate = useCallback(
     (direction: -1 | 1) => {
@@ -97,17 +109,59 @@ export default function BulkBokforingVy({ queue, onClose }: BulkBokforingVyProps
     }
   }, [isSaved, savedIds, currentEvent.id]);
 
+  // Efter ett godkännande: nästa obokförda händelse i kön, eller stäng när
+  // alla är bokförda.
+  const handleGodkand = useCallback(
+    async (verifikatId: number) => {
+      const bokforda = new Set([...savedIds.keys(), currentEvent.id]);
+      await handleVerifikatSaved(verifikatId);
+      for (let steg = 1; steg < queue.length; steg++) {
+        const i = (currentIndex + steg) % queue.length;
+        if (!bokforda.has(queue[i].id)) {
+          setPendingIndex(i);
+          setCurrentIndex(i);
+          return;
+        }
+      }
+      onClose();
+    },
+    [savedIds, currentEvent.id, handleVerifikatSaved, queue, currentIndex, onClose]
+  );
+
+  const vaxlaVy = useCallback(() => setVy((v) => (v === "forenklad" ? "vanlig" : "forenklad")), []);
+
   const segments = queue.map((event) => {
     if (savedIds.has(event.id)) return "saved" as const;
     if (flaggedIds.has(event.id)) return "flagged" as const;
     return "pending" as const;
   });
 
+  if (currentForslag && vy === "forenklad") {
+    return (
+      <ForenkladBokforing
+        key={`forenklad-${currentEvent.id}`}
+        bankEvent={currentEvent}
+        forslag={currentForslag}
+        nav={{
+          currentIndex: pendingIndex,
+          total: queue.length,
+          segments,
+          onNavigate: handleNavigate,
+          onJump: handleJump,
+        }}
+        onVaxlaVy={vaxlaVy}
+        onClose={onClose}
+        onGodkand={handleGodkand}
+      />
+    );
+  }
+
   return (
     <VerifikatForm
       key={`bulk-${currentEvent.id}-${isSaved ? "saved" : "new"}`}
       bankEvent={currentEvent}
       verifikat={currentVerifikat}
+      initialForslag={currentForslag}
       onClose={onClose}
       onSuccess={handleSuccess}
       onFlagChange={handleFlagChange}
@@ -119,6 +173,7 @@ export default function BulkBokforingVy({ queue, onClose }: BulkBokforingVyProps
         onSaved: handleVerifikatSaved,
         segments,
         onJump: handleJump,
+        onVaxlaVy: currentForslag ? vaxlaVy : undefined,
       }}
     />
   );

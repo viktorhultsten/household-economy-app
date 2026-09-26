@@ -5,7 +5,15 @@ import { queryAll, queryOne, query, transaction as dbTransaction, getDatabase } 
 import { hamtaHistorik, hamtaKonton, hamtaMallar } from "@/lib/konteringsmallData";
 import { Korningsutfall, korMallanalys } from "@/lib/mallanalys";
 import { BankEvent, Verifikat, Post, Account, Group, Import, AccountType, PeriodLock, RecurringItem, RecurringItemStatus, Budget, BudgetComparison, CustomResultView, CustomResultViewWithDetails, DashboardOverview, DashboardMonth, DashboardMonthDetail, BudgetOutlier, DashboardTopExpense, Todo, AccountAnalysis, AccountAnalysisMonth } from "./types";
-import { byggKonteringsforslag, Konteringsforslag } from "./lib/konteringsforslag";
+import {
+  ForslagKontext,
+  ForslagStatus,
+  Konteringsforslag,
+  KonteringsforslagKort,
+  byggKonteringsforslag,
+  byggKonteringsforslagForAlla,
+  forslagStatus,
+} from "./lib/konteringsforslag";
 import { formaterare, tillObservationer } from "./lib/konteringsmallHarledning";
 import {
   MallIndata,
@@ -245,32 +253,28 @@ export async function getBankEvents(): Promise<BankEvent[]> {
   }));
 }
 
-export async function getUnpostedBankEventsPaginated(
-  limit: number = 25,
-  offset: number = 0
-): Promise<{ events: BankEvent[]; total: number }> {
-  const countResult = await queryOne<{ count: number }>(
-    "SELECT COUNT(*) as count FROM bank_events WHERE is_posted = 0 AND is_irrelevant = false"
-  );
-  const total = Number(countResult?.count) || 0;
+type BankEventRow = {
+  id: number;
+  date: string;
+  /** YYYY-MM-DD. */
+  datum: string;
+  description: string;
+  amount: number;
+  is_posted: number;
+  flagged: boolean;
+  flag_comment: string | null;
+  transaction_id: number | null;
+  import_id: number | null;
+  import_account_id: number | null;
+  import_account_name: string | null;
+  import_account_group_id: number | null;
+  import_is_external: boolean | null;
+};
 
-  const rows = await queryAll<{
-    id: number;
-    date: string;
-    description: string;
-    amount: number;
-    is_posted: number;
-    flagged: boolean;
-    flag_comment: string | null;
-    transaction_id: number | null;
-    import_id: number | null;
-    import_account_id: number | null;
-    import_account_name: string | null;
-    import_account_group_id: number | null;
-    import_is_external: boolean | null;
-  }>(
-    `
+// Obokförda bankhändelser i att göra-listans ordning (nyast först).
+const UNPOSTED_BANK_EVENTS_SQL = `
     SELECT be.*,
+      to_char(be.date, 'YYYY-MM-DD') as datum,
       i.account_id as import_account_id,
       i.is_external as import_is_external,
       ia.namn as import_account_name,
@@ -279,13 +283,10 @@ export async function getUnpostedBankEventsPaginated(
     LEFT JOIN imports i ON be.import_id = i.id
     LEFT JOIN accounts ia ON ia.id = i.account_id
     WHERE be.is_posted = 0 AND be.is_irrelevant = false
-    ORDER BY be.date DESC, be.id DESC
-    LIMIT $1 OFFSET $2
-  `,
-    [limit, offset]
-  );
+    ORDER BY be.date DESC, be.id DESC`;
 
-  const events = rows.map((row) => ({
+function toBankEvent(row: BankEventRow): BankEvent {
+  return {
     id: row.id,
     date: new Date(row.date),
     description: row.description,
@@ -309,9 +310,24 @@ export async function getUnpostedBankEventsPaginated(
               : undefined,
         } as Import)
       : undefined,
-  }));
+  };
+}
 
-  return { events, total };
+export async function getUnpostedBankEventsPaginated(
+  limit: number = 25,
+  offset: number = 0
+): Promise<{ events: BankEvent[]; total: number }> {
+  const countResult = await queryOne<{ count: number }>(
+    "SELECT COUNT(*) as count FROM bank_events WHERE is_posted = 0 AND is_irrelevant = false"
+  );
+  const total = Number(countResult?.count) || 0;
+
+  const rows = await queryAll<BankEventRow>(`${UNPOSTED_BANK_EVENTS_SQL} LIMIT $1 OFFSET $2`, [
+    limit,
+    offset,
+  ]);
+
+  return { events: rows.map(toBankEvent), total };
 }
 
 export async function flagBankEvent(
@@ -2762,14 +2778,6 @@ export async function getKonteringsforslag(bankEventId: number): Promise<Konteri
   );
   if (!handelse) return { scenario: "okand", forslag: [], inaktiveradeMallar: [] };
 
-  const db = getDatabase();
-  const [konton, historik, mallar, recurring] = await Promise.all([
-    hamtaKonton(db),
-    hamtaHistorik(db),
-    hamtaMallar(db),
-    queryAll<{ id: number; namn: string }>("SELECT id, namn FROM recurring_items"),
-  ]);
-
   return byggKonteringsforslag(
     {
       datum: handelse.datum,
@@ -2777,14 +2785,71 @@ export async function getKonteringsforslag(bankEventId: number): Promise<Konteri
       belopp: Number(handelse.belopp),
       ankarAccountId: handelse.ankar_account_id,
     },
-    {
-      mallar,
-      observationer: tillObservationer(historik, konton).observationer,
-      bankhandelser: new Map(historik.map((h) => [h.bankEventId, h])),
-      konton,
-      recurringItems: new Map(recurring.map((r) => [r.id, r.namn])),
-    }
+    await hamtaForslagKontext()
   );
+}
+
+async function hamtaForslagKontext(): Promise<ForslagKontext> {
+  const db = getDatabase();
+  const [konton, historik, mallar, recurring] = await Promise.all([
+    hamtaKonton(db),
+    hamtaHistorik(db),
+    hamtaMallar(db),
+    queryAll<{ id: number; namn: string }>("SELECT id, namn FROM recurring_items"),
+  ]);
+  return {
+    mallar,
+    observationer: tillObservationer(historik, konton).observationer,
+    bankhandelser: new Map(historik.map((h) => [h.bankEventId, h])),
+    konton,
+    recurringItems: new Map(recurring.map((r) => [r.id, r.namn])),
+  };
+}
+
+/** Alla obokförda bankhändelser med sina konteringsförslag, i att göra-listans ordning. */
+async function forslagForObokforda(): Promise<{ event: BankEvent; forslag: Konteringsforslag }[]> {
+  const [rows, kontext] = await Promise.all([
+    queryAll<BankEventRow>(UNPOSTED_BANK_EVENTS_SQL),
+    hamtaForslagKontext(),
+  ]);
+  const forslag = byggKonteringsforslagForAlla(
+    rows.map((r) => ({
+      id: r.id,
+      datum: r.datum,
+      beskrivning: r.description,
+      belopp: Number(r.amount),
+      ankarAccountId: r.import_account_id,
+    })),
+    kontext
+  );
+  return rows.map((r) => ({ event: toBankEvent(r), forslag: forslag.get(r.id)! }));
+}
+
+/**
+ * Bedömningens status för varje obokförd bankhändelse, och hur många säkra
+ * som går att godkänna (flaggade räknas inte).
+ */
+export async function getBankhandelseStatusar(): Promise<{
+  status: Record<number, ForslagStatus>;
+  antalSakra: number;
+}> {
+  const status: Record<number, ForslagStatus> = {};
+  let antalSakra = 0;
+  for (const { event, forslag } of await forslagForObokforda()) {
+    status[event.id] = forslagStatus(forslag);
+    if (status[event.id] === "saker" && !event.flagged) antalSakra++;
+  }
+  return { status, antalSakra };
+}
+
+/** De översta säkra, oflaggade bankhändelserna med sitt förslag, för godkännande. */
+export async function getSakraBankhandelser(
+  limit: number = 25
+): Promise<{ event: BankEvent; forslag: KonteringsforslagKort }[]> {
+  return (await forslagForObokforda())
+    .filter(({ event, forslag }) => !event.flagged && forslagStatus(forslag) === "saker")
+    .slice(0, limit)
+    .map(({ event, forslag }) => ({ event, forslag: forslag.forslag[0] }));
 }
 
 // Mallsidan (issue 20, ADR-0010)

@@ -44,6 +44,10 @@ _Avoid_: Kontera (används synonymt men "bokföra" är kanoniskt)
 **Bulkbokföring**:
 Att bokföra en följd bankhändelser (upp till 25 åt gången, i att göra-listans ordning) utan att lämna bokföringsvyn. Händelserna bläddras fram och tillbaka; varje kan bokföras, hoppas över eller flaggas.
 
+**Godkänna**:
+Att bokföra en bankhändelse enligt dess säkra konteringsförslag i den förenklade vyn, utan att ändra konteringen. Görs från en kö med högst 25 säkra, oflaggade bankhändelser. Den som vill ändra något växlar till den vanliga bokföringsvyn.
+_Avoid_: Autobokföra, Snabbokföra
+
 **Konteringsmall**:
 Ett gemensamt, levande regelverk för hur en typ av bankhändelse konteras. Består av en **matchning** (nyckelord i beskrivningen, ankarkonto, beloppsintervall, dag i månaden, riktning — var och en bara när den särskiljer) och ett eller flera **konteringsalternativ**. Enda källan till konteringsförslag. Härleds av appen ur historiken eller skapas av användaren. Kan även ge en återkommande händelse när den tillämpas. Se [ADR-0010](docs/adr/0010-konteringsmallar-som-enda-forslagskalla.md).
 _Avoid_: Mall (ensamt), Bokföringsmall, Bokningsmall, Template, Konteringsmönster

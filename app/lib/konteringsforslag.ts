@@ -79,12 +79,12 @@ export interface ForslagKontext {
 export function byggKonteringsforslag(
   handelse: Bankhandelse,
   kontext: ForslagKontext,
-  p: SannolikhetParametrar = SANNOLIKHET_PARAMETRAR
+  p: SannolikhetParametrar = SANNOLIKHET_PARAMETRAR,
+  underlag: Map<number, Underlag[]> = underlagForMallar(kontext.mallar, kontext.observationer)
 ): Konteringsforslag {
-  const { mallar, observationer, bankhandelser, konton, recurringItems } = kontext;
+  const { mallar, bankhandelser, konton, recurringItems } = kontext;
   if (handelse.belopp === 0) return { scenario: "okand", forslag: [], inaktiveradeMallar: [] };
 
-  const underlag = underlagForMallar(mallar, observationer);
   const bedomning = bedomBankhandelse(handelse, mallar, underlag, p);
   const mall = (id: number) => mallar.find((m) => m.id === id)!;
 
@@ -138,4 +138,38 @@ export function byggKonteringsforslag(
     forslag,
     inaktiveradeMallar: bedomning.inaktiveradeMallIds.map((id) => ({ id, namn: mall(id).namn })),
   };
+}
+
+/**
+ * Konteringsförslagen för flera obokförda bankhändelser. Mallarnas underlag
+ * räknas en gång för alla, i stället för en gång per händelse.
+ */
+export function byggKonteringsforslagForAlla(
+  handelser: (Bankhandelse & { id: number })[],
+  kontext: ForslagKontext,
+  p: SannolikhetParametrar = SANNOLIKHET_PARAMETRAR
+): Map<number, Konteringsforslag> {
+  const underlag = underlagForMallar(kontext.mallar, kontext.observationer);
+  return new Map(handelser.map((h) => [h.id, byggKonteringsforslag(h, kontext, p, underlag)]));
+}
+
+/**
+ * Bedömningens färg i bankhändelsevyn och bokföringsvyn: grön *säker*, blå när
+ * användaren behöver avgöra själv, grå när inget föreslås.
+ */
+export type ForslagStatus = "saker" | "val" | "okand";
+
+export function forslagStatus(f: Konteringsforslag): ForslagStatus {
+  switch (f.scenario) {
+    case "saker":
+      // Ett säkert förslag utan ankarkonto kan inte godkännas som det är.
+      if (f.forslag.length === 1 && f.forslag[0].rader.every((r) => r.accountId !== 0)) return "saker";
+      return f.forslag.length > 0 ? "val" : "okand";
+    case "val":
+      return f.forslag.length > 0 ? "val" : "okand";
+    case "splittrad":
+      return "val";
+    case "okand":
+      return "okand";
+  }
 }
