@@ -44,12 +44,33 @@ _Avoid_: Kontera (används synonymt men "bokföra" är kanoniskt)
 **Bulkbokföring**:
 Att bokföra en följd bankhändelser (upp till 25 åt gången, i att göra-listans ordning) utan att lämna bokföringsvyn. Händelserna bläddras fram och tillbaka; varje kan bokföras, hoppas över eller flaggas.
 
-**Konteringsmönster**:
-En återkommande konteringsstruktur — vilka motkonton som används och på vilken sida (debet/kredit) — härledd ur tidigare verifikat. Identifieras av sin struktur, inte av något belopp; samma mönster gäller oavsett om beloppet är nytt eller varierar.
+**Konteringsmall**:
+Ett gemensamt, levande regelverk för hur en typ av bankhändelse konteras. Består av en **matchning** (nyckelord i beskrivningen, ankarkonto, beloppsintervall, dag i månaden, riktning — var och en bara när den särskiljer) och ett eller flera **konteringsalternativ**. Enda källan till konteringsförslag. Härleds av appen ur historiken eller skapas av användaren. Kan även ge en återkommande händelse när den tillämpas. Se [ADR-0010](docs/adr/0010-konteringsmallar-som-enda-forslagskalla.md).
+_Avoid_: Mall (ensamt), Bokföringsmall, Bokningsmall, Template, Konteringsmönster
+
+**Konteringsalternativ**:
+Ett sätt att kontera det en konteringsmall matchar: motkonton, deras sida **relativt ankarraden** (samma/motsatt) och fördelning vid split, samt hur stor andel av historiken som använt det. Identifieras av sin struktur, aldrig av ett belopp.
+
+**Spegling**:
+En bankhändelse med omvänd riktning mot mallens normala (t.ex. en kreditering på en utgiftsmall) som konteras enligt samma konteringsalternativ med debet och kredit omvända. Samma alternativ, inte en avvikelse. Utan historiska speglingar är den en kvalificerad gissning och aldrig säker.
 
 **Konteringsförslag**:
-Ett föreslaget konteringsmönster för en obokförd bankhändelse, rankat efter hur sannolikt det är. Rankningen väger in bankhändelsens belopp mot varje mönsters historiska belopp, så att t.ex. ett splittat mönster kan föreslås framför ett enklare när beloppet talar för det. Presenteras med de historiska verifikat som stödjer mönstret. Flera förslag kan visas samtidigt när underlaget är tvetydigt.
+Ett konteringsalternativ ur en matchande konteringsmall, föreslaget för en obokförd bankhändelse med en sannolikhet. Antalet förslag avgörs av scenariot: **säker** (ett förslag), **val** (ett fåtal likvärdiga), **splittrad** (inga förslag, bara en notis) eller **okänd** (ingen mall matchar). Förslaget tillämpas aldrig utan att användaren väljer det.
 _Avoid_: Förslag (ensamt, tvetydigt)
+
+**Låst konteringsmall**:
+En konteringsmall som appen inte får ändra. Appen utvärderar den och skapar inga konkurrerande mallar för det den matchar. En **olåst** mall får appen justera, slå ihop eller ta bort.
+
+**Inaktiverad konteringsmall**:
+En konteringsmall som användaren stängt av. Föreslås inte, men hindrar appen från att härleda en mall som matchar samma bankhändelser. Kan återaktiveras eller raderas.
+_Avoid_: Avvisad
+
+**Borttagen konteringsmall**:
+En konteringsmall som appen tagit bort. Permanent — finns kvar enbart för spårbarhet och används inte av någon affärslogik eller något UI.
+
+**Mallanalys**:
+Den nattliga, automatiska körningen som härleder och justerar konteringsmallar ur historiken och uppdaterar deras statistik. Varje körning loggas.
+_Avoid_: Indexering, Träning
 
 ### Periodförskjutning och periodisering
 
@@ -97,10 +118,6 @@ _Avoid_: Privatimport
 **Irrelevant bankhändelse**:
 En bankhändelse i en extern import som markerats som att den inte ska bokföras. Faller ur att göra-listan utan att ge upphov till ett verifikat. Reversibelt — ångras från importens händelselista.
 _Avoid_: Struntpost, Ignorerad
-
-**Mall**:
-En återanvändbar verifikatstruktur (förvalda konteringsrader med debet/kredit-sidor) för att snabba upp repetitiv bokföring.
-_Avoid_: Template
 
 **Periodlås**:
 En låsning av en viss månad (år + månad) som förhindrar att verifikat skapas, ändras eller tas bort i den perioden.
