@@ -31,7 +31,7 @@ import {
 } from "../app/lib/konteringsmallSannolikhet";
 import { Konteringsmall } from "../app/lib/konteringsmallUtils";
 import { DEV_DB_NAME, getDevConnectionString } from "./dev-db";
-import { hamtaHistorik, hamtaKonton } from "./konteringsmall-data";
+import { hamtaHistorik, hamtaKonton } from "../lib/konteringsmallData";
 
 const pool = new Pool({ connectionString: getDevConnectionString() });
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { KonteringsforslagMonster } from "../actions";
+import { KonteringsforslagKort } from "../lib/konteringsforslag";
 
 function formatSwedishAmount(amount: number): string {
   return amount.toLocaleString("sv-SE", {
@@ -10,37 +10,58 @@ function formatSwedishAmount(amount: number): string {
 }
 
 interface KonteringsforslagCardProps {
-  forslag: KonteringsforslagMonster;
+  forslag: KonteringsforslagKort;
+  /** Säkert förslag — det enda som visas för händelsen. */
+  saker: boolean;
   currentDescription?: string;
   onApply: () => void;
 }
 
 export default function KonteringsforslagCard({
   forslag,
+  saker,
   currentDescription,
   onApply,
 }: KonteringsforslagCardProps) {
-  const latestStod = forslag.stodVerifikat[0];
-
   return (
-    <div className="rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20 p-3 flex flex-col gap-2 min-w-0">
-      <div className="text-xs text-blue-700 dark:text-blue-300">
-        Bokfört {forslag.antal} {forslag.antal === 1 ? "gång" : "gånger"}
-        {latestStod && (
-          <>
-            {" "}
-            · Senast{" "}
-            {latestStod.verifikatDate.toLocaleDateString("sv-SE")}
-          </>
-        )}
+    <div
+      className={`rounded-md border p-3 flex flex-col gap-2 min-w-0 ${
+        saker
+          ? "border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-900/20"
+          : "border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20"
+      }`}
+    >
+      <div className="flex items-baseline justify-between gap-2 min-w-0">
+        <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200 truncate">
+          {forslag.mallNamn}
+        </span>
+        <span className="text-xs tabular-nums text-zinc-500 dark:text-zinc-400 shrink-0">
+          {Math.round(forslag.andel * 100)} %
+        </span>
       </div>
 
-      {forslag.recurringItem && (
-        <div className="flex items-center gap-1.5 text-xs">
-          <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-800/40 px-2 py-0.5 font-medium text-blue-800 dark:text-blue-200">
-            <span aria-hidden>↻</span>
-            Återkommande: {forslag.recurringItem.namn}
-          </span>
+      {(saker || forslag.gissning || forslag.recurringItem) && (
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          {saker && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-green-100 dark:bg-green-800/40 px-2 py-0.5 font-medium text-green-800 dark:text-green-200">
+              <span aria-hidden>✓</span>
+              Säkert förslag
+            </span>
+          )}
+          {forslag.gissning && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-amber-100 dark:bg-amber-800/40 px-2 py-0.5 font-medium text-amber-800 dark:text-amber-200"
+              title="Mallen har ingen tidigare händelse i den här riktningen. Förslaget speglar hur mallen annars bokförs."
+            >
+              Kvalificerad gissning
+            </span>
+          )}
+          {forslag.recurringItem && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-800/40 px-2 py-0.5 font-medium text-blue-800 dark:text-blue-200">
+              <span aria-hidden>↻</span>
+              Återkommande: {forslag.recurringItem.namn}
+            </span>
+          )}
         </div>
       )}
 
@@ -65,23 +86,17 @@ export default function KonteringsforslagCard({
               className="border-t border-blue-100 dark:border-blue-800/50"
             >
               <td className="py-1 pr-2 text-zinc-800 dark:text-zinc-200 truncate max-w-0 w-full">
-                {rad.accountName}
+                {rad.accountId ? (
+                  rad.accountName
+                ) : (
+                  <span className="italic text-zinc-500 dark:text-zinc-400">Välj konto</span>
+                )}
               </td>
               <td className="py-1 text-right tabular-nums text-zinc-700 dark:text-zinc-300 whitespace-nowrap">
-                {rad.isDebet
-                  ? rad.amount.toLocaleString("sv-SE", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })
-                  : ""}
+                {rad.debet > 0 ? formatSwedishAmount(rad.debet) : ""}
               </td>
               <td className="py-1 pl-2 text-right tabular-nums text-zinc-700 dark:text-zinc-300 whitespace-nowrap">
-                {!rad.isDebet
-                  ? rad.amount.toLocaleString("sv-SE", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })
-                  : ""}
+                {rad.kredit > 0 ? formatSwedishAmount(rad.kredit) : ""}
               </td>
             </tr>
           ))}
@@ -96,39 +111,39 @@ export default function KonteringsforslagCard({
         Använd
       </button>
 
-      <details className="group">
-        <summary className="cursor-pointer text-xs text-blue-600 dark:text-blue-400 select-none list-none flex items-center gap-1">
-          <span className="group-open:hidden">▶</span>
-          <span className="hidden group-open:inline">▼</span>
-          Baserat på {forslag.antal} {forslag.antal === 1 ? "verifikat" : "verifikat"}
-        </summary>
-        <ul className="mt-1.5 flex flex-col gap-0.5">
-          {forslag.stodVerifikat.map((sv) => {
-            const diffDesc =
-              currentDescription &&
-              sv.bankEventDescription.trim().toLowerCase() !==
-                currentDescription.trim().toLowerCase()
-                ? sv.bankEventDescription
-                : null;
-            return (
-              <li
-                key={sv.verifikatId}
-                className="text-xs text-zinc-500 dark:text-zinc-400 flex items-baseline gap-1.5"
-              >
-                <span className="tabular-nums shrink-0">
-                  {sv.verifikatDate.toLocaleDateString("sv-SE")}
-                </span>
-                <span className="tabular-nums shrink-0 text-zinc-700 dark:text-zinc-300">
-                  {formatSwedishAmount(sv.bankEventAmount)} kr
-                </span>
-                {diffDesc && (
-                  <span className="truncate italic">{diffDesc}</span>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      </details>
+      {forslag.antal > 0 && (
+        <details className="group">
+          <summary className="cursor-pointer text-xs text-blue-600 dark:text-blue-400 select-none list-none flex items-center gap-1">
+            <span className="group-open:hidden">▶</span>
+            <span className="hidden group-open:inline">▼</span>
+            Baserat på {forslag.antal} verifikat
+          </summary>
+          <ul className="mt-1.5 flex flex-col gap-0.5">
+            {forslag.senaste.map((u) => {
+              const diffDesc =
+                currentDescription &&
+                u.beskrivning.trim().toLowerCase() !==
+                  currentDescription.trim().toLowerCase()
+                  ? u.beskrivning
+                  : null;
+              return (
+                <li
+                  key={u.bankEventId}
+                  className="text-xs text-zinc-500 dark:text-zinc-400 flex items-baseline gap-1.5"
+                >
+                  <span className="tabular-nums shrink-0">{u.datum}</span>
+                  <span className="tabular-nums shrink-0 text-zinc-700 dark:text-zinc-300">
+                    {formatSwedishAmount(u.belopp)} kr
+                  </span>
+                  {diffDesc && (
+                    <span className="truncate italic">{diffDesc}</span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </details>
+      )}
     </div>
   );
 }

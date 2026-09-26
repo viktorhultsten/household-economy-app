@@ -19,6 +19,9 @@ En ny mallsida där användaren ser det gemensamma regelverket och arbetar i det
 - **Inaktivera:** en aktiv mall kan inaktiveras, och den föreslås då inte längre.
 - **Återaktivera eller radera:** en inaktiverad mall kan återaktiveras, eller raderas så att appen får hitta mönstret igen.
 
+**Länkar från bokföringsvyn**
+- **Ankare:** notisen om inaktiverade mallar i bokföringsvyn (issue 19) länkar till `/konteringsmallar#mall-{id}`. Sidan ska ligga där och varje mall ha det ankaret.
+
 **Ändringslogg**
 - **Innehåll:** varje mall har en ändringslogg som visar vad appen och användaren gjort med den över tid.
 

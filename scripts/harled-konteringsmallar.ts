@@ -9,7 +9,7 @@ import { Pool } from "pg";
 
 import { harledKonteringsmallar } from "../app/lib/konteringsmallHarledning";
 import { DEV_DB_NAME, getDevConnectionString } from "./dev-db";
-import { hamtaHistorik, hamtaKonton, hamtaMallar } from "./konteringsmall-data";
+import { hamtaHistorik, hamtaKonton, hamtaMallar } from "../lib/konteringsmallData";
 
 const pool = new Pool({ connectionString: getDevConnectionString() });
 

@@ -2,11 +2,13 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Account, BankEvent, Post, RecurringItemStatus, Verifikat } from "../types";
-import { getAccounts, createVerifikat, updateVerifikat, isPeriodLocked, getRecurringItemsStatus, linkVerifikatToRecurringItem, getRecurringItemForVerifikat, updateVerifikatRecurringItemLink, getKonteringsforslag, KonteringsforslagMonster, flagBankEvent, unflagBankEvent, markBankEventIrrelevant, deleteBankEvent, adjustBankEventAmount, getPeriodiseringskonto, createPeriodforskjutning, updatePeriodforskjutning, deletePeriodforskjutning, getPeriodforskjutningForHuvud, createPeriodisering, updatePeriodisering, deletePeriodisering, getPeriodiseringForHuvud, convertVerifikatToPeriodforskjutning, convertVerifikatToPeriodisering } from "../actions";
+import { getAccounts, createVerifikat, updateVerifikat, isPeriodLocked, getRecurringItemsStatus, linkVerifikatToRecurringItem, getRecurringItemForVerifikat, updateVerifikatRecurringItemLink, getKonteringsforslag, flagBankEvent, unflagBankEvent, markBankEventIrrelevant, deleteBankEvent, adjustBankEventAmount, getPeriodiseringskonto, createPeriodforskjutning, updatePeriodforskjutning, deletePeriodforskjutning, getPeriodforskjutningForHuvud, createPeriodisering, updatePeriodisering, deletePeriodisering, getPeriodiseringForHuvud, convertVerifikatToPeriodforskjutning, convertVerifikatToPeriodisering } from "../actions";
 import AccountSelectorModal from "./AccountSelectorModal";
 import BankEventSettingsModal from "./BankEventSettingsModal";
 import ConfirmModal from "./ConfirmModal";
+import Link from "next/link";
 import KonteringsforslagCard from "./KonteringsforslagCard";
+import { Konteringsforslag, KonteringsforslagKort } from "../lib/konteringsforslag";
 import DateInput from "./DateInput";
 
 type PostInput = Omit<Post, "id" | "verifikatId">;
@@ -164,8 +166,7 @@ export default function VerifikatForm({
   const [debetInputs, setDebetInputs] = useState<{ [key: number]: string }>({});
   const [kreditInputs, setKreditInputs] = useState<{ [key: number]: string }>({});
 
-  const [forslag, setForslag] = useState<KonteringsforslagMonster[]>([]);
-  const [forslagLoaded, setForslagLoaded] = useState(false);
+  const [forslag, setForslag] = useState<Konteringsforslag | null>(null);
   const [forslagDismissed, setForslagDismissed] = useState(false);
 
   useEffect(() => {
@@ -197,20 +198,16 @@ export default function VerifikatForm({
   // Fetch konteringsförslag when creating a new transaction from a bank event
   useEffect(() => {
     if (isEditing || !bankEvent) return;
+    let aktuell = true;
     setForslagDismissed(false);
-    setForslag([]);
-    setForslagLoaded(false);
-    getKonteringsforslag(
-      bankEvent.description,
-      bankEvent.amount,
-      bankEvent.date,
-      bankEvent.import?.accountId
-    ).then(
-      (results) => {
-        setForslag(results);
-        setForslagLoaded(true);
-      }
-    );
+    setForslag(null);
+    getKonteringsforslag(bankEvent.id).then((resultat) => {
+      // Bulkbokföringen kan ha bläddrat vidare innan svaret kom
+      if (aktuell) setForslag(resultat);
+    });
+    return () => {
+      aktuell = false;
+    };
   }, [bankEvent, isEditing]);
 
   useEffect(() => {
@@ -449,14 +446,17 @@ export default function VerifikatForm({
     setPosts(newPosts);
   };
 
-  const applyForslag = (f: KonteringsforslagMonster) => {
+  // Fyller formuläret men sparar inget
+  const applyForslag = (f: KonteringsforslagKort) => {
     const newPosts = f.rader.map((r) => ({
       accountId: r.accountId,
-      debet: r.isDebet ? r.amount : 0,
-      kredit: r.isDebet ? 0 : r.amount,
+      debet: r.debet,
+      kredit: r.kredit,
       description: "",
     }));
     setPosts(newPosts);
+    setDebetInputs({});
+    setKreditInputs({});
     if (f.recurringItem) {
       setSelectedRecurringItemId(f.recurringItem.id);
       const recurringId = f.recurringItem.id;
@@ -908,55 +908,80 @@ export default function VerifikatForm({
             </div>
           )}
 
-          {/* Konteringsförslag — reserved-height slot so nothing jumps while loading */}
-          {!isEditing && bankEvent && !forslagDismissed && (
-            <div className="mb-4">
-              {!forslagLoaded ? (
-                <div className="flex gap-3">
-                  {[0, 1].map((i) => (
-                    <div
-                      key={i}
-                      className="flex-1 h-28 rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 p-3 animate-pulse"
-                    >
-                      <div className="mb-3 h-3 w-32 rounded bg-zinc-200 dark:bg-zinc-700" />
-                      <div className="mb-2 h-3 w-full rounded bg-zinc-200 dark:bg-zinc-700" />
-                      <div className="h-3 w-full rounded bg-zinc-200 dark:bg-zinc-700" />
-                    </div>
-                  ))}
-                </div>
-              ) : forslag.length === 0 ? (
-                <div className="rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 px-4 py-3 text-sm text-zinc-500 dark:text-zinc-400">
-                  Hittade inga konteringsförslag.
+          {/* Konteringsförslag från konteringsmallar — scenariot avgör vad som visas */}
+          {!isEditing && bankEvent && (
+            <>
+              {forslag === null ? (
+                <div className="mb-4 h-28 rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 p-3 animate-pulse">
+                  <div className="mb-3 h-3 w-32 rounded bg-zinc-200 dark:bg-zinc-700" />
+                  <div className="mb-2 h-3 w-full rounded bg-zinc-200 dark:bg-zinc-700" />
+                  <div className="h-3 w-full rounded bg-zinc-200 dark:bg-zinc-700" />
                 </div>
               ) : (
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                      Konteringsförslag
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setForslagDismissed(true)}
-                      className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 text-lg leading-none"
-                      aria-label="Stäng förslag"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                  <div className="flex gap-3 flex-wrap">
-                    {forslag.map((f) => (
-                      <div key={f.monsterNyckel} className="flex-1 min-w-[14rem]">
-                        <KonteringsforslagCard
-                          forslag={f}
-                          currentDescription={bankEvent?.description}
-                          onApply={() => applyForslag(f)}
-                        />
+                <>
+                  {!forslagDismissed &&
+                    (forslag.scenario === "saker" || forslag.scenario === "val") &&
+                    forslag.forslag.length > 0 && (
+                      <div className="mb-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                            {forslag.scenario === "saker"
+                              ? "Konteringsförslag"
+                              : forslag.forslag.length === 1
+                                ? "Möjlig kontering"
+                                : "Händelser som den här bokförs på olika sätt — välj det som stämmer"}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => setForslagDismissed(true)}
+                            className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 text-lg leading-none"
+                            aria-label="Stäng förslag"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                        <div className="flex gap-3 flex-wrap">
+                          {forslag.forslag.map((f) => (
+                            <div key={f.nyckel} className="flex-1 min-w-[14rem]">
+                              <KonteringsforslagCard
+                                forslag={f}
+                                saker={forslag.scenario === "saker"}
+                                currentDescription={bankEvent.description}
+                                onApply={() => applyForslag(f)}
+                              />
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    ))}
-                  </div>
-                </div>
+                    )}
+
+                  {forslag.scenario === "splittrad" && (
+                    <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
+                      Händelser som den här bokförs på många olika sätt, så inget konteringsförslag ges.
+                    </p>
+                  )}
+
+                  {forslag.inaktiveradeMallar.length > 0 && (
+                    <p className="mb-4 text-xs text-zinc-500 dark:text-zinc-400">
+                      Matchar den inaktiverade{" "}
+                      {forslag.inaktiveradeMallar.length === 1 ? "konteringsmallen" : "konteringsmallarna"}{" "}
+                      {forslag.inaktiveradeMallar.map((m, i) => (
+                        <span key={m.id}>
+                          {i > 0 && ", "}
+                          <Link
+                            href={`/konteringsmallar#mall-${m.id}`}
+                            className="underline hover:text-zinc-700 dark:hover:text-zinc-300"
+                          >
+                            {m.namn}
+                          </Link>
+                        </span>
+                      ))}
+                      , som inte ger några förslag.
+                    </p>
+                  )}
+                </>
               )}
-            </div>
+            </>
           )}
 
           <div className="grid grid-cols-2 gap-4">

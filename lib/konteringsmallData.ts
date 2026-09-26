@@ -1,6 +1,7 @@
 /**
  * Läser konton, historik och konteringsmallar ur databasen i den form som
- * härledningen (issue 17) och sannolikhetsmodellen (issue 18) tar.
+ * härledningen (issue 17), sannolikhetsmodellen (issue 18) och
+ * konteringsförslagen i bokföringsvyn (issue 19) tar.
  */
 
 import { Pool } from "pg";
