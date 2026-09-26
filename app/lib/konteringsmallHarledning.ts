@@ -680,11 +680,15 @@ function jaccard(a: Set<number>, b: Set<number>): number {
   return union === 0 ? 0 : s / union;
 }
 
-function jamfor(
-  fore: Konteringsmall,
-  efter: HarleddMall,
-  fmt: ReturnType<typeof formaterare>,
-  p: HarledningParametrar
+/** Matchning och alternativ — det två versioner av en mall jämförs på. */
+export type Jamforbar = Matchning & { alternativ: { rader: AlternativRad[] }[] };
+
+/** Skillnaderna mellan två versioner av en mall, som text för ändringsloggen. */
+export function jamfor(
+  fore: Jamforbar,
+  efter: Jamforbar,
+  fmt: Formaterare,
+  p: Pick<HarledningParametrar, "andelTolerans">
 ): string[] {
   const ut: string[] = [];
   const falt = (etikett: string, a: string, b: string, lika = a === b) => {
@@ -724,15 +728,15 @@ function jamfor(
 
 // --- Beskrivningar ---------------------------------------------------------
 
-const procent = (x: number) => `${Math.round(x * 100)} %`;
+export const procent = (x: number) => `${Math.round(x * 100)} %`;
 
-function kronor(belopp: number): string {
+export function kronor(belopp: number): string {
   const [hel, ore] = belopp.toFixed(2).split(".");
   const tusental = hel.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
   return `${tusental}${ore === "00" ? "" : `,${ore}`} kr`;
 }
 
-function versal(ord: string): string {
+export function versal(ord: string): string {
   return ord.charAt(0).toUpperCase() + ord.slice(1);
 }
 
@@ -764,7 +768,10 @@ function mallnamn(m: Matchning): string {
   return tillagg.length ? `${bas} (${tillagg.join(", ")})` : bas;
 }
 
-function formaterare(konton: Map<number, KontoInfo>) {
+export type Formaterare = ReturnType<typeof formaterare>;
+
+/** Texter för mallar i ändringsloggen och på mallsidan. */
+export function formaterare(konton: Map<number, Pick<KontoInfo, "namn" | "grupp">>) {
   const konto = (id: number | null) => {
     if (id === null) return "–";
     const k = konton.get(id);

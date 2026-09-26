@@ -5,7 +5,16 @@ import { queryAll, queryOne, query, transaction as dbTransaction, getDatabase } 
 import { hamtaHistorik, hamtaKonton, hamtaMallar } from "@/lib/konteringsmallData";
 import { BankEvent, Verifikat, Post, Account, Group, Import, AccountType, PeriodLock, RecurringItem, RecurringItemStatus, Budget, BudgetComparison, CustomResultView, CustomResultViewWithDetails, DashboardOverview, DashboardMonth, DashboardMonthDetail, BudgetOutlier, DashboardTopExpense, Todo, AccountAnalysis, AccountAnalysisMonth } from "./types";
 import { byggKonteringsforslag, Konteringsforslag } from "./lib/konteringsforslag";
-import { tillObservationer } from "./lib/konteringsmallHarledning";
+import { formaterare, tillObservationer } from "./lib/konteringsmallHarledning";
+import {
+  MallIndata,
+  andradBeskrivning,
+  forifylldMall,
+  normaliseraMall,
+  skapadBeskrivning,
+  valideraMall,
+} from "./lib/konteringsmallSida";
+import { Konteringsmall, Konteringsrad, alternativNyckel } from "./lib/konteringsmallUtils";
 import { derivePeriodiseringPosts, derivePeriodiseringSlices } from "./lib/periodiseringUtils";
 
 type ActionErrorCategory = "VALIDATION" | "NOT_FOUND" | "CONFLICT" | "LOCKED_PERIOD" | "DATABASE";
@@ -2774,6 +2783,229 @@ export async function getKonteringsforslag(bankEventId: number): Promise<Konteri
       konton,
       recurringItems: new Map(recurring.map((r) => [r.id, r.namn])),
     }
+  );
+}
+
+// Mallsidan (issue 20, ADR-0010)
+
+export type KonteringsmallAndring = {
+  id: number;
+  /** YYYY-MM-DD HH:MM. */
+  tidpunkt: string;
+  av: "app" | "anvandare";
+  andring: string;
+};
+
+export interface KonteringsmallVy extends Konteringsmall {
+  /** Nyast först. */
+  andringar: KonteringsmallAndring[];
+}
+
+/** Aktiva och inaktiverade mallar med ändringslogg. Borttagna mallar visas inte. */
+export async function getKonteringsmallar(): Promise<KonteringsmallVy[]> {
+  const mallar = (await hamtaMallar(getDatabase())).filter((m) => m.status !== "borttagen");
+  const andringar = await queryAll<KonteringsmallAndring & { mall_id: number }>(
+    `SELECT id, mall_id, to_char(tidpunkt, 'YYYY-MM-DD HH24:MI') AS tidpunkt, av, andring
+       FROM konteringsmall_andringar
+      WHERE mall_id = ANY($1)
+      ORDER BY tidpunkt DESC, id DESC`,
+    [mallar.map((m) => m.id)]
+  );
+  return mallar.map((m) => ({
+    ...m,
+    andringar: andringar
+      .filter((a) => a.mall_id === m.id)
+      .map(({ id, tidpunkt, av, andring }) => ({ id, tidpunkt, av, andring })),
+  }));
+}
+
+/**
+ * Skapar (id null) eller justerar en mall åt användaren. Alternativ med samma
+ * struktur som tidigare behåller sin statistik. Ändringen loggas.
+ */
+export async function sparaKonteringsmall(
+  id: number | null,
+  indata: MallIndata,
+  last: boolean
+): Promise<number> {
+  const mall = normaliseraMall(indata);
+  const db = getDatabase();
+  const [konton, mallar, recurring] = await Promise.all([
+    hamtaKonton(db),
+    id === null ? Promise.resolve([]) : hamtaMallar(db),
+    queryAll<{ id: number; namn: string }>("SELECT id, namn FROM recurring_items"),
+  ]);
+
+  const fel = valideraMall(mall, konton);
+  if (fel) throw createActionError("VALIDATION", fel);
+  if (mall.recurringItemId !== null && !recurring.some((r) => r.id === mall.recurringItemId)) {
+    throw createActionError("VALIDATION", "Den återkommande händelsen finns inte");
+  }
+  const fore = id === null ? null : mallar.find((m) => m.id === id && m.status !== "borttagen");
+  if (fore === undefined) throw createActionError("NOT_FOUND", "Mallen finns inte");
+
+  const fmt = formaterare(konton);
+  const andring = fore
+    ? andradBeskrivning(fore, mall, last, fmt, new Map(recurring.map((r) => [r.id, r.namn])))
+    : skapadBeskrivning(mall, last, fmt);
+
+  const varden = [
+    mall.namn,
+    mall.nyckelord,
+    mall.ankarAccountId,
+    mall.beloppMin,
+    mall.beloppMax,
+    mall.dagIManaden?.forankring ?? null,
+    mall.dagIManaden?.dag ?? null,
+    mall.dagIManaden?.fonster ?? null,
+    mall.riktning,
+    mall.recurringItemId,
+    last,
+  ];
+
+  return dbTransaction(async (client) => {
+    let mallId: number;
+    if (fore) {
+      mallId = fore.id;
+      await client.query(
+        `UPDATE konteringsmallar
+            SET namn = $1, nyckelord = $2, ankar_account_id = $3, belopp_min = $4, belopp_max = $5,
+                dag_forankring = $6, dag = $7, dag_fonster = $8, riktning = $9,
+                recurring_item_id = $10, last = $11, updated_at = NOW()
+          WHERE id = $12`,
+        [...varden, mallId]
+      );
+    } else {
+      const { rows } = await client.query<{ id: number }>(
+        `INSERT INTO konteringsmallar
+           (namn, nyckelord, ankar_account_id, belopp_min, belopp_max, dag_forankring, dag,
+            dag_fonster, riktning, recurring_item_id, last, ursprung)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'anvandare')
+         RETURNING id`,
+        varden
+      );
+      mallId = rows[0].id;
+    }
+
+    const befintliga = new Map(fore?.alternativ.map((a) => [alternativNyckel(a.rader), a.id]));
+    const behallna: number[] = [];
+    for (const a of mall.alternativ) {
+      let alternativId = befintliga.get(alternativNyckel(a.rader));
+      if (alternativId !== undefined) {
+        await client.query("DELETE FROM konteringsalternativ_rader WHERE alternativ_id = $1", [
+          alternativId,
+        ]);
+      } else {
+        const { rows } = await client.query<{ id: number }>(
+          "INSERT INTO konteringsalternativ (mall_id) VALUES ($1) RETURNING id",
+          [mallId]
+        );
+        alternativId = rows[0].id;
+      }
+      behallna.push(alternativId);
+      for (const r of a.rader) {
+        await client.query(
+          `INSERT INTO konteringsalternativ_rader (alternativ_id, account_id, sida, andel)
+           VALUES ($1, $2, $3, $4)`,
+          [alternativId, r.accountId, r.sida, r.andel]
+        );
+      }
+    }
+    await client.query(
+      "DELETE FROM konteringsalternativ WHERE mall_id = $1 AND id <> ALL($2::int[])",
+      [mallId, behallna]
+    );
+
+    if (andring) {
+      await client.query(
+        "INSERT INTO konteringsmall_andringar (mall_id, av, andring) VALUES ($1, 'anvandare', $2)",
+        [mallId, andring]
+      );
+    }
+    return mallId;
+  });
+}
+
+async function andraKonteringsmall(
+  id: number,
+  villkor: string,
+  andring: string,
+  logg: string,
+  felmeddelande: string
+): Promise<void> {
+  await dbTransaction(async (client) => {
+    const { rows } = await client.query(
+      `UPDATE konteringsmallar SET ${andring}, updated_at = NOW()
+        WHERE id = $1 AND status <> 'borttagen' AND ${villkor}
+        RETURNING id`,
+      [id]
+    );
+    if (rows.length === 0) throw createActionError("CONFLICT", felmeddelande);
+    await client.query(
+      "INSERT INTO konteringsmall_andringar (mall_id, av, andring) VALUES ($1, 'anvandare', $2)",
+      [id, logg]
+    );
+  });
+}
+
+export async function lasUppKonteringsmall(id: number): Promise<void> {
+  await andraKonteringsmall(id, "last", "last = false", "Upplåst", "Mallen är inte låst");
+}
+
+/** En inaktiverad mall föreslås inte, men hindrar appen från att härleda samma mönster. */
+export async function inaktiveraKonteringsmall(id: number): Promise<void> {
+  await andraKonteringsmall(
+    id,
+    "status = 'aktiv'",
+    "status = 'inaktiverad'",
+    "Inaktiverad",
+    "Mallen är inte aktiv"
+  );
+}
+
+export async function ateraktiveraKonteringsmall(id: number): Promise<void> {
+  await andraKonteringsmall(
+    id,
+    "status = 'inaktiverad'",
+    "status = 'aktiv'",
+    "Återaktiverad",
+    "Mallen är inte inaktiverad"
+  );
+}
+
+/** Raderar en inaktiverad mall helt, så att appen kan hitta mönstret igen. */
+export async function raderaKonteringsmall(id: number): Promise<void> {
+  const { rows } = await query(
+    "DELETE FROM konteringsmallar WHERE id = $1 AND status = 'inaktiverad' RETURNING id",
+    [id]
+  );
+  if (rows.length === 0) {
+    throw createActionError("CONFLICT", "Bara inaktiverade mallar kan raderas");
+  }
+}
+
+/**
+ * En ny mall förifylld ur konteringen i bokföringsformuläret och
+ * bankhändelsen den bokförs från.
+ */
+export async function forifyllKonteringsmall(
+  bankEventId: number,
+  rader: Konteringsrad[],
+  recurringItemId: number | null
+): Promise<MallIndata | { fel: string }> {
+  const handelse = await queryOne<{ beskrivning: string; import_account_id: number | null }>(
+    `SELECT be.description AS beskrivning, i.account_id AS import_account_id
+       FROM bank_events be
+       LEFT JOIN imports i ON i.id = be.import_id
+      WHERE be.id = $1`,
+    [bankEventId]
+  );
+  if (!handelse) return { fel: "Bankhändelsen finns inte" };
+  return forifylldMall(
+    { beskrivning: handelse.beskrivning, importAccountId: handelse.import_account_id },
+    rader,
+    await hamtaKonton(getDatabase()),
+    recurringItemId
   );
 }
 

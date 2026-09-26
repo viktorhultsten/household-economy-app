@@ -2,12 +2,14 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Account, BankEvent, Post, RecurringItemStatus, Verifikat } from "../types";
-import { getAccounts, createVerifikat, updateVerifikat, isPeriodLocked, getRecurringItemsStatus, linkVerifikatToRecurringItem, getRecurringItemForVerifikat, updateVerifikatRecurringItemLink, getKonteringsforslag, flagBankEvent, unflagBankEvent, markBankEventIrrelevant, deleteBankEvent, adjustBankEventAmount, getPeriodiseringskonto, createPeriodforskjutning, updatePeriodforskjutning, deletePeriodforskjutning, getPeriodforskjutningForHuvud, createPeriodisering, updatePeriodisering, deletePeriodisering, getPeriodiseringForHuvud, convertVerifikatToPeriodforskjutning, convertVerifikatToPeriodisering } from "../actions";
+import { getAccounts, createVerifikat, updateVerifikat, isPeriodLocked, getRecurringItemsStatus, linkVerifikatToRecurringItem, getRecurringItemForVerifikat, updateVerifikatRecurringItemLink, getKonteringsforslag, flagBankEvent, unflagBankEvent, markBankEventIrrelevant, deleteBankEvent, adjustBankEventAmount, getPeriodiseringskonto, createPeriodforskjutning, updatePeriodforskjutning, deletePeriodforskjutning, getPeriodforskjutningForHuvud, createPeriodisering, updatePeriodisering, deletePeriodisering, getPeriodiseringForHuvud, convertVerifikatToPeriodforskjutning, convertVerifikatToPeriodisering, forifyllKonteringsmall } from "../actions";
 import AccountSelectorModal from "./AccountSelectorModal";
 import BankEventSettingsModal from "./BankEventSettingsModal";
 import ConfirmModal from "./ConfirmModal";
 import Link from "next/link";
 import KonteringsforslagCard from "./KonteringsforslagCard";
+import KonteringsmallFormModal from "./KonteringsmallFormModal";
+import { MallIndata } from "../lib/konteringsmallSida";
 import { Konteringsforslag, KonteringsforslagKort } from "../lib/konteringsforslag";
 import DateInput from "./DateInput";
 
@@ -130,6 +132,9 @@ export default function VerifikatForm({
   const containerRef = useRef<HTMLDivElement>(null);
   const recurringItemRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
   const [error, setError] = useState("");
+  // "Spara som mall": förifylld mall ur konteringen, och den senast sparade mallen
+  const [mallForm, setMallForm] = useState<MallIndata | null>(null);
+  const [sparadMallId, setSparadMallId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [periodLockWarning, setPeriodLockWarning] = useState("");
 
@@ -398,7 +403,7 @@ export default function VerifikatForm({
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       // Let nested modals own their own keys
-      if (showCloseConfirm || showAccountSelector !== null || showFlagInput || showUnflagConfirm) return;
+      if (showCloseConfirm || showAccountSelector !== null || showFlagInput || showUnflagConfirm || mallForm) return;
       if (e.key === "Escape") {
         e.preventDefault();
         attemptClose();
@@ -416,7 +421,7 @@ export default function VerifikatForm({
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showCloseConfirm, showAccountSelector, showFlagInput, showUnflagConfirm, isDirty, onClose]);
+  }, [showCloseConfirm, showAccountSelector, showFlagInput, showUnflagConfirm, mallForm, isDirty, onClose]);
 
   const updatePost = (
     index: number,
@@ -469,6 +474,18 @@ export default function VerifikatForm({
       });
     }
     setForslagDismissed(true);
+  };
+
+  const sparaSomMall = async () => {
+    if (!verifikatBankEvent) return;
+    setError("");
+    const resultat = await forifyllKonteringsmall(
+      verifikatBankEvent.id,
+      posts.map((p) => ({ accountId: p.accountId, debet: Number(p.debet) || 0, kredit: Number(p.kredit) || 0 })),
+      selectedRecurringItemId
+    );
+    if ("fel" in resultat) setError(resultat.fel);
+    else setMallForm(resultat);
   };
 
   const addPost = () => {
@@ -1390,6 +1407,24 @@ export default function VerifikatForm({
           )}
           <div className="flex gap-3 justify-between">
             <div className="flex items-center gap-3">
+              {verifikatBankEvent && (
+                <button
+                  type="button"
+                  onClick={sparaSomMall}
+                  className="px-4 py-2 text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
+                  disabled={loading}
+                >
+                  Spara som mall
+                </button>
+              )}
+              {sparadMallId !== null && (
+                <Link
+                  href={`/konteringsmallar#mall-${sparadMallId}`}
+                  className="text-sm text-green-700 underline hover:text-green-900 dark:text-green-400"
+                >
+                  Mallen sparad
+                </Link>
+              )}
               {bulkNav && (
                 <div className="flex items-center gap-1.5 text-sm text-zinc-600 dark:text-zinc-400">
                   <button
@@ -1719,6 +1754,20 @@ export default function VerifikatForm({
         </div>
       )}
 
+      {mallForm && verifikatBankEvent && (
+        <KonteringsmallFormModal
+          mallId={null}
+          initial={mallForm}
+          accounts={accounts}
+          recurringItems={recurringItems.map((r) => ({ id: r.recurringItem.id, namn: r.recurringItem.namn }))}
+          kontext={`Ur bankhändelsen «${verifikatBankEvent.description}» (${verifikatBankEvent.amount.toLocaleString("sv-SE", { minimumFractionDigits: 2 })} kr). Stryk nyckelord som inte särskiljer.`}
+          onClose={() => setMallForm(null)}
+          onSaved={(id) => {
+            setMallForm(null);
+            setSparadMallId(id);
+          }}
+        />
+      )}
       {showCloseConfirm && (
         <ConfirmModal
           title="Kasta osparade ändringar?"
