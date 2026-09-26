@@ -35,6 +35,7 @@ export async function hamtaHistorik(pool: Databas): Promise<HistoriskHandelse[]>
     belopp: string;
     import_account_id: number | null;
     periodiserad: boolean;
+    aterkommande: { id: number; namn: string }[];
   }>(
     `SELECT be.id AS bank_event_id,
             t.id AS verifikat_id,
@@ -44,7 +45,14 @@ export async function hamtaHistorik(pool: Databas): Promise<HistoriskHandelse[]>
             i.account_id AS import_account_id,
             (t.periodisering_parent_id IS NOT NULL
               OR EXISTS (SELECT 1 FROM transactions c WHERE c.periodisering_parent_id = t.id)
-            ) AS periodiserad
+            ) AS periodiserad,
+            COALESCE(
+              (SELECT json_agg(json_build_object('id', ri.id, 'namn', ri.namn) ORDER BY ri.id)
+                 FROM transaction_recurring_items tri
+                 JOIN recurring_items ri ON ri.id = tri.recurring_item_id
+                WHERE tri.transaction_id = t.id),
+              '[]'
+            ) AS aterkommande
        FROM bank_events be
        JOIN transactions t ON t.id = be.transaction_id
        LEFT JOIN imports i ON i.id = be.import_id
@@ -75,6 +83,7 @@ export async function hamtaHistorik(pool: Databas): Promise<HistoriskHandelse[]>
     importAccountId: h.import_account_id,
     periodiserad: h.periodiserad,
     rader: raderPerVerifikat.get(h.verifikat_id) ?? [],
+    aterkommande: h.aterkommande,
   }));
 }
 

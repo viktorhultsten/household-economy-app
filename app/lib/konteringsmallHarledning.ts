@@ -55,6 +55,13 @@ export interface HistoriskHandelse {
   periodiserad: boolean;
   /** Huvudverifikatets konteringsrader. */
   rader: Konteringsrad[];
+  /** Återkommande händelser verifikatet är kopplat till. */
+  aterkommande?: AterkommandeRef[];
+}
+
+export interface AterkommandeRef {
+  id: number;
+  namn: string;
 }
 
 export type Matchning = Pick<
@@ -75,6 +82,8 @@ export interface HarlettAlternativ {
 export interface HarleddMall extends Matchning {
   namn: string;
   alternativ: HarlettAlternativ[];
+  /** Återkommande händelse som mallens verifikat konsekvent kopplas till. */
+  aterkommande: AterkommandeRef | null;
   /** Bankhändelserna mallen härleddes ur. */
   bankEventIds: number[];
 }
@@ -124,6 +133,8 @@ export const HARLEDNING_PARAMETRAR = {
   identitet: 0.5,
   /** Minsta ändring i en split-andel som räknas som en justering. */
   andelTolerans: 0.01,
+  /** Minsta antal verifikat kopplade till en återkommande händelse för att mallen ska ge den. */
+  minAterkommande: 2,
 };
 
 export type HarledningParametrar = typeof HARLEDNING_PARAMETRAR;
@@ -144,6 +155,7 @@ export interface Observation {
   /** Alternativets strukturnyckel — en spegling ger samma nyckel. */
   nyckel: string;
   rader: AlternativRad[];
+  aterkommande: AterkommandeRef[];
 }
 
 /**
@@ -181,6 +193,7 @@ export function tillObservationer(historik: HistoriskHandelse[], konton: Map<num
       ankarAccountId: ankare,
       nyckel: alternativNyckel(rader),
       rader,
+      aterkommande: h.aterkommande ?? [],
     });
   }
   observationer.sort((a, b) => a.bankEventId - b.bankEventId);
@@ -424,6 +437,32 @@ function medianRader(obs: Observation[]): AlternativRad[] {
   return rader.map((r) => ({ ...r, andel: avrunda6(r.andel) }));
 }
 
+/**
+ * Den återkommande händelse som nodens verifikat konsekvent kopplas till:
+ * minst `renAndel` av verifikaten sedan den första kopplingen, så att en
+ * nyligen skapad händelse räknas trots äldre verifikat utan koppling. Vid
+ * flera kandidater vinner den med flest kopplingar.
+ */
+function aterkommandeFor(obs: Observation[], p: HarledningParametrar): AterkommandeRef | null {
+  const kopplade = new Map<number, { ref: AterkommandeRef; datum: string[] }>();
+  for (const o of obs) {
+    for (const ref of o.aterkommande) {
+      const k = kopplade.get(ref.id) ?? { ref, datum: [] };
+      k.datum.push(o.datum);
+      kopplade.set(ref.id, k);
+    }
+  }
+  let bast: { ref: AterkommandeRef; antal: number } | null = null;
+  for (const { ref, datum } of [...kopplade.values()].sort((a, b) => a.ref.id - b.ref.id)) {
+    if (datum.length < p.minAterkommande) continue;
+    const forsta = datum.reduce((min, d) => (d < min ? d : min));
+    const sedan = obs.filter((o) => o.datum >= forsta).length;
+    if (datum.length / sedan < p.renAndel) continue;
+    if (!bast || datum.length > bast.antal) bast = { ref, antal: datum.length };
+  }
+  return bast?.ref ?? null;
+}
+
 function tillMall(nod: Nod, p: HarledningParametrar): HarleddMall | null {
   const n = nod.obs.length;
   if (n < p.minStod) return null;
@@ -447,6 +486,7 @@ function tillMall(nod: Nod, p: HarledningParametrar): HarleddMall | null {
       senastAnvand: obs.reduce((max, o) => (o.datum > max ? o.datum : max), obs[0].datum),
       befintligtId: null,
     })),
+    aterkommande: aterkommandeFor(nod.obs, p),
     bankEventIds: nod.obs.map((o) => o.bankEventId),
   };
 }
@@ -624,7 +664,7 @@ export function harledKonteringsmallar(
       andringar.push({
         typ: "skapa",
         mall,
-        beskrivning: `Skapad ur ${mall.bankEventIds.length} bankhändelser. Matchning: ${fmt.matchning(mall)}. Alternativ: ${mall.alternativ.map(fmt.alternativMedStatistik).join("; ")}`,
+        beskrivning: `Skapad ur ${mall.bankEventIds.length} bankhändelser. Matchning: ${fmt.matchning(mall)}. Alternativ: ${mall.alternativ.map(fmt.alternativMedStatistik).join("; ")}${mall.aterkommande ? `. Ger återkommande händelse «${mall.aterkommande.namn}»` : ""}`,
       });
       return;
     }
@@ -641,6 +681,11 @@ export function harledKonteringsmallar(
       })),
     };
     const skillnader = jamfor(befintlig, justerad, fmt, p);
+    // Appen sätter eller byter återkommande händelse men tar aldrig bort en,
+    // så att en som användaren valt ligger kvar.
+    if (mall.aterkommande && mall.aterkommande.id !== befintlig.recurringItemId) {
+      skillnader.push(`återkommande händelse «${mall.aterkommande.namn}»`);
+    }
     if (skillnader.length === 0) {
       oforandrade.push(mallId);
     } else {

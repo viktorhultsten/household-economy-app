@@ -123,7 +123,7 @@ function resultat(overrides: Partial<HarledningResultat> = {}): HarledningResult
 }
 
 test("sammanfattning: räknar skapade, justerade och borttagna", () => {
-  const harledd = { ...ICA, namn: "Ica", alternativ: [], bankEventIds: [] };
+  const harledd = { ...ICA, namn: "Ica", alternativ: [], aterkommande: null, bankEventIds: [] };
   const s = sammanfattaKorning(
     resultat({
       andringar: [

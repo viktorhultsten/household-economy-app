@@ -468,3 +468,63 @@ test("härledda mallar matchar sina egna bankhändelser", () => {
   assert.ok(!matcharMall(ica, { beskrivning: "Willys", belopp: -100, datum: "2025-01-01", ankarAccountId: BANK }));
   assert.equal(alternativNyckel(ica.alternativ[0].rader), `${MAT}:motsatt`);
 });
+
+// --- Återkommande händelse ---
+
+const PENSION = { id: 5, namn: "Pension" };
+
+/** Tolv månatliga pensionsutbetalningar; de från och med `kopplingFran` kopplade enligt `kopplad`. */
+function pensionHistorik(kopplingFran: number, kopplad: (i: number) => boolean = () => true) {
+  return Array.from({ length: 12 }, (_, i) =>
+    h(`2025-${String(i + 1).padStart(2, "0")}-25`, "Pension KPA", 12000, BONUS, {
+      aterkommande: i >= kopplingFran && kopplad(i) ? [PENSION] : [],
+    })
+  );
+}
+
+test("mallen ger den återkommande händelse som verifikaten konsekvent kopplas till", () => {
+  const [pension] = skapade(harledKonteringsmallar(pensionHistorik(0), [], konton));
+  assert.deepEqual(pension.aterkommande, PENSION);
+});
+
+test("en nyligen skapad återkommande händelse räknas från första kopplingen", () => {
+  // Bara de tre senaste verifikaten är kopplade, men alla sedan händelsen skapades.
+  const r = harledKonteringsmallar(pensionHistorik(9), [], konton);
+  const [pension] = skapade(r);
+  assert.deepEqual(pension.aterkommande, PENSION);
+  const [andring] = r.andringar;
+  assert.match(andring.beskrivning, /Ger återkommande händelse «Pension»/);
+});
+
+test("sporadiska kopplingar ger ingen återkommande händelse", () => {
+  const r = harledKonteringsmallar(pensionHistorik(0, (i) => i % 3 === 0), [], konton);
+  assert.equal(skapade(r)[0].aterkommande, null);
+  // En enda koppling räcker inte heller.
+  assert.equal(skapade(harledKonteringsmallar(pensionHistorik(11), [], konton))[0].aterkommande, null);
+});
+
+const pensionAlternativ = {
+  id: 90,
+  mallId: 9,
+  rader: [{ accountId: BONUS, sida: "motsatt" as const, andel: 1 }],
+  antal: 0,
+  viktadAndel: null,
+  senastAnvand: null,
+};
+
+test("olåst mall utan återkommande händelse justeras så att den ger den", () => {
+  const befintlig = mall({ id: 9, nyckelord: ["kpa"], alternativ: [pensionAlternativ] });
+  const r = harledKonteringsmallar(pensionHistorik(0), [befintlig], konton);
+  const [andring] = r.andringar;
+  assert.equal(andring.typ, "justera");
+  if (andring.typ !== "justera") return;
+  assert.deepEqual(andring.mall.aterkommande, PENSION);
+  assert.match(andring.beskrivning, /återkommande händelse «Pension»/);
+});
+
+test("appen tar inte bort en återkommande händelse från en mall", () => {
+  const befintlig = mall({ id: 9, nyckelord: ["kpa"], recurringItemId: 5, alternativ: [pensionAlternativ] });
+  const r = harledKonteringsmallar(pensionHistorik(12), [befintlig], konton);
+  assert.deepEqual(r.andringar, []);
+  assert.deepEqual(r.oforandrade, [9]);
+});

@@ -147,10 +147,10 @@ async function sparaAndringar(client: PoolClient, korningId: number, resultat: H
       const { rows } = await client.query<{ id: number }>(
         `INSERT INTO konteringsmallar
            (nyckelord, ankar_account_id, belopp_min, belopp_max, dag_forankring, dag, dag_fonster,
-            riktning, namn, ursprung)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'app')
+            riktning, namn, recurring_item_id, ursprung)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'app')
          RETURNING id`,
-        [...matchningsvarden(a.mall), a.mall.namn]
+        [...matchningsvarden(a.mall), a.mall.namn, a.mall.aterkommande?.id ?? null]
       );
       mallId = rows[0].id;
     } else {
@@ -158,9 +158,10 @@ async function sparaAndringar(client: PoolClient, korningId: number, resultat: H
       await client.query(
         `UPDATE konteringsmallar
             SET nyckelord = $1, ankar_account_id = $2, belopp_min = $3, belopp_max = $4,
-                dag_forankring = $5, dag = $6, dag_fonster = $7, riktning = $8, updated_at = NOW()
+                dag_forankring = $5, dag = $6, dag_fonster = $7, riktning = $8,
+                recurring_item_id = COALESCE($10, recurring_item_id), updated_at = NOW()
           WHERE id = $9`,
-        [...matchningsvarden(a.mall), mallId]
+        [...matchningsvarden(a.mall), mallId, a.mall.aterkommande?.id ?? null]
       );
     }
 
