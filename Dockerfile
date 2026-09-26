@@ -11,6 +11,18 @@ RUN npm run build
 RUN npx esbuild scripts/mallanalys.ts --bundle --platform=node --target=node20 \
       --external:pg-native --outfile=dist/mallanalys.js
 
+# Mallanalysen: kör härledningen av konteringsmallar varje natt (issue 21).
+# Se docs/runbooks/mallanalys.md. Ligger före runner så att runner förblir
+# sista steget, det som byggs när inget --target anges.
+FROM node:20-alpine AS mallanalys
+WORKDIR /app
+ENV NODE_ENV=production
+# Tidszonen (TZ) avgör när på natten analysen körs.
+RUN apk add --no-cache tzdata
+COPY --from=builder /app/dist/mallanalys.js ./
+USER node
+CMD ["node", "mallanalys.js", "--schema"]
+
 # Runtime stage
 FROM node:20-alpine AS runner
 WORKDIR /app
@@ -35,14 +47,3 @@ ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
 CMD ["node", "server.js"]
-
-# Mallanalysen: kör härledningen av konteringsmallar varje natt (issue 21).
-# Se docs/runbooks/mallanalys.md.
-FROM node:20-alpine AS mallanalys
-WORKDIR /app
-ENV NODE_ENV=production
-# Tidszonen (TZ) avgör när på natten analysen körs.
-RUN apk add --no-cache tzdata
-COPY --from=builder /app/dist/mallanalys.js ./
-USER node
-CMD ["node", "mallanalys.js", "--schema"]
