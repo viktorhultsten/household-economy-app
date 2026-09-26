@@ -18,8 +18,9 @@ import {
 import AlertModal from "../components/AlertModal";
 import ConfirmModal from "../components/ConfirmModal";
 import KonteringsmallFormModal from "../components/KonteringsmallFormModal";
+import KontoNamn from "../components/KontoNamn";
 import MallanalysPanel from "../components/MallanalysPanel";
-import { Formaterare, formaterare, procent } from "../lib/konteringsmallHarledning";
+import { procent } from "../lib/konteringsmallHarledning";
 import {
   MallIndata,
   alternativAndel,
@@ -125,13 +126,6 @@ export default function KonteringsmallarPage() {
     return () => window.removeEventListener("hashchange", visaAnkare);
   }, [loading]);
 
-  const fmt = useMemo(
-    () =>
-      formaterare(
-        new Map(accounts.map((a) => [a.id, { namn: a.namn, grupp: a.group?.namn ?? "" }]))
-      ),
-    [accounts]
-  );
   const kontoMap = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
 
   const sorterade = useMemo(
@@ -169,7 +163,6 @@ export default function KonteringsmallarPage() {
 
   const kortProps = (m: KonteringsmallVy): MallKortProps => ({
     mall: m,
-    fmt,
     kontoMap,
     markerad: markerad === m.id,
     onAndra: () => setRedigerar({ id: m.id, initial: mallTillIndata(m) }),
@@ -312,7 +305,6 @@ export default function KonteringsmallarPage() {
 
 interface MallKortProps {
   mall: KonteringsmallVy;
-  fmt: Formaterare;
   kontoMap: Map<number, Account>;
   markerad: boolean;
   onAndra: () => void;
@@ -335,7 +327,6 @@ function Etikett({ children, ton }: { children: React.ReactNode; ton: "neutral" 
 
 function MallKort({
   mall,
-  fmt,
   kontoMap,
   markerad,
   onAndra,
@@ -402,7 +393,16 @@ function MallKort({
           const andel = alternativAndel(mall, a);
           return (
             <li key={a.id} className="flex items-baseline justify-between gap-4 text-sm">
-              <span className="text-zinc-800 dark:text-zinc-200">{fmt.alternativ(a.rader)}</span>
+              <span className="text-zinc-800 dark:text-zinc-200">
+                {a.rader.map((r, i) => (
+                  <span key={i}>
+                    {i > 0 && " + "}
+                    <KontoNamn account={kontoMap.get(r.accountId)} />
+                    {r.sida === "samma" && " (samma sida)"}
+                    {r.andel !== 1 && ` ${procent(r.andel)}`}
+                  </span>
+                ))}
+              </span>
               <span className="shrink-0 tabular-nums text-zinc-500 dark:text-zinc-400">
                 {andel === null ? "–" : procent(andel)}
               </span>

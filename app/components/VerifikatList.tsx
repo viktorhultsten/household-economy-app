@@ -5,6 +5,7 @@ import { Verifikat } from "../types";
 import { getVerifikatPaginated, deleteVerifikat, getVerifikat } from "../actions";
 import VerifikatForm from "./VerifikatForm";
 import ConfirmModal from "./ConfirmModal";
+import KontoNamn from "./KontoNamn";
 
 const BATCH_SIZE = 25;
 
@@ -304,12 +305,7 @@ const VerifikatList = memo(function VerifikatList({
                     className={idx % 2 === 0 ? "bg-white dark:bg-zinc-800" : "bg-zinc-50 dark:bg-zinc-900/30"}
                   >
                     <td className="px-6 py-3 text-sm text-zinc-900 dark:text-zinc-50">
-                      {post.account?.namn || "—"}
-                      {post.account?.group && (
-                        <span className="ml-2 text-xs text-zinc-500 dark:text-zinc-400">
-                          ({post.account.group.namn})
-                        </span>
-                      )}
+                      <KontoNamn account={post.account} />
                     </td>
                     <td className="px-6 py-3 text-sm text-zinc-600 dark:text-zinc-400">
                       {post.description || "—"}
