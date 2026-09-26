@@ -3,9 +3,23 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: runner
     container_name: economy-app
     ports:
       - "3000:3000"
     environment:
       - DATABASE_URL=${DATABASE_URL}
+    restart: unless-stopped
+
+  # Nattlig mallanalys (issue 21). Se docs/runbooks/mallanalys.md.
+  mallanalys:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: mallanalys
+    container_name: economy-mallanalys
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - TZ=${TZ:-Europe/Stockholm}
+      - MALLANALYS_TID=${MALLANALYS_TID:-03:00}
     restart: unless-stopped

@@ -4,9 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   KonteringsmallVy,
+  MallanalysKorning,
   ateraktiveraKonteringsmall,
   getAccounts,
   getKonteringsmallar,
+  getMallanalysKorningar,
   getRecurringItems,
   inaktiveraKonteringsmall,
   lasUppKonteringsmall,
@@ -15,6 +17,7 @@ import {
 import AlertModal from "../components/AlertModal";
 import ConfirmModal from "../components/ConfirmModal";
 import KonteringsmallFormModal from "../components/KonteringsmallFormModal";
+import MallanalysPanel from "../components/MallanalysPanel";
 import { Formaterare, formaterare, procent } from "../lib/konteringsmallHarledning";
 import {
   MallIndata,
@@ -52,15 +55,22 @@ interface Siddata {
   mallar: KonteringsmallVy[];
   accounts: Account[];
   recurringItems: { id: number; namn: string }[];
+  korningar: MallanalysKorning[];
 }
 
 async function hamtaSiddata(): Promise<Siddata> {
-  const [mallar, accounts, recurring] = await Promise.all([
+  const [mallar, accounts, recurring, korningar] = await Promise.all([
     getKonteringsmallar(),
     getAccounts(),
     getRecurringItems(),
+    getMallanalysKorningar(),
   ]);
-  return { mallar, accounts, recurringItems: recurring.map((r) => ({ id: r.id, namn: r.namn })) };
+  return {
+    mallar,
+    accounts,
+    recurringItems: recurring.map((r) => ({ id: r.id, namn: r.namn })),
+    korningar,
+  };
 }
 
 /** Mallid ur adressens ankare, `#mall-{id}`. */
@@ -73,6 +83,7 @@ export default function KonteringsmallarPage() {
   const [mallar, setMallar] = useState<KonteringsmallVy[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [recurringItems, setRecurringItems] = useState<{ id: number; namn: string }[]>([]);
+  const [korningar, setKorningar] = useState<MallanalysKorning[]>([]);
   const [loading, setLoading] = useState(true);
   const [redigerar, setRedigerar] = useState<{ id: number | null; initial: MallIndata } | null>(null);
   const [bekraftelse, setBekraftelse] = useState<Bekraftelse | null>(null);
@@ -83,6 +94,7 @@ export default function KonteringsmallarPage() {
     setMallar(data.mallar);
     setAccounts(data.accounts);
     setRecurringItems(data.recurringItems);
+    setKorningar(data.korningar);
     setLoading(false);
   }, []);
   const ladda = async () => visa(await hamtaSiddata());
@@ -216,6 +228,8 @@ export default function KonteringsmallarPage() {
           Mallarna är enda källan till konteringsförslag. Appen härleder och justerar olåsta mallar ur
           historiken; låsta mallar ändras bara av dig.
         </p>
+
+        <MallanalysPanel korningar={korningar} />
 
         <section className="mb-10">
           <h2 className="mb-3 text-lg font-semibold text-zinc-900 dark:text-zinc-50">

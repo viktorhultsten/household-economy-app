@@ -64,6 +64,13 @@
       "when": 1790429539402,
       "tag": "0008_konteringsmallar",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790432664736,
+      "tag": "0009_mallanalys_antal",
+      "breakpoints": true
     }
   ]
 }

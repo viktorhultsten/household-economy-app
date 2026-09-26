@@ -47,6 +47,18 @@ Fullständigt prod-flöde: [docs/runbooks/prod-migration.md](docs/runbooks/prod-
 | `npm run db:migrate:prod` | `economy` (prod) | Försonar, baselinear och migrerar prod. Kräver interaktiv bekräftelse av databasnamnet. |
 | `npm run db:refresh` | `economy_dev` | Skriver över dev med en färsk kopia av prod via `pg_dump \| psql`. Prod behandlas strikt som läsbart och kopplas aldrig ner. |
 
+### Konteringsmallar
+
+Mallanalysen körs varje natt av tjänsten `mallanalys` i `docker-compose.yml`. Drift
+och felsökning: [docs/runbooks/mallanalys.md](docs/runbooks/mallanalys.md).
+
+| Script | Mål | Beskrivning |
+| --- | --- | --- |
+| `npm run mallar:analys:dev` | `economy_dev` | Kör mallanalysen en gång: härleder mallar, sparar ändringarna och uppdaterar statistiken. |
+| `npm run mallar:analys` | `DATABASE_URL` (prod) | Samma körning som den nattliga, mot prod. |
+| `npm run mallar:harled:dev` | `economy_dev` | Kör härledningen och skriver ut resultatet, utan att spara. |
+| `npm run mallar:kalibrera:dev` | `economy_dev` | Backtest av sannolikhetsmodellen, utan att spara. |
+
 ### Underhåll och diagnostik
 
 | Script | Beskrivning |

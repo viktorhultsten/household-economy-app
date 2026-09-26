@@ -1,0 +1,1717 @@
+{
+  "id": "222b6d1b-3ab4-431e-a083-04510e614b00",
+  "prevId": "0f2ec6f5-d1ce-4692-9ad8-c7d91d9144f0",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.accounts": {
+      "name": "accounts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "namn": {
+          "name": "namn",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "group_id": {
+          "name": "group_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "exclude_from_budget": {
+          "name": "exclude_from_budget",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "is_periodisering_default": {
+          "name": "is_periodisering_default",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "reconciled_through": {
+          "name": "reconciled_through",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "accounts_periodisering_default_unique": {
+          "name": "accounts_periodisering_default_unique",
+          "columns": [
+            {
+              "expression": "is_periodisering_default",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"accounts\".\"is_periodisering_default\" = 1",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "accounts_group_id_groups_id_fk": {
+          "name": "accounts_group_id_groups_id_fk",
+          "tableFrom": "accounts",
+          "tableTo": "groups",
+          "columnsFrom": [
+            "group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.bank_events": {
+      "name": "bank_events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "date": {
+          "name": "date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount": {
+          "name": "amount",
+          "type": "numeric(15, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "is_posted": {
+          "name": "is_posted",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "flagged": {
+          "name": "flagged",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "flag_comment": {
+          "name": "flag_comment",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "is_irrelevant": {
+          "name": "is_irrelevant",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "transaction_id": {
+          "name": "transaction_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "import_id": {
+          "name": "import_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "bank_events_transaction_id_transactions_id_fk": {
+          "name": "bank_events_transaction_id_transactions_id_fk",
+          "tableFrom": "bank_events",
+          "tableTo": "transactions",
+          "columnsFrom": [
+            "transaction_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "bank_events_import_id_imports_id_fk": {
+          "name": "bank_events_import_id_imports_id_fk",
+          "tableFrom": "bank_events",
+          "tableTo": "imports",
+          "columnsFrom": [
+            "import_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.budgets": {
+      "name": "budgets",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "account_id": {
+          "name": "account_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "year": {
+          "name": "year",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "month": {
+          "name": "month",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount": {
+          "name": "amount",
+          "type": "numeric(15, 2)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_budgets_account_year": {
+          "name": "idx_budgets_account_year",
+          "columns": [
+            {
+              "expression": "account_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "year",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_budgets_year_month": {
+          "name": "idx_budgets_year_month",
+          "columns": [
+            {
+              "expression": "year",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "month",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "budgets_account_id_accounts_id_fk": {
+          "name": "budgets_account_id_accounts_id_fk",
+          "tableFrom": "budgets",
+          "tableTo": "accounts",
+          "columnsFrom": [
+            "account_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "budgets_account_id_year_month_unique": {
+          "name": "budgets_account_id_year_month_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "account_id",
+            "year",
+            "month"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "budgets_month_check": {
+          "name": "budgets_month_check",
+          "value": "\"budgets\".\"month\" >= 1 AND \"budgets\".\"month\" <= 12"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.custom_result_view_accounts": {
+      "name": "custom_result_view_accounts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "view_id": {
+          "name": "view_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "account_id": {
+          "name": "account_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_custom_view_accounts_view_id": {
+          "name": "idx_custom_view_accounts_view_id",
+          "columns": [
+            {
+              "expression": "view_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "custom_result_view_accounts_view_id_custom_result_views_id_fk": {
+          "name": "custom_result_view_accounts_view_id_custom_result_views_id_fk",
+          "tableFrom": "custom_result_view_accounts",
+          "tableTo": "custom_result_views",
+          "columnsFrom": [
+            "view_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "custom_result_view_accounts_account_id_accounts_id_fk": {
+          "name": "custom_result_view_accounts_account_id_accounts_id_fk",
+          "tableFrom": "custom_result_view_accounts",
+          "tableTo": "accounts",
+          "columnsFrom": [
+            "account_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "custom_result_view_accounts_view_id_account_id_unique": {
+          "name": "custom_result_view_accounts_view_id_account_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "view_id",
+            "account_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.custom_result_view_groups": {
+      "name": "custom_result_view_groups",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "view_id": {
+          "name": "view_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "group_id": {
+          "name": "group_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_custom_view_groups_view_id": {
+          "name": "idx_custom_view_groups_view_id",
+          "columns": [
+            {
+              "expression": "view_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "custom_result_view_groups_view_id_custom_result_views_id_fk": {
+          "name": "custom_result_view_groups_view_id_custom_result_views_id_fk",
+          "tableFrom": "custom_result_view_groups",
+          "tableTo": "custom_result_views",
+          "columnsFrom": [
+            "view_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "custom_result_view_groups_group_id_groups_id_fk": {
+          "name": "custom_result_view_groups_group_id_groups_id_fk",
+          "tableFrom": "custom_result_view_groups",
+          "tableTo": "groups",
+          "columnsFrom": [
+            "group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "custom_result_view_groups_view_id_group_id_unique": {
+          "name": "custom_result_view_groups_view_id_group_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "view_id",
+            "group_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.custom_result_view_types": {
+      "name": "custom_result_view_types",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "view_id": {
+          "name": "view_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "account_type": {
+          "name": "account_type",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_custom_view_types_view_id": {
+          "name": "idx_custom_view_types_view_id",
+          "columns": [
+            {
+              "expression": "view_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "custom_result_view_types_view_id_custom_result_views_id_fk": {
+          "name": "custom_result_view_types_view_id_custom_result_views_id_fk",
+          "tableFrom": "custom_result_view_types",
+          "tableTo": "custom_result_views",
+          "columnsFrom": [
+            "view_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "custom_result_view_types_view_id_account_type_unique": {
+          "name": "custom_result_view_types_view_id_account_type_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "view_id",
+            "account_type"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "custom_result_view_types_account_type_check": {
+          "name": "custom_result_view_types_account_type_check",
+          "value": "\"custom_result_view_types\".\"account_type\" IN ('Intäkt', 'Utgift', 'Tillgång', 'Skuld')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.custom_result_views": {
+      "name": "custom_result_views",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "namn": {
+          "name": "namn",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.groups": {
+      "name": "groups",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "namn": {
+          "name": "namn",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "typ": {
+          "name": "typ",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "groups_namn_unique": {
+          "name": "groups_namn_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "namn"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "groups_typ_check": {
+          "name": "groups_typ_check",
+          "value": "\"groups\".\"typ\" IN ('Intäkt', 'Utgift', 'Tillgång', 'Skuld')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.imports": {
+      "name": "imports",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "filename": {
+          "name": "filename",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "imported_at": {
+          "name": "imported_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "total_events": {
+          "name": "total_events",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "date_range_start": {
+          "name": "date_range_start",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "date_range_end": {
+          "name": "date_range_end",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "account_id": {
+          "name": "account_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "is_external": {
+          "name": "is_external",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "imports_account_id_accounts_id_fk": {
+          "name": "imports_account_id_accounts_id_fk",
+          "tableFrom": "imports",
+          "tableTo": "accounts",
+          "columnsFrom": [
+            "account_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.konteringsalternativ": {
+      "name": "konteringsalternativ",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "mall_id": {
+          "name": "mall_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "antal": {
+          "name": "antal",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "viktad_andel": {
+          "name": "viktad_andel",
+          "type": "numeric(7, 6)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "senast_anvand": {
+          "name": "senast_anvand",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_konteringsalternativ_mall_id": {
+          "name": "idx_konteringsalternativ_mall_id",
+          "columns": [
+            {
+              "expression": "mall_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "konteringsalternativ_mall_id_konteringsmallar_id_fk": {
+          "name": "konteringsalternativ_mall_id_konteringsmallar_id_fk",
+          "tableFrom": "konteringsalternativ",
+          "tableTo": "konteringsmallar",
+          "columnsFrom": [
+            "mall_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.konteringsalternativ_rader": {
+      "name": "konteringsalternativ_rader",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "alternativ_id": {
+          "name": "alternativ_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "account_id": {
+          "name": "account_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sida": {
+          "name": "sida",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "andel": {
+          "name": "andel",
+          "type": "numeric(9, 6)",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "idx_konteringsalternativ_rader_alternativ_id": {
+          "name": "idx_konteringsalternativ_rader_alternativ_id",
+          "columns": [
+            {
+              "expression": "alternativ_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "konteringsalternativ_rader_alternativ_id_konteringsalternativ_id_fk": {
+          "name": "konteringsalternativ_rader_alternativ_id_konteringsalternativ_id_fk",
+          "tableFrom": "konteringsalternativ_rader",
+          "tableTo": "konteringsalternativ",
+          "columnsFrom": [
+            "alternativ_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "konteringsalternativ_rader_account_id_accounts_id_fk": {
+          "name": "konteringsalternativ_rader_account_id_accounts_id_fk",
+          "tableFrom": "konteringsalternativ_rader",
+          "tableTo": "accounts",
+          "columnsFrom": [
+            "account_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "konteringsalternativ_rader_sida_check": {
+          "name": "konteringsalternativ_rader_sida_check",
+          "value": "\"konteringsalternativ_rader\".\"sida\" IN ('samma', 'motsatt')"
+        },
+        "konteringsalternativ_rader_andel_check": {
+          "name": "konteringsalternativ_rader_andel_check",
+          "value": "\"konteringsalternativ_rader\".\"andel\" > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.konteringsmall_andringar": {
+      "name": "konteringsmall_andringar",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "mall_id": {
+          "name": "mall_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tidpunkt": {
+          "name": "tidpunkt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "av": {
+          "name": "av",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "andring": {
+          "name": "andring",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "korning_id": {
+          "name": "korning_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "idx_konteringsmall_andringar_mall_id": {
+          "name": "idx_konteringsmall_andringar_mall_id",
+          "columns": [
+            {
+              "expression": "mall_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "konteringsmall_andringar_mall_id_konteringsmallar_id_fk": {
+          "name": "konteringsmall_andringar_mall_id_konteringsmallar_id_fk",
+          "tableFrom": "konteringsmall_andringar",
+          "tableTo": "konteringsmallar",
+          "columnsFrom": [
+            "mall_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "konteringsmall_andringar_korning_id_mallanalys_korningar_id_fk": {
+          "name": "konteringsmall_andringar_korning_id_mallanalys_korningar_id_fk",
+          "tableFrom": "konteringsmall_andringar",
+          "tableTo": "mallanalys_korningar",
+          "columnsFrom": [
+            "korning_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "konteringsmall_andringar_av_check": {
+          "name": "konteringsmall_andringar_av_check",
+          "value": "\"konteringsmall_andringar\".\"av\" IN ('app', 'anvandare')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.konteringsmallar": {
+      "name": "konteringsmallar",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "namn": {
+          "name": "namn",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ursprung": {
+          "name": "ursprung",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last": {
+          "name": "last",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'aktiv'"
+        },
+        "nyckelord": {
+          "name": "nyckelord",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ankar_account_id": {
+          "name": "ankar_account_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "belopp_min": {
+          "name": "belopp_min",
+          "type": "numeric(15, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "belopp_max": {
+          "name": "belopp_max",
+          "type": "numeric(15, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dag_forankring": {
+          "name": "dag_forankring",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dag": {
+          "name": "dag",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dag_fonster": {
+          "name": "dag_fonster",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "riktning": {
+          "name": "riktning",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "recurring_item_id": {
+          "name": "recurring_item_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_konteringsmallar_status": {
+          "name": "idx_konteringsmallar_status",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "konteringsmallar_ankar_account_id_accounts_id_fk": {
+          "name": "konteringsmallar_ankar_account_id_accounts_id_fk",
+          "tableFrom": "konteringsmallar",
+          "tableTo": "accounts",
+          "columnsFrom": [
+            "ankar_account_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "konteringsmallar_recurring_item_id_recurring_items_id_fk": {
+          "name": "konteringsmallar_recurring_item_id_recurring_items_id_fk",
+          "tableFrom": "konteringsmallar",
+          "tableTo": "recurring_items",
+          "columnsFrom": [
+            "recurring_item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "konteringsmallar_ursprung_check": {
+          "name": "konteringsmallar_ursprung_check",
+          "value": "\"konteringsmallar\".\"ursprung\" IN ('anvandare', 'app')"
+        },
+        "konteringsmallar_status_check": {
+          "name": "konteringsmallar_status_check",
+          "value": "\"konteringsmallar\".\"status\" IN ('aktiv', 'inaktiverad', 'borttagen')"
+        },
+        "konteringsmallar_riktning_check": {
+          "name": "konteringsmallar_riktning_check",
+          "value": "\"konteringsmallar\".\"riktning\" IN ('in', 'ut')"
+        },
+        "konteringsmallar_dag_check": {
+          "name": "konteringsmallar_dag_check",
+          "value": "(\"konteringsmallar\".\"dag_forankring\" IS NULL AND \"konteringsmallar\".\"dag\" IS NULL AND \"konteringsmallar\".\"dag_fonster\" IS NULL) OR (\"konteringsmallar\".\"dag_forankring\" IN ('borjan', 'slut') AND \"konteringsmallar\".\"dag\" BETWEEN 0 AND 31 AND \"konteringsmallar\".\"dag_fonster\" >= 0)"
+        },
+        "konteringsmallar_belopp_check": {
+          "name": "konteringsmallar_belopp_check",
+          "value": "\"konteringsmallar\".\"belopp_min\" IS NULL OR \"konteringsmallar\".\"belopp_max\" IS NULL OR \"konteringsmallar\".\"belopp_min\" <= \"konteringsmallar\".\"belopp_max\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.mallanalys_korningar": {
+      "name": "mallanalys_korningar",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "startad": {
+          "name": "startad",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "avslutad": {
+          "name": "avslutad",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pagar'"
+        },
+        "historik_fran": {
+          "name": "historik_fran",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "historik_till": {
+          "name": "historik_till",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "antal_verifikat": {
+          "name": "antal_verifikat",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "antal_skapade": {
+          "name": "antal_skapade",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "antal_justerade": {
+          "name": "antal_justerade",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "antal_borttagna": {
+          "name": "antal_borttagna",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sammanfattning": {
+          "name": "sammanfattning",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fel": {
+          "name": "fel",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "mallanalys_korningar_status_check": {
+          "name": "mallanalys_korningar_status_check",
+          "value": "\"mallanalys_korningar\".\"status\" IN ('pagar', 'klar', 'fel')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.period_locks": {
+      "name": "period_locks",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "year": {
+          "name": "year",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "month": {
+          "name": "month",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "locked_at": {
+          "name": "locked_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "locked_by": {
+          "name": "locked_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "period_locks_year_month_unique": {
+          "name": "period_locks_year_month_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "year",
+            "month"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.posts": {
+      "name": "posts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "transaction_id": {
+          "name": "transaction_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "account_id": {
+          "name": "account_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "debet": {
+          "name": "debet",
+          "type": "numeric(15, 2)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "kredit": {
+          "name": "kredit",
+          "type": "numeric(15, 2)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "posts_transaction_id_transactions_id_fk": {
+          "name": "posts_transaction_id_transactions_id_fk",
+          "tableFrom": "posts",
+          "tableTo": "transactions",
+          "columnsFrom": [
+            "transaction_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "posts_account_id_accounts_id_fk": {
+          "name": "posts_account_id_accounts_id_fk",
+          "tableFrom": "posts",
+          "tableTo": "accounts",
+          "columnsFrom": [
+            "account_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "posts_debet_kredit_check": {
+          "name": "posts_debet_kredit_check",
+          "value": "((\"posts\".\"debet\" > 0 AND \"posts\".\"kredit\" = 0) OR (\"posts\".\"kredit\" > 0 AND \"posts\".\"debet\" = 0) OR (\"posts\".\"debet\" = 0 AND \"posts\".\"kredit\" = 0))"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.recurring_items": {
+      "name": "recurring_items",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "namn": {
+          "name": "namn",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expected_per_month": {
+          "name": "expected_per_month",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "active_months": {
+          "name": "active_months",
+          "type": "integer[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "ARRAY[1,2,3,4,5,6,7,8,9,10,11,12]::integer[]"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "recurring_items_namn_unique": {
+          "name": "recurring_items_namn_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "namn"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.todos": {
+      "name": "todos",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "due_date": {
+          "name": "due_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.transactions": {
+      "name": "transactions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "date": {
+          "name": "date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bank_event_id": {
+          "name": "bank_event_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "periodisering_parent_id": {
+          "name": "periodisering_parent_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "periodisering_kind": {
+          "name": "periodisering_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "transactions_bank_event_id_bank_events_id_fk": {
+          "name": "transactions_bank_event_id_bank_events_id_fk",
+          "tableFrom": "transactions",
+          "tableTo": "bank_events",
+          "columnsFrom": [
+            "bank_event_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "transactions_periodisering_parent_id_transactions_id_fk": {
+          "name": "transactions_periodisering_parent_id_transactions_id_fk",
+          "tableFrom": "transactions",
+          "tableTo": "transactions",
+          "columnsFrom": [
+            "periodisering_parent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "transactions_periodisering_kind_check": {
+          "name": "transactions_periodisering_kind_check",
+          "value": "\"transactions\".\"periodisering_kind\" IN ('forskjutning', 'periodisering')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.transaction_recurring_items": {
+      "name": "transaction_recurring_items",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "transaction_id": {
+          "name": "transaction_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recurring_item_id": {
+          "name": "recurring_item_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "transaction_recurring_items_transaction_id_transactions_id_fk": {
+          "name": "transaction_recurring_items_transaction_id_transactions_id_fk",
+          "tableFrom": "transaction_recurring_items",
+          "tableTo": "transactions",
+          "columnsFrom": [
+            "transaction_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "transaction_recurring_items_recurring_item_id_recurring_items_id_fk": {
+          "name": "transaction_recurring_items_recurring_item_id_recurring_items_id_fk",
+          "tableFrom": "transaction_recurring_items",
+          "tableTo": "recurring_items",
+          "columnsFrom": [
+            "recurring_item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "transaction_recurring_items_transaction_id_recurring_item_id_unique": {
+          "name": "transaction_recurring_items_transaction_id_recurring_item_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "transaction_id",
+            "recurring_item_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

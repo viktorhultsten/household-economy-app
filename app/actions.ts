@@ -14,7 +14,7 @@ import {
   skapadBeskrivning,
   valideraMall,
 } from "./lib/konteringsmallSida";
-import { Konteringsmall, Konteringsrad, alternativNyckel } from "./lib/konteringsmallUtils";
+import { Konteringsmall, Konteringsrad, MallStatus, alternativNyckel } from "./lib/konteringsmallUtils";
 import { derivePeriodiseringPosts, derivePeriodiseringSlices } from "./lib/periodiseringUtils";
 
 type ActionErrorCategory = "VALIDATION" | "NOT_FOUND" | "CONFLICT" | "LOCKED_PERIOD" | "DATABASE";
@@ -2816,6 +2816,60 @@ export async function getKonteringsmallar(): Promise<KonteringsmallVy[]> {
     andringar: andringar
       .filter((a) => a.mall_id === m.id)
       .map(({ id, tidpunkt, av, andring }) => ({ id, tidpunkt, av, andring })),
+  }));
+}
+
+export interface MallanalysKorning {
+  id: number;
+  startad: string;
+  avslutad: string | null;
+  status: "pagar" | "klar" | "fel";
+  historikFran: string | null;
+  historikTill: string | null;
+  antalVerifikat: number | null;
+  antalSkapade: number | null;
+  antalJusterade: number | null;
+  antalBorttagna: number | null;
+  sammanfattning: string | null;
+  fel: string | null;
+  /** Appens ändringar i körningen. Mallar som användaren sedan raderat saknas. */
+  andringar: { id: number; mallId: number; mallnamn: string; mallStatus: MallStatus; andring: string }[];
+}
+
+/** De senaste mallanalyserna (issue 21), nyast först, med ändringarna de gjorde. */
+export async function getMallanalysKorningar(antal = 30): Promise<MallanalysKorning[]> {
+  const korningar = await queryAll<Omit<MallanalysKorning, "andringar">>(
+    `SELECT id,
+            to_char(startad, 'YYYY-MM-DD HH24:MI') AS startad,
+            to_char(avslutad, 'YYYY-MM-DD HH24:MI:SS') AS avslutad,
+            status,
+            to_char(historik_fran, 'YYYY-MM-DD') AS "historikFran",
+            to_char(historik_till, 'YYYY-MM-DD') AS "historikTill",
+            antal_verifikat AS "antalVerifikat",
+            antal_skapade AS "antalSkapade",
+            antal_justerade AS "antalJusterade",
+            antal_borttagna AS "antalBorttagna",
+            sammanfattning,
+            fel
+       FROM mallanalys_korningar
+      ORDER BY id DESC
+      LIMIT $1`,
+    [antal]
+  );
+  const andringar = await queryAll<MallanalysKorning["andringar"][number] & { korningId: number }>(
+    `SELECT a.id, a.korning_id AS "korningId", a.mall_id AS "mallId", m.namn AS mallnamn,
+            m.status AS "mallStatus", a.andring
+       FROM konteringsmall_andringar a
+       JOIN konteringsmallar m ON m.id = a.mall_id
+      WHERE a.korning_id = ANY($1)
+      ORDER BY a.id`,
+    [korningar.map((k) => k.id)]
+  );
+  return korningar.map((k) => ({
+    ...k,
+    andringar: andringar
+      .filter((a) => a.korningId === k.id)
+      .map(({ id, mallId, mallnamn, mallStatus, andring }) => ({ id, mallId, mallnamn, mallStatus, andring })),
   }));
 }
 

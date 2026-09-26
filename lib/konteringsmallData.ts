@@ -4,7 +4,7 @@
  * konteringsförslagen i bokföringsvyn (issue 19) tar.
  */
 
-import { Pool } from "pg";
+import { ClientBase } from "pg";
 
 import { HistoriskHandelse, KontoInfo, Kontotyp } from "../app/lib/konteringsmallHarledning";
 import {
@@ -16,14 +16,17 @@ import {
   Sida,
 } from "../app/lib/konteringsmallUtils";
 
-export async function hamtaKonton(pool: Pool): Promise<Map<number, KontoInfo>> {
+/** En pool eller en klient, t.ex. i en transaktion. */
+export type Databas = Pick<ClientBase, "query">;
+
+export async function hamtaKonton(pool: Databas): Promise<Map<number, KontoInfo>> {
   const { rows } = await pool.query<{ id: number; namn: string; grupp: string; typ: Kontotyp }>(
     `SELECT a.id, a.namn, g.namn AS grupp, g.typ FROM accounts a JOIN groups g ON g.id = a.group_id`
   );
   return new Map(rows.map((r) => [r.id, { namn: r.namn, grupp: r.grupp, typ: r.typ }]));
 }
 
-export async function hamtaHistorik(pool: Pool): Promise<HistoriskHandelse[]> {
+export async function hamtaHistorik(pool: Databas): Promise<HistoriskHandelse[]> {
   const { rows: handelser } = await pool.query<{
     bank_event_id: number;
     verifikat_id: number;
@@ -75,7 +78,7 @@ export async function hamtaHistorik(pool: Pool): Promise<HistoriskHandelse[]> {
   }));
 }
 
-export async function hamtaMallar(pool: Pool): Promise<Konteringsmall[]> {
+export async function hamtaMallar(pool: Databas): Promise<Konteringsmall[]> {
   const { rows: mallar } = await pool.query<{
     id: number;
     namn: string;
