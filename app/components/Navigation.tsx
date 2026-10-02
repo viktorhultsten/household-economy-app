@@ -13,6 +13,7 @@ export default function Navigation() {
     { href: "/resultat", label: "Resultat" },
     { href: "/balans", label: "Balans" },
     { href: "/budget", label: "Budget" },
+    { href: "/analys", label: "Analys" },
     { href: "/periodiseringar", label: "Periodiseringar" },
     { href: "/recurring", label: "Återkommande" },
     { href: "/settings", label: "Inställningar" },
@@ -23,7 +24,8 @@ export default function Navigation() {
       <div className="mx-auto max-w-7xl px-4">
         <div className="flex h-16 items-center gap-2">
           {navItems.map((item) => {
-            const isActive = pathname === item.href;
+            const isActive =
+              pathname === item.href || (item.href !== "/" && pathname.startsWith(`${item.href}/`));
             return (
               <Link
                 key={item.href}

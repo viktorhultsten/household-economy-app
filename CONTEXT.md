@@ -110,6 +110,15 @@ _Avoid_: Återkommande transaktion, Fast post
 **Budget**:
 Ett planerat belopp per konto och månad, jämförs mot faktiskt utfall. Handlar om *hur mycket*, till skillnad från återkommande händelse som handlar om *att* något sker.
 
+### Analys
+
+**Analys**:
+Samlingsplatsen för analysverktyg — vyer som läser bokföringen ur en annan vinkel än rapporterna, utan att ändra något. Varje verktyg är en flik under Analys.
+
+**Kontohistorik**:
+Ett analysverktyg: en matris av valda konton × månader som visar varje verifikat som bokats på kontot den månaden, med datum, belopp (kontots normala sida som positiv) och bankhändelsens text. Månaden avgörs av verifikatets datum, så periodiserade poster syns i sina målmånader. Urvalet (konton och period) bor i URL:en och sparas inte. Används för att se att något kommit in regelbundet och hitta luckor utan att gå in på ett konto i taget.
+_Avoid_: Kontomatris, Månadsöversikt
+
 ### Import och rapporter
 
 **Import**:

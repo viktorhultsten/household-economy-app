@@ -6,14 +6,22 @@ interface PeriodSelectorProps {
   year: number;
   month: number;
   onChange: (year: number, month: number) => void;
+  /** Hur popupen ställs mot väljaren; vänster/höger när väljaren står vid en kant. */
+  align?: "left" | "center" | "right";
 }
+
+const ALIGN_CLASS = {
+  left: "left-0",
+  center: "left-1/2 -translate-x-1/2",
+  right: "right-0",
+};
 
 const MONTHS = [
   "Januari", "Februari", "Mars", "April", "Maj", "Juni",
   "Juli", "Augusti", "September", "Oktober", "November", "December",
 ];
 
-export default function PeriodSelector({ year, month, onChange }: PeriodSelectorProps) {
+export default function PeriodSelector({ year, month, onChange, align = "center" }: PeriodSelectorProps) {
   const [open, setOpen] = useState(false);
   const [viewYear, setViewYear] = useState(year);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -100,7 +108,7 @@ export default function PeriodSelector({ year, month, onChange }: PeriodSelector
         <div
           role="dialog"
           aria-label="Välj period"
-          className="absolute left-1/2 top-full z-20 mt-1 w-64 -translate-x-1/2 rounded-md border border-zinc-200 bg-white p-3 shadow-lg dark:border-zinc-600 dark:bg-zinc-800"
+          className={`absolute ${ALIGN_CLASS[align]} top-full z-20 mt-1 w-64 rounded-md border border-zinc-200 bg-white p-3 shadow-lg dark:border-zinc-600 dark:bg-zinc-800`}
         >
           <div className="mb-2 flex items-center justify-between">
             <button

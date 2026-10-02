@@ -26,6 +26,13 @@ import {
 import { Konteringsmall, Konteringsrad, MallStatus, alternativNyckel } from "./lib/konteringsmallUtils";
 import { derivePeriodiseringPosts, derivePeriodiseringSlices } from "./lib/periodiseringUtils";
 import {
+  KontohistorikPost,
+  Manad,
+  arGiltigManad,
+  beloppPaNormalSida,
+  periodDatum,
+} from "./lib/kontohistorik";
+import {
   Datum,
   ar as datumAr,
   manad as datumManad,
@@ -2062,6 +2069,53 @@ export async function getAccountTransactionsForPeriod(
     postDebet: Number(row.post_debet),
     postKredit: Number(row.post_kredit),
     postDescription: row.post_description,
+  }));
+}
+
+// Kontohistorik: varje verifikats bokning på de valda kontona inom perioden,
+// med beloppet på kontots normala sida. Texten är bankhändelsens beskrivning —
+// för ett länkat verifikat huvudverifikatets — och annars verifikatets egen.
+export async function getKontohistorik(
+  kontoIds: number[],
+  fran: Manad,
+  till: Manad
+): Promise<KontohistorikPost[]> {
+  if (!arGiltigManad(fran) || !arGiltigManad(till)) {
+    throw createActionError("VALIDATION", "Ogiltig period");
+  }
+  const ids = kontoIds.filter((n) => Number.isInteger(n) && n > 0);
+  if (ids.length === 0) return [];
+  const { start, slut } = periodDatum(fran, till);
+
+  const rows = await queryAll<{
+    account_id: number;
+    transaction_id: number;
+    date: string;
+    text: string;
+    debet: string;
+    kredit: string;
+    group_typ: AccountType;
+  }>(
+    `SELECT p.account_id, t.id AS transaction_id, t.date,
+            COALESCE(be.description, t.description) AS text,
+            SUM(p.debet) AS debet, SUM(p.kredit) AS kredit, g.typ AS group_typ
+     FROM posts p
+     JOIN transactions t ON t.id = p.transaction_id
+     JOIN accounts a ON a.id = p.account_id
+     JOIN groups g ON g.id = a.group_id
+     LEFT JOIN bank_events be ON be.transaction_id = COALESCE(t.periodisering_parent_id, t.id)
+     WHERE p.account_id = ANY($1) AND t.date >= $2 AND t.date <= $3
+     GROUP BY p.account_id, t.id, t.date, be.description, t.description, g.typ
+     ORDER BY t.date, t.id`,
+    [ids, start, slut]
+  );
+
+  return rows.map((r) => ({
+    accountId: r.account_id,
+    verifikatId: r.transaction_id,
+    date: r.date,
+    text: r.text,
+    belopp: beloppPaNormalSida(r.group_typ, Number(r.debet), Number(r.kredit)),
   }));
 }
 
