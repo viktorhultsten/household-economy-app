@@ -32,6 +32,7 @@ import {
   beloppPaNormalSida,
   periodDatum,
 } from "./lib/kontohistorik";
+import { Belopp, bundetPerKonto, tolvManaderTill } from "./lib/overskott";
 import {
   Datum,
   ar as datumAr,
@@ -50,7 +51,7 @@ const REVALIDATE_PATHS = [
   "/accounts",
   "/budget",
   "/periods",
-  "/recurring",
+  "/analys/aterkommande",
   "/resultat",
   "/balans",
   "/easy",
@@ -1649,15 +1650,15 @@ export async function getAccounts(): Promise<Account[]> {
     id: number;
     namn: string;
     group_id: number;
-    exclude_from_budget: number;
     is_periodisering_default: number;
+    is_bundet_sparande: number;
     reconciled_through: string | null;
     has_posts: number;
     group_namn: string;
     group_typ: string;
   }>(
-    `SELECT a.id, a.namn, a.group_id, a.exclude_from_budget, a.is_periodisering_default,
-            a.reconciled_through::text as reconciled_through,
+    `SELECT a.id, a.namn, a.group_id, a.is_periodisering_default,
+            a.is_bundet_sparande, a.reconciled_through::text as reconciled_through,
             CASE WHEN EXISTS (SELECT 1 FROM posts p WHERE p.account_id = a.id) THEN 1 ELSE 0 END as has_posts,
             g.namn as group_namn, g.typ as group_typ
      FROM accounts a
@@ -1669,8 +1670,8 @@ export async function getAccounts(): Promise<Account[]> {
     id: row.id,
     namn: row.namn,
     groupId: row.group_id,
-    excludeFromBudget: row.exclude_from_budget === 1,
     isPeriodiseringDefault: row.is_periodisering_default === 1,
+    isBundetSparande: row.is_bundet_sparande === 1,
     reconciledThrough: row.reconciled_through,
     hasPosts: row.has_posts === 1,
     group: {
@@ -1745,28 +1746,49 @@ const defaultUpdateAccountDependencies: UpdateAccountDependencies = {
     return Number(row?.count ?? 0);
   },
   persistUpdate: async (account: Omit<Account, "group">) => {
-    await dbTransaction(async (client) => {
-      // A single account may be the default periodiseringskonto. Setting a new
-      // default clears any previous one in the same transaction.
-      if (account.isPeriodiseringDefault) {
-        await client.query(
-          "UPDATE accounts SET is_periodisering_default = 0 WHERE id <> $1 AND is_periodisering_default = 1",
-          [account.id]
-        );
-      }
-      await client.query(
-        "UPDATE accounts SET namn = $1, group_id = $2, exclude_from_budget = $3, is_periodisering_default = $4 WHERE id = $5",
-        [
-          account.namn,
-          account.groupId,
-          account.excludeFromBudget ? 1 : 0,
-          account.isPeriodiseringDefault ? 1 : 0,
-          account.id,
-        ]
-      );
-    });
+    // Bundet sparande gäller bara balanskonton och släpps om kontot flyttas till
+    // en resultatgrupp.
+    await query(
+      `UPDATE accounts SET namn = $1, group_id = $2,
+         is_bundet_sparande = CASE
+           WHEN (SELECT typ FROM groups WHERE id = $2) IN ('Tillgång', 'Skuld') THEN is_bundet_sparande
+           ELSE 0
+         END
+       WHERE id = $3`,
+      [account.namn, account.groupId, account.id]
+    );
   },
 };
+
+// Sätter förvalt periodiseringskonto, eller rensar det med null. Bara ett konto
+// kan vara förvalt, så ett tidigare förval rensas i samma transaktion.
+export async function setPeriodiseringskonto(accountId: number | null): Promise<void> {
+  await dbTransaction(async (client) => {
+    await client.query(
+      "UPDATE accounts SET is_periodisering_default = 0 WHERE is_periodisering_default = 1"
+    );
+    if (accountId !== null) {
+      await client.query("UPDATE accounts SET is_periodisering_default = 1 WHERE id = $1", [accountId]);
+    }
+  });
+  revalidateMutationViews();
+}
+
+// Slår på eller av bundet sparande för ett konto. Bara balanskonton kan slås på.
+export async function setBundetSparande(accountId: number, pa: boolean): Promise<void> {
+  const row = await queryOne<{ typ: AccountType }>(
+    "SELECT g.typ FROM accounts a JOIN groups g ON g.id = a.group_id WHERE a.id = $1",
+    [accountId]
+  );
+  if (!row) {
+    throw createActionError("NOT_FOUND", "Konto hittades inte");
+  }
+  if (pa && row.typ !== "Tillgång" && row.typ !== "Skuld") {
+    throw createActionError("VALIDATION", "Bara tillgångs- och skuldkonton kan vara bundet sparande");
+  }
+  await query("UPDATE accounts SET is_bundet_sparande = $1 WHERE id = $2", [pa ? 1 : 0, accountId]);
+  revalidateMutationViews();
+}
 
 // Sätter eller rensar klarmarkeringen (avstämt t.o.m.-datum) för ett konto.
 export async function setAccountReconciledThrough(
@@ -1783,12 +1805,11 @@ export async function getPeriodiseringskonto(): Promise<Account | null> {
     id: number;
     namn: string;
     group_id: number;
-    exclude_from_budget: number;
     is_periodisering_default: number;
     group_namn: string;
     group_typ: string;
   }>(
-    `SELECT a.id, a.namn, a.group_id, a.exclude_from_budget, a.is_periodisering_default,
+    `SELECT a.id, a.namn, a.group_id, a.is_periodisering_default,
             g.namn as group_namn, g.typ as group_typ
      FROM accounts a
      JOIN groups g ON a.group_id = g.id
@@ -1802,7 +1823,6 @@ export async function getPeriodiseringskonto(): Promise<Account | null> {
     id: row.id,
     namn: row.namn,
     groupId: row.group_id,
-    excludeFromBudget: row.exclude_from_budget === 1,
     isPeriodiseringDefault: true,
     group: {
       id: row.group_id,
@@ -1966,19 +1986,8 @@ export async function getAccountBalancesWithChangeBudget(
   variancePercent: number;
   hasBudget: boolean;
 }[]> {
-  // Get all accounts to check exclude_from_budget flag
-  const accounts = await getAccounts();
-  const excludedAccountIds = new Set(
-    accounts.filter(a => a.excludeFromBudget).map(a => a.id)
-  );
-
   // Get balances with changes
   const balancesWithChange = await getAccountBalancesWithChange(year, month);
-
-  // Filter out excluded accounts
-  const includedBalances = balancesWithChange.filter(
-    b => !excludedAccountIds.has(b.accountId)
-  );
 
   // Get budgets for the current month
   const budgets = await queryAll<{
@@ -1999,7 +2008,7 @@ export async function getAccountBalancesWithChangeBudget(
   );
 
   // Combine balances with budgets for included accounts only
-  return includedBalances.map((balance) => {
+  return balancesWithChange.map((balance) => {
     const budgetAmount = budgetMap.get(balance.accountId) || 0;
     const hasBudget = budgetMap.has(balance.accountId);
 
@@ -2117,6 +2126,100 @@ export async function getKontohistorik(
     text: r.text,
     belopp: beloppPaNormalSida(r.group_typ, Number(r.debet), Number(r.kredit)),
   }));
+}
+
+// Överskott: intäkter, utgifter och bundet sparande per månad för de tolv
+// månaderna t.o.m. `till`, både utfall och budget. Bundet sparande räknas på
+// balanskonton markerade som bundet sparande; debet är en inbetalning för både
+// tillgång (pension växer) och skuld (bolån minskar). Budgeten på balanskonton
+// är planerad förändring, så en amortering på 6 000 ligger som −6 000 på
+// skuldkontot och pensionsspar på 2 000 som +2 000 på tillgångskontot.
+export async function getOverskott(till: Manad): Promise<{
+  konton: { id: number; namn: string }[];
+  faktiskt: Record<Manad, Belopp>;
+  budget: Record<Manad, Belopp>;
+}> {
+  if (!arGiltigManad(till)) {
+    throw createActionError("VALIDATION", "Ogiltig månad");
+  }
+  const manader = tolvManaderTill(till);
+  const { start, slut } = periodDatum(manader[0], till);
+  const bundet = "a.is_bundet_sparande = 1 AND g.typ IN ('Tillgång', 'Skuld')";
+
+  const konton = await queryAll<{ id: number; namn: string }>(
+    `SELECT a.id, a.namn FROM accounts a JOIN groups g ON g.id = a.group_id
+     WHERE ${bundet} ORDER BY g.namn, a.namn`
+  );
+
+  const resultatRader = await queryAll<{ manad: string; intakter: string; utgifter: string }>(
+    `SELECT to_char(t.date, 'YYYY-MM') AS manad,
+            COALESCE(SUM(CASE WHEN g.typ = 'Intäkt' THEN p.kredit - p.debet END), 0) AS intakter,
+            COALESCE(SUM(CASE WHEN g.typ = 'Utgift' THEN p.debet - p.kredit END), 0) AS utgifter
+     FROM posts p
+     JOIN transactions t ON t.id = p.transaction_id
+     JOIN accounts a ON a.id = p.account_id
+     JOIN groups g ON g.id = a.group_id
+     WHERE g.typ IN ('Intäkt', 'Utgift') AND t.date >= $1 AND t.date <= $2
+     GROUP BY 1`,
+    [start, slut]
+  );
+
+  const rorelseRader = await queryAll<{
+    manad: string;
+    verifikat_id: number;
+    account_id: number;
+    netto: string;
+  }>(
+    `SELECT to_char(t.date, 'YYYY-MM') AS manad, t.id AS verifikat_id, p.account_id,
+            SUM(p.debet - p.kredit) AS netto
+     FROM posts p
+     JOIN transactions t ON t.id = p.transaction_id
+     JOIN accounts a ON a.id = p.account_id
+     JOIN groups g ON g.id = a.group_id
+     WHERE ${bundet} AND t.date >= $1 AND t.date <= $2
+     GROUP BY 1, 2, 3`,
+    [start, slut]
+  );
+
+  const budgetRader = await queryAll<{
+    manad: string;
+    account_id: number;
+    typ: AccountType;
+    amount: string;
+  }>(
+    `SELECT b.year || '-' || lpad(b.month::text, 2, '0') AS manad, b.account_id, g.typ, b.amount
+     FROM budgets b
+     JOIN accounts a ON a.id = b.account_id
+     JOIN groups g ON g.id = a.group_id
+     WHERE (g.typ IN ('Intäkt', 'Utgift') OR ${bundet})
+       AND b.year * 100 + b.month BETWEEN $1 AND $2`,
+    [Number(manader[0].replace("-", "")), Number(till.replace("-", ""))]
+  );
+
+  const faktiskt: Record<Manad, Belopp> = {};
+  const budget: Record<Manad, Belopp> = {};
+  for (const m of manader) {
+    const r = resultatRader.find((x) => x.manad === m);
+    faktiskt[m] = {
+      intakter: Number(r?.intakter ?? 0),
+      utgifter: Number(r?.utgifter ?? 0),
+      bundet: bundetPerKonto(
+        rorelseRader
+          .filter((x) => x.manad === m)
+          .map((x) => ({ verifikatId: x.verifikat_id, kontoId: x.account_id, netto: Number(x.netto) }))
+      ),
+    };
+    const b: Belopp = { intakter: 0, utgifter: 0, bundet: {} };
+    for (const x of budgetRader.filter((x) => x.manad === m)) {
+      const belopp = Number(x.amount);
+      if (x.typ === "Intäkt") b.intakter += belopp;
+      else if (x.typ === "Utgift") b.utgifter += belopp;
+      else b.bundet[x.account_id] = x.typ === "Skuld" ? -belopp : belopp;
+    }
+    budget[m] = b;
+  }
+
+  return { konton, faktiskt, budget };
 }
 
 export interface ReconciliationMatchPost {
@@ -3704,19 +3807,8 @@ export async function getAllAccountsBudgetComparison(
   year: number,
   month: number
 ): Promise<BudgetComparison[]> {
-  // Get all accounts to check exclude_from_budget flag
-  const accounts = await getAccounts();
-  const excludedAccountIds = new Set(
-    accounts.filter(a => a.excludeFromBudget).map(a => a.id)
-  );
-
   // Get all accounts with their balances
   const balances = await getAccountBalances(year, month);
-
-  // Filter out excluded accounts
-  const includedBalances = balances.filter(
-    b => !excludedAccountIds.has(b.accountId)
-  );
 
   // Get balance changes for balance sheet accounts
   const balancesWithChange = await getAccountBalancesWithChange(year, month);
@@ -3740,7 +3832,7 @@ export async function getAllAccountsBudgetComparison(
   });
 
   // Build comparison results for included accounts only
-  const comparisons: BudgetComparison[] = includedBalances.map((balance) => {
+  const comparisons: BudgetComparison[] = balances.map((balance) => {
     const budgetAmount = budgetMap.get(balance.accountId) ?? 0;
     const hasBudget = budgetMap.has(balance.accountId);
 
@@ -4530,12 +4622,6 @@ export async function getDashboardOverview(
   year: number,
   month: number
 ): Promise<DashboardOverview> {
-  // Accounts excluded from budget follow-up should not appear as outliers.
-  const accounts = await getAccounts();
-  const excludedAccountIds = new Set(
-    accounts.filter((a) => a.excludeFromBudget).map((a) => a.id)
-  );
-
   // Build the list of 12 months (chronological, oldest first).
   const window: { year: number; month: number }[] = [];
   for (let i = 11; i >= 0; i--) {
@@ -4602,22 +4688,20 @@ export async function getDashboardOverview(
 
       // Income-statement accounts feed budget outliers.
       if (b.groupType === "Intäkt" || b.groupType === "Utgift") {
-        if (!excludedAccountIds.has(b.accountId)) {
-          const budget = budgetMap.get(b.accountId) ?? 0;
-          if (budget !== 0 || b.balance !== 0) {
-            const variance =
-              b.groupType === "Utgift"
-                ? budget - b.balance // under budget = good
-                : b.balance - budget; // more income = good
-            monthOutliers.push({
-              accountId: b.accountId,
-              accountName: b.accountName,
-              groupType: b.groupType,
-              actual: b.balance,
-              budget,
-              variance,
-            });
-          }
+        const budget = budgetMap.get(b.accountId) ?? 0;
+        if (budget !== 0 || b.balance !== 0) {
+          const variance =
+            b.groupType === "Utgift"
+              ? budget - b.balance // under budget = good
+              : b.balance - budget; // more income = good
+          monthOutliers.push({
+            accountId: b.accountId,
+            accountName: b.accountName,
+            groupType: b.groupType,
+            actual: b.balance,
+            budget,
+            variance,
+          });
         }
       }
 
@@ -4635,14 +4719,12 @@ export async function getDashboardOverview(
 
       // YTD accumulation for income-statement accounts.
       if (isYtd && (b.groupType === "Intäkt" || b.groupType === "Utgift")) {
-        if (!excludedAccountIds.has(b.accountId)) {
-          ytdActual.set(b.accountId, (ytdActual.get(b.accountId) ?? 0) + b.balance);
-          ytdBudget.set(
-            b.accountId,
-            (ytdBudget.get(b.accountId) ?? 0) + (budgetMap.get(b.accountId) ?? 0)
-          );
-          ytdMeta.set(b.accountId, { name: b.accountName, type: b.groupType });
-        }
+        ytdActual.set(b.accountId, (ytdActual.get(b.accountId) ?? 0) + b.balance);
+        ytdBudget.set(
+          b.accountId,
+          (ytdBudget.get(b.accountId) ?? 0) + (budgetMap.get(b.accountId) ?? 0)
+        );
+        ytdMeta.set(b.accountId, { name: b.accountName, type: b.groupType });
       }
     }
 

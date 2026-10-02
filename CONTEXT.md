@@ -113,7 +113,15 @@ Ett planerat belopp per konto och månad, jämförs mot faktiskt utfall. Handlar
 ### Analys
 
 **Analys**:
-Samlingsplatsen för analysverktyg — vyer som läser bokföringen ur en annan vinkel än rapporterna, utan att ändra något. Varje verktyg är en flik under Analys.
+Samlingsplatsen för analysverktyg — vyer som läser bokföringen ur en annan vinkel än rapporterna. Varje verktyg är en flik under Analys. Även uppföljningen av återkommande händelser bor här.
+
+**Bundet sparande**:
+Pengar som varje månad ska gå till ett balanskonto du valt att inte räkna som tillgängliga — t.ex. amortering på bolånet eller pensionsspar. Ingen utgift: förmögenheten växer, men pengarna lämnar ändå det fria flödet. Markeras per konto och bara på tillgångs- eller skuldkonton; användaren väljer själv vilka (en semesterfond som byggs upp för att tas ut är det t.ex. inte, och inte heller ett kreditkort, vars köp redan är utgifter). Räknas som inbetalningar (debet) som kommer utifrån: flyttar mellan två konton med bundet sparande, uttag och nya lån räknas inte. Budgeteras som planerad förändring på kontot (amortering 6 000 som −6 000 på skuldkontot, pensionsspar 2 000 som +2 000 på tillgångskontot).
+_Avoid_: Amorteringskonto, Avsättning, Åtagande
+
+**Överskott**:
+Ett analysverktyg och dess nyckeltal: resultatet (intäkter − utgifter) minus det bundna sparandet, per månad och ackumulerat, mot budget. Svarar på om pengarna räcker, medan resultatet svarar på om förmögenheten växer. Avvikelser visas som effekt på överskottet — positivt är alltid bättre än budget.
+_Avoid_: Kassaflöde, Fritt kassaflöde
 
 **Kontohistorik**:
 Ett analysverktyg: en matris av valda konton × månader som visar varje verifikat som bokats på kontot den månaden, med datum, belopp (kontots normala sida som positiv) och bankhändelsens text. Månaden avgörs av verifikatets datum, så periodiserade poster syns i sina målmånader. Urvalet (konton och period) bor i URL:en och sparas inte. Används för att se att något kommit in regelbundet och hitta luckor utan att gå in på ett konto i taget.

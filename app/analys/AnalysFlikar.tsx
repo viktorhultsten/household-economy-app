@@ -4,7 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 // Analysverktygen. Ett nytt verktyg läggs till här och under app/analys/<verktyg>.
-const verktyg = [{ href: "/analys/kontohistorik", label: "Kontohistorik" }];
+const verktyg = [
+  { href: "/analys/overskott", label: "Överskott" },
+  { href: "/analys/kontohistorik", label: "Kontohistorik" },
+  { href: "/analys/aterkommande", label: "Återkommande" },
+];
 
 export default function AnalysFlikar() {
   const pathname = usePathname();

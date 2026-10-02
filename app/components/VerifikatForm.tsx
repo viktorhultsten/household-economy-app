@@ -1533,7 +1533,7 @@ export default function VerifikatForm({
               Inga återkommande händelser för denna månad.{" "}
               <span className="block mt-2 text-xs">
                 Skapa återkommande poster på{" "}
-                <a href="/recurring" className="underline hover:text-zinc-900 dark:hover:text-zinc-50">
+                <a href="/analys/aterkommande" className="underline hover:text-zinc-900 dark:hover:text-zinc-50">
                   Återkommande
                 </a>{" "}
                 sidan.

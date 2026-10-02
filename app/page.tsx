@@ -388,7 +388,7 @@ export default function DashboardPage() {
                 ) : (
                   <RecurringExpected items={missingRecurring} />
                 )}
-                <Link href="/recurring" className="mt-3 inline-block text-sm text-zinc-500 underline hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200">
+                <Link href="/analys/aterkommande" className="mt-3 inline-block text-sm text-zinc-500 underline hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200">
                   Till återkommande →
                 </Link>
               </section>

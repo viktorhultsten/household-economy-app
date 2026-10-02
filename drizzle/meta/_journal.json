@@ -71,6 +71,13 @@
       "when": 1790432664736,
       "tag": "0009_mallanalys_antal",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790975125679,
+      "tag": "0010_bundet_sparande",
+      "breakpoints": true
     }
   ]
 }

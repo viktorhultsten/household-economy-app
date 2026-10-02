@@ -12,8 +12,8 @@ export interface Account {
   id: number;
   namn: string;
   groupId: number;
-  excludeFromBudget?: boolean;
   isPeriodiseringDefault?: boolean;
+  isBundetSparande?: boolean;
   reconciledThrough?: string | null;
   hasPosts?: boolean;
   group?: Group;

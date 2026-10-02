@@ -13,8 +13,8 @@ CREATE TABLE IF NOT EXISTS accounts (
   id SERIAL PRIMARY KEY,
   namn TEXT NOT NULL,
   group_id INTEGER NOT NULL,
-  exclude_from_budget INTEGER DEFAULT 0,
   is_periodisering_default INTEGER NOT NULL DEFAULT 0,
+  is_bundet_sparande INTEGER NOT NULL DEFAULT 0,
   reconciled_through DATE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (group_id) REFERENCES groups(id)

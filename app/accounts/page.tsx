@@ -8,6 +8,8 @@ import {
   addAccount,
   updateAccount,
   deleteAccount,
+  setPeriodiseringskonto,
+  setBundetSparande,
   getGroups,
   addGroup,
   updateGroup,
@@ -15,6 +17,51 @@ import {
 } from "../actions";
 import AlertModal from "../components/AlertModal";
 import ConfirmModal from "../components/ConfirmModal";
+
+const TYP_ORDNING: AccountType[] = ["Tillgång", "Skuld", "Intäkt", "Utgift"];
+
+const TYP_FARG: Record<AccountType, string> = {
+  Tillgång: "text-blue-600 dark:text-blue-400",
+  Skuld: "text-orange-600 dark:text-orange-400",
+  Intäkt: "text-green-600 dark:text-green-400",
+  Utgift: "text-red-600 dark:text-red-400",
+};
+
+interface GroupSection {
+  grupp: string;
+  groupId: number | null;
+  typ: AccountType | null;
+  accounts: Account[];
+}
+
+function BundetSparandeKnapp({ pa, onClick }: { pa: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={pa}
+      aria-label="Bundet sparande"
+      title={pa ? "Bundet sparande: på" : "Bundet sparande: av"}
+      onClick={onClick}
+      className="flex items-center gap-2"
+    >
+      <span
+        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+          pa ? "bg-emerald-600 dark:bg-emerald-500" : "bg-zinc-300 dark:bg-zinc-600"
+        }`}
+      >
+        <span
+          className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+            pa ? "translate-x-4" : "translate-x-0.5"
+          }`}
+        />
+      </span>
+      <span className={`w-6 text-left text-xs ${pa ? "text-emerald-700 dark:text-emerald-400" : "text-zinc-400"}`}>
+        {pa ? "På" : "Av"}
+      </span>
+    </button>
+  );
+}
 
 export default function KontonPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -38,8 +85,6 @@ export default function KontonPage() {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [editAccountName, setEditAccountName] = useState("");
   const [editAccountGroupId, setEditAccountGroupId] = useState(0);
-  const [editAccountExcludeFromBudget, setEditAccountExcludeFromBudget] = useState(false);
-  const [editAccountIsPeriodiseringDefault, setEditAccountIsPeriodiseringDefault] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -126,8 +171,25 @@ export default function KontonPage() {
     setEditingAccount(account);
     setEditAccountName(account.namn);
     setEditAccountGroupId(account.groupId);
-    setEditAccountExcludeFromBudget(account.excludeFromBudget || false);
-    setEditAccountIsPeriodiseringDefault(account.isPeriodiseringDefault || false);
+  }
+
+  function stopEditAccount() {
+    setEditingAccount(null);
+    setEditAccountName("");
+    setEditAccountGroupId(0);
+  }
+
+  async function handleSetPeriodiseringskonto(accountId: number | null) {
+    await setPeriodiseringskonto(accountId);
+    await loadData();
+  }
+
+  async function handleToggleBundetSparande(account: Account) {
+    const pa = !account.isBundetSparande;
+    // Visa ändringen direkt; laddningen efteråt bekräftar den.
+    setAccounts((prev) => prev.map((a) => (a.id === account.id ? { ...a, isBundetSparande: pa } : a)));
+    await setBundetSparande(account.id, pa);
+    await loadData();
   }
 
   async function handleUpdateAccount() {
@@ -154,15 +216,9 @@ export default function KontonPage() {
       id: editingAccount.id,
       namn: editAccountName,
       groupId: editAccountGroupId,
-      excludeFromBudget: editAccountExcludeFromBudget,
-      isPeriodiseringDefault: editAccountIsPeriodiseringDefault,
     });
 
-    setEditingAccount(null);
-    setEditAccountName("");
-    setEditAccountGroupId(0);
-    setEditAccountExcludeFromBudget(false);
-    setEditAccountIsPeriodiseringDefault(false);
+    stopEditAccount();
     await loadData();
   }
 
@@ -187,14 +243,178 @@ export default function KontonPage() {
     }
   }
 
-  const groupSections: { grupp: string; groupId: number | null; accounts: Account[] }[] =
-    groups.map((group) => ({
-      grupp: group.namn,
-      groupId: group.id,
-      accounts: accountsByGroupId.get(group.id) ?? [],
-    }));
+  const sorteradeGrupper = [...groups].sort(
+    (a, b) => TYP_ORDNING.indexOf(a.typ) - TYP_ORDNING.indexOf(b.typ) || a.namn.localeCompare(b.namn, "sv")
+  );
+  const sektioner = (typer: AccountType[]): GroupSection[] =>
+    sorteradeGrupper
+      .filter((g) => typer.includes(g.typ))
+      .map((g) => ({ grupp: g.namn, groupId: g.id, typ: g.typ, accounts: accountsByGroupId.get(g.id) ?? [] }));
+  const balansSektioner = sektioner(["Tillgång", "Skuld"]);
+  const resultatSektioner = sektioner(["Intäkt", "Utgift"]);
   if (ungroupedAccounts.length > 0) {
-    groupSections.push({ grupp: "Ingen grupp", groupId: null, accounts: ungroupedAccounts });
+    resultatSektioner.push({ grupp: "Ingen grupp", groupId: null, typ: null, accounts: ungroupedAccounts });
+  }
+
+  const balanskonton = sorteradeGrupper
+    .filter((g) => g.typ === "Tillgång" || g.typ === "Skuld")
+    .flatMap((g) => (accountsByGroupId.get(g.id) ?? []).map((a) => ({ ...a, gruppNamn: g.namn })));
+  const periodiseringskonto = accounts.find((a) => a.isPeriodiseringDefault);
+
+  function renderSection({ grupp, groupId, typ, accounts }: GroupSection) {
+    const arBalans = typ === "Tillgång" || typ === "Skuld";
+    return (
+      <div key={grupp} className="rounded-lg bg-white shadow dark:bg-zinc-800 overflow-hidden">
+        <div className="bg-zinc-100 dark:bg-zinc-700 px-6 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-baseline gap-3">
+            <h3 className="font-semibold text-zinc-900 dark:text-zinc-50">{grupp}</h3>
+            {typ && <span className={`text-xs font-medium ${TYP_FARG[typ]}`}>{typ}</span>}
+          </div>
+          <div className="flex items-center gap-4">
+            {arBalans && accounts.length > 0 && (
+              <span className="hidden sm:inline text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                Bundet sparande
+              </span>
+            )}
+            {groupId !== null && (
+              <button
+                onClick={() => {
+                  setAddingToGroupId(groupId);
+                  setNewAccountName("");
+                }}
+                className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+              >
+                + Lägg till konto
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="divide-y divide-zinc-200 dark:divide-zinc-700">
+          {addingToGroupId === groupId && groupId !== null && (
+            <div className="flex items-center gap-3 px-6 py-4 bg-zinc-50 dark:bg-zinc-700/50">
+              <input
+                type="text"
+                autoFocus
+                value={newAccountName}
+                onChange={(e) => setNewAccountName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleAddAccount(groupId);
+                  if (e.key === "Escape") {
+                    setAddingToGroupId(null);
+                    setNewAccountName("");
+                  }
+                }}
+                className="flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+                placeholder="t.ex. Drivmedel"
+              />
+              <button
+                onClick={() => handleAddAccount(groupId)}
+                className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+              >
+                Spara
+              </button>
+              <button
+                onClick={() => {
+                  setAddingToGroupId(null);
+                  setNewAccountName("");
+                }}
+                className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+              >
+                Avbryt
+              </button>
+            </div>
+          )}
+          {accounts.length === 0 && addingToGroupId !== groupId && (
+            <p className="px-6 py-4 text-sm text-zinc-500 dark:text-zinc-400">Inga konton i denna grupp än.</p>
+          )}
+          {accounts.map((account) => (
+            <div
+              key={account.id}
+              className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 hover:bg-zinc-50 dark:hover:bg-zinc-700/50"
+            >
+              {editingAccount?.id === account.id ? (
+                <>
+                  <div className="flex-1 min-w-0 flex flex-wrap gap-3 items-center">
+                    <input
+                      type="text"
+                      value={editAccountName}
+                      onChange={(e) => setEditAccountName(e.target.value)}
+                      className="flex-1 min-w-[8rem] rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+                      placeholder="Kontonamn"
+                    />
+                    <select
+                      value={editAccountGroupId}
+                      onChange={(e) => setEditAccountGroupId(parseInt(e.target.value))}
+                      disabled={editingAccount.hasPosts}
+                      className="w-48 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+                    >
+                      <option value={0}>Välj grupp...</option>
+                      {sorteradeGrupper.map((group) => (
+                        <option key={group.id} value={group.id}>
+                          {group.namn} ({group.typ})
+                        </option>
+                      ))}
+                    </select>
+                    {editingAccount.hasPosts && (
+                      <p className="max-w-xs text-xs text-amber-700 dark:text-amber-300">
+                        Grupp kan inte ändras eftersom kontot redan har konteringsrader.
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 ml-4">
+                    <button
+                      onClick={handleUpdateAccount}
+                      className="mr-2 px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                    >
+                      Spara
+                    </button>
+                    <button
+                      onClick={stopEditAccount}
+                      className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                    >
+                      Avbryt
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
+                      {account.namn}
+                      {account.isPeriodiseringDefault && (
+                        <span className="ml-2 text-xs text-blue-600 dark:text-blue-400 italic">
+                          (förvalt periodiseringskonto)
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    {arBalans && (
+                      <BundetSparandeKnapp
+                        pa={account.isBundetSparande ?? false}
+                        onClick={() => handleToggleBundetSparande(account)}
+                      />
+                    )}
+                    <button
+                      onClick={() => startEditAccount(account)}
+                      className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                    >
+                      Redigera
+                    </button>
+                    <button
+                      onClick={() => handleDelete(account.id)}
+                      className="px-3 py-1.5 text-xs font-medium rounded-md border border-red-300 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-950 dark:text-red-400 dark:hover:bg-red-900"
+                    >
+                      Ta bort
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -214,201 +434,55 @@ export default function KontonPage() {
           </div>
         </div>
 
-        {groupSections.length === 0 ? (
+        <div className="mb-10 rounded-lg bg-white shadow dark:bg-zinc-800 px-6 py-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-zinc-900 dark:text-zinc-50">Förvalt periodiseringskonto</h2>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              Bryggar verifikaten vid periodisering och periodförskjutning.
+            </p>
+          </div>
+          <select
+            value={periodiseringskonto?.id ?? ""}
+            onChange={(e) => handleSetPeriodiseringskonto(e.target.value ? parseInt(e.target.value) : null)}
+            className="w-72 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
+          >
+            <option value="">Inget valt</option>
+            {balanskonton.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.gruppNamn} – {a.namn}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {balansSektioner.length === 0 && resultatSektioner.length === 0 ? (
           <div className="rounded-lg bg-white shadow dark:bg-zinc-800 p-8 text-center">
             <p className="text-zinc-600 dark:text-zinc-400">
               Inga grupper ännu. Skapa en grupp för att komma igång.
             </p>
           </div>
         ) : (
-          <div className="space-y-6">
-            {groupSections.map(({ grupp, groupId, accounts }) => {
-              return (
-              <div
-                key={grupp}
-                className="rounded-lg bg-white shadow dark:bg-zinc-800 overflow-hidden"
-              >
-                <div className="bg-zinc-100 dark:bg-zinc-700 px-6 py-3 flex items-center justify-between">
-                  <h3 className="font-semibold text-zinc-900 dark:text-zinc-50">
-                    {grupp}
-                  </h3>
-                  {groupId !== null && (
-                    <button
-                      onClick={() => {
-                        setAddingToGroupId(groupId);
-                        setNewAccountName("");
-                      }}
-                      className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                    >
-                      + Lägg till konto
-                    </button>
-                  )}
-                </div>
-                <div className="divide-y divide-zinc-200 dark:divide-zinc-700">
-                  {addingToGroupId === groupId && groupId !== null && (
-                    <div className="flex items-center gap-3 px-6 py-4 bg-zinc-50 dark:bg-zinc-700/50">
-                      <input
-                        type="text"
-                        autoFocus
-                        value={newAccountName}
-                        onChange={(e) => setNewAccountName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") handleAddAccount(groupId);
-                          if (e.key === "Escape") {
-                            setAddingToGroupId(null);
-                            setNewAccountName("");
-                          }
-                        }}
-                        className="flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
-                        placeholder="t.ex. Drivmedel"
-                      />
-                      <button
-                        onClick={() => handleAddAccount(groupId)}
-                        className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                      >
-                        Spara
-                      </button>
-                      <button
-                        onClick={() => {
-                          setAddingToGroupId(null);
-                          setNewAccountName("");
-                        }}
-                        className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                      >
-                        Avbryt
-                      </button>
-                    </div>
-                  )}
-                  {accounts.length === 0 && addingToGroupId !== groupId && (
-                    <p className="px-6 py-4 text-sm text-zinc-500 dark:text-zinc-400">
-                      Inga konton i denna grupp än.
-                    </p>
-                  )}
-                  {accounts.map((account) => (
-                    <div
-                      key={account.id}
-                      className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 hover:bg-zinc-50 dark:hover:bg-zinc-700/50"
-                    >
-                      {editingAccount?.id === account.id ? (
-                        <>
-                          <div className="flex-1 min-w-0 flex flex-wrap gap-3 items-center">
-                            <input
-                              type="text"
-                              value={editAccountName}
-                              onChange={(e) => setEditAccountName(e.target.value)}
-                              className="flex-1 min-w-[8rem] rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
-                              placeholder="Kontonamn"
-                            />
-                            <select
-                              value={editAccountGroupId}
-                              onChange={(e) => setEditAccountGroupId(parseInt(e.target.value))}
-                              disabled={editingAccount.hasPosts}
-                              className="w-48 rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-50"
-                            >
-                              <option value={0}>Välj grupp...</option>
-                              {groups.map((group) => (
-                                <option key={group.id} value={group.id}>
-                                  {group.namn} ({group.typ})
-                                </option>
-                              ))}
-                            </select>
-                            {editingAccount.hasPosts && (
-                              <p className="max-w-xs text-xs text-amber-700 dark:text-amber-300">
-                                Grupp kan inte ändras eftersom kontot redan har konteringsrader.
-                              </p>
-                            )}
-                            <label className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300 whitespace-nowrap">
-                              <input
-                                type="checkbox"
-                                checked={editAccountExcludeFromBudget}
-                                onChange={(e) => setEditAccountExcludeFromBudget(e.target.checked)}
-                                className="rounded border-zinc-300 dark:border-zinc-600"
-                              />
-                              <span className="text-xs">Uteslut från budget</span>
-                            </label>
-                            <label className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300 whitespace-nowrap">
-                              <input
-                                type="checkbox"
-                                checked={editAccountIsPeriodiseringDefault}
-                                onChange={(e) => setEditAccountIsPeriodiseringDefault(e.target.checked)}
-                                className="rounded border-zinc-300 dark:border-zinc-600"
-                              />
-                              <span className="text-xs">Förvalt periodiseringskonto</span>
-                            </label>
-                          </div>
-                          <div className="flex items-center gap-2 ml-4">
-                            <button
-                              onClick={handleUpdateAccount}
-                              className="mr-2 px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                            >
-                              Spara
-                            </button>
-                            <button
-                              onClick={() => {
-                                setEditingAccount(null);
-                                setEditAccountName("");
-                                setEditAccountGroupId(0);
-                                setEditAccountExcludeFromBudget(false);
-                                setEditAccountIsPeriodiseringDefault(false);
-                              }}
-                              className="px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                            >
-                              Avbryt
-                            </button>
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <div className="flex-1">
-                            <p className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
-                              {account.namn}
-                              {account.excludeFromBudget && (
-                                <span className="ml-2 text-xs text-zinc-500 dark:text-zinc-400 italic">
-                                  (exkluderad från budget)
-                                </span>
-                              )}
-                              {account.isPeriodiseringDefault && (
-                                <span className="ml-2 text-xs text-blue-600 dark:text-blue-400 italic">
-                                  (förvalt periodiseringskonto)
-                                </span>
-                              )}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-4">
-                            <span
-                              className={`text-sm font-medium ${
-                                account.group?.typ === "Intäkt"
-                                  ? "text-green-600 dark:text-green-400"
-                                  : account.group?.typ === "Utgift"
-                                  ? "text-red-600 dark:text-red-400"
-                                  : account.group?.typ === "Tillgång"
-                                  ? "text-blue-600 dark:text-blue-400"
-                                  : "text-orange-600 dark:text-orange-400"
-                              }`}
-                            >
-                              {account.group?.typ}
-                            </span>
-                            <button
-                              onClick={() => startEditAccount(account)}
-                              className="mr-2 px-3 py-1.5 text-xs font-medium rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                            >
-                              Redigera
-                            </button>
-                            <button
-                              onClick={() => handleDelete(account.id)}
-                              className="px-3 py-1.5 text-xs font-medium rounded-md border border-red-300 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-950 dark:text-red-400 dark:hover:bg-red-900"
-                            >
-                              Ta bort
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-              );
-            })}
+          <div className="space-y-10">
+            {balansSektioner.length > 0 && (
+              <section>
+                <h2 className="mb-1 text-xl font-semibold text-zinc-900 dark:text-zinc-50">Balanskonton</h2>
+                <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
+                  Tillgångar och skulder. Konton med bundet sparande dras av i{" "}
+                  <Link href="/analys/overskott" className="underline">
+                    överskottet
+                  </Link>
+                  .
+                </p>
+                <div className="space-y-6">{balansSektioner.map(renderSection)}</div>
+              </section>
+            )}
+            {resultatSektioner.length > 0 && (
+              <section>
+                <h2 className="mb-1 text-xl font-semibold text-zinc-900 dark:text-zinc-50">Resultatkonton</h2>
+                <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">Intäkter och utgifter.</p>
+                <div className="space-y-6">{resultatSektioner.map(renderSection)}</div>
+              </section>
+            )}
           </div>
         )}
       </main>

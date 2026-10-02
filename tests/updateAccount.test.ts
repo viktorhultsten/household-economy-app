@@ -13,7 +13,6 @@ test("updateAccount avvisar gruppbyte för konto med konteringsrader", async () 
         id: 10,
         namn: "Mat",
         groupId: 2,
-        excludeFromBudget: false,
       },
       {
         getAccountById: async () => ({ id: 10, groupId: 1 }),
@@ -41,7 +40,6 @@ test("updateAccount tillåter gruppbyte för konto utan konteringsrader", async 
       id: 10,
       namn: "Mat",
       groupId: 2,
-      excludeFromBudget: true,
     },
     {
       getAccountById: async () => ({ id: 10, groupId: 1 }),

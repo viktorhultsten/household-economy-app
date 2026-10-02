@@ -113,9 +113,15 @@ BEGIN
     END IF;
   END LOOP;
 
-  -- C. Add missing NOT NULL (backfill any nulls first).
-  UPDATE public.accounts SET exclude_from_budget = 0 WHERE exclude_from_budget IS NULL;
-  ALTER TABLE public.accounts ALTER COLUMN exclude_from_budget SET NOT NULL;
+  -- C. Add missing NOT NULL (backfill any nulls first). exclude_from_budget is
+  -- dropped by migration 0010, so only touch it while it still exists.
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'accounts' AND column_name = 'exclude_from_budget'
+  ) THEN
+    UPDATE public.accounts SET exclude_from_budget = 0 WHERE exclude_from_budget IS NULL;
+    ALTER TABLE public.accounts ALTER COLUMN exclude_from_budget SET NOT NULL;
+  END IF;
   UPDATE public.bank_events SET is_posted = 0 WHERE is_posted IS NULL;
   ALTER TABLE public.bank_events ALTER COLUMN is_posted SET NOT NULL;
 
